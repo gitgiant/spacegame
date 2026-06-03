@@ -18,10 +18,22 @@ G.Renderer = class {
     const ratio = Math.min(window.innerWidth/G.CANVAS_W, window.innerHeight/G.CANVAS_H);
     this.canvas.width  = G.CANVAS_W;
     this.canvas.height = G.CANVAS_H;
-    this.canvas.style.width  = (G.CANVAS_W*ratio)+'px';
-    this.canvas.style.height = (G.CANVAS_H*ratio)+'px';
-    this.canvas.style.left   = ((window.innerWidth  - G.CANVAS_W*ratio)/2)+'px';
-    this.canvas.style.top    = ((window.innerHeight - G.CANVAS_H*ratio)/2)+'px';
+    this.canvas.style.width  = '100%';
+    this.canvas.style.height = '100%';
+    this.canvas.style.left   = '0';
+    this.canvas.style.top    = '0';
+
+    const gc = document.getElementById('game-container');
+    if (gc) {
+      const offX = Math.floor((window.innerWidth  - G.CANVAS_W * ratio) / 2);
+      const offY = Math.floor((window.innerHeight - G.CANVAS_H * ratio) / 2);
+      gc.style.width           = G.CANVAS_W + 'px';
+      gc.style.height          = G.CANVAS_H + 'px';
+      gc.style.left            = offX + 'px';
+      gc.style.top             = offY + 'px';
+      gc.style.transform       = `scale(${ratio})`;
+      gc.style.transformOrigin = 'top left';
+    }
   }
 
   clear() {

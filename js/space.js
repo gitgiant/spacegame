@@ -271,10 +271,11 @@ G.Space = class {
   _playerHitsNPC(npc, proj, player, particles) {
     const wasHostile = npc.hostile;
 
-    // Make NPC hostile and set combat target to player
+    // Make NPC hostile and point it at the player
     if(!npc.hostile) {
       npc.hostile = true;
-      npc.combatTarget = null; // NPC will target player in its update
+      npc.combatTarget = player;
+      npc.dockTimer = 0; // break out of docked state immediately
     }
 
     // Rep loss with their faction (not for independents)
@@ -287,6 +288,8 @@ G.Space = class {
         if(other.faction===npc.faction) {
           if(Math.hypot(other.x-npc.x,other.y-npc.y) < sensorR) {
             other.hostile = true;
+            other.combatTarget = player;
+            other.dockTimer = 0;
           }
         }
       }
@@ -296,7 +299,7 @@ G.Space = class {
       if(sys?.faction==='earth') {
         for(const w of this.npcs) {
           if(w.faction==='earth'&&Math.hypot(w.x-npc.x,w.y-npc.y)<600) {
-            w.hostile=true;
+            w.hostile=true; w.combatTarget=player; w.dockTimer=0;
             G.game.setRel('earth',G.game.getRel('earth')-4);
           }
         }

@@ -383,7 +383,7 @@ G.Galaxy = class {
     for(let i=0;i<800;i++){
       const x = rng()*950;
       const y = rng()*700;
-      const dx = x-475, dy = y-400;
+      const dx = x-475, dy = y-345;
       const dist = Math.sqrt(dx*dx+dy*dy);
       const densityFactor = Math.max(0.1, 1 - dist/500);
       if(rng() > densityFactor * 0.8 + 0.2) continue;
@@ -401,50 +401,38 @@ G.Galaxy = class {
       { r:400, col0:'rgba(40,60,160,0.07)',   col1:'rgba(0,0,0,0)' },
     ];
     for(const g of coreGrads){
-      const grad = ctx.createRadialGradient(475,400,0,475,400,g.r);
+      const grad = ctx.createRadialGradient(475,345,0,475,345,g.r);
       grad.addColorStop(0, g.col0); grad.addColorStop(1, g.col1);
       ctx.fillStyle=grad; ctx.fillRect(0,0,950,700);
     }
 
     // Spiral arm nebula hints
     ctx.save();
-    ctx.globalAlpha = 0.05;
+    ctx.globalAlpha = 0.04;
 
-    // Arm 1: toward pirate/alien right-top
-    const arm1 = ctx.createLinearGradient(475,400, 820,80);
-    arm1.addColorStop(0,'#4488ff'); arm1.addColorStop(1,'transparent');
-    ctx.strokeStyle=arm1; ctx.lineWidth=130;
-    ctx.beginPath(); ctx.moveTo(475,400); ctx.quadraticCurveTo(680,220,820,80); ctx.stroke();
-
-    // Arm 2: toward pirate/alien bottom-right
-    const arm2 = ctx.createLinearGradient(475,400, 720,660);
-    arm2.addColorStop(0,'#ff6600'); arm2.addColorStop(1,'transparent');
-    ctx.strokeStyle=arm2; ctx.lineWidth=110;
-    ctx.beginPath(); ctx.moveTo(475,400); ctx.quadraticCurveTo(620,550,720,660); ctx.stroke();
-
-    // Arm 3: toward rebellion/alien left-top
-    const arm3 = ctx.createLinearGradient(475,400, 140,80);
-    arm3.addColorStop(0,'#4466ff'); arm3.addColorStop(1,'transparent');
-    ctx.strokeStyle=arm3; ctx.lineWidth=130;
-    ctx.beginPath(); ctx.moveTo(475,400); ctx.quadraticCurveTo(280,220,140,80); ctx.stroke();
-
-    // Arm 4: toward alien bottom-left
-    const arm4 = ctx.createLinearGradient(475,400, 220,660);
-    arm4.addColorStop(0,'#ff4400'); arm4.addColorStop(1,'transparent');
-    ctx.strokeStyle=arm4; ctx.lineWidth=110;
-    ctx.beginPath(); ctx.moveTo(475,400); ctx.quadraticCurveTo(330,550,220,660); ctx.stroke();
+    // Symmetric spiral arms radiating from cluster center (475,345)
+    const arms = [
+      { end:[800,100], ctrl:[680,200], col:'#4488ff' },
+      { end:[800,590], ctrl:[680,470], col:'#ff6600' },
+      { end:[150,590], ctrl:[280,470], col:'#4466ff' },
+      { end:[150,100], ctrl:[280,200], col:'#ff4400' },
+    ];
+    for(const arm of arms){
+      const g = ctx.createLinearGradient(475,345, arm.end[0],arm.end[1]);
+      g.addColorStop(0, arm.col); g.addColorStop(1,'transparent');
+      ctx.strokeStyle=g; ctx.lineWidth=120;
+      ctx.beginPath(); ctx.moveTo(475,345);
+      ctx.quadraticCurveTo(arm.ctrl[0],arm.ctrl[1],arm.end[0],arm.end[1]);
+      ctx.stroke();
+    }
 
     ctx.restore();
 
-    // Faction zone tints (very subtle)
+    // Faction zone tints (very subtle) — concentric rings matching the new cluster layout
     const zoneTints = [
-      { cx:475,cy:440, r:220, col:'rgba(20,50,180,0.04)' },  // earth core (blue tint)
-      { cx:740,cy:290, r:180, col:'rgba(180,60,0,0.04)' },   // rebellion right
-      { cx:210,cy:290, r:180, col:'rgba(180,60,0,0.04)' },   // rebellion left
-      { cx:760,cy:150, r:200, col:'rgba(100,0,0,0.05)' },    // pirate
-      { cx:190,cy:150, r:200, col:'rgba(100,0,0,0.05)' },
-      { cx:800,cy:400, r:100, col:'rgba(0,120,60,0.06)' },   // alien outpost
-      { cx:150,cy:400, r:100, col:'rgba(0,120,60,0.06)' },
+      { cx:475, cy:345, r:160, col:'rgba(20,50,180,0.05)' },  // earth core (blue)
+      { cx:475, cy:345, r:270, col:'rgba(60,30,120,0.03)' },  // mid ring
+      { cx:475, cy:345, r:360, col:'rgba(80,20,60,0.03)' },   // outer ring
     ];
     for(const z of zoneTints){
       const g = ctx.createRadialGradient(z.cx,z.cy,0,z.cx,z.cy,z.r);
