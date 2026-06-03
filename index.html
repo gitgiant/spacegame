@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STARFARER</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="game-container">
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- Floating top overlays (transparent, minimal) -->
+  <div id="hud-top" class="hidden">
+    <div id="system-label"></div>
+    <div id="target-panel" class="hidden">
+      <div id="tgt-name"></div>
+      <div class="bar-row"><span class="bar-lbl">H</span><div class="bar-bg sm"><div id="tgt-hull-bar" class="bar bar-hull"></div></div></div>
+      <div class="bar-row"><span class="bar-lbl">S</span><div class="bar-bg sm"><div id="tgt-shld-bar" class="bar bar-shield"></div></div></div>
+      <div id="tgt-dist"></div>
+    </div>
+  </div>
+
+  <!-- Minimap (top-right floating) -->
+  <div id="minimap-wrap" class="hidden">
+    <canvas id="minimap" width="180" height="180"></canvas>
+  </div>
+
+  <!-- Bottom HUD bar -->
+  <div id="hud" class="hidden">
+    <!-- Stat bars -->
+    <div id="hud-bars">
+      <div class="bar-row"><span class="bar-lbl">HULL</span><div class="bar-bg"><div id="bar-hull" class="bar bar-hull"></div></div><span id="val-hull">100</span></div>
+      <div class="bar-row"><span class="bar-lbl">SHLD</span><div class="bar-bg"><div id="bar-shield" class="bar bar-shield"></div></div><span id="val-shield">0</span></div>
+      <div class="bar-row"><span class="bar-lbl">ENRG</span><div class="bar-bg"><div id="bar-energy" class="bar bar-energy"></div></div><span id="val-energy">100</span></div>
+      <div class="bar-row"><span class="bar-lbl">FUEL</span><div class="bar-bg"><div id="bar-fuel" class="bar bar-fuel"></div></div><span id="val-fuel">50</span></div>
+    </div>
+    <!-- Power sliders (compact) -->
+    <div id="power-panel">
+      <div class="pwr-row"><span>WEP</span><input type="range" id="pwr-wpn" min="0" max="100" value="33"><span id="pv-wpn">33%</span></div>
+      <div class="pwr-row"><span>SHD</span><input type="range" id="pwr-shd" min="0" max="100" value="33"><span id="pv-shd">33%</span></div>
+      <div class="pwr-row"><span>ENG</span><input type="range" id="pwr-eng" min="0" max="100" value="34"><span id="pv-eng">34%</span></div>
+    </div>
+    <!-- Messages -->
+    <div id="hud-mid">
+      <div id="msgs"></div>
+    </div>
+    <!-- Right info -->
+    <div id="hud-info">
+      <div id="credits-hud">$ 1,000</div>
+      <div id="cargo-hud">CARGO 0/0</div>
+      <div id="speed-hud">SPD 0</div>
+      <div id="weapon-hud"></div>
+    </div>
+  </div>
+
+  <!-- Jump route HUD -->
+  <div id="jump-route-hud" class="hidden">
+    <div id="jr-next"></div>
+    <div id="jr-fuel"></div>
+    <div id="jr-cd"></div>
+  </div>
+
+  <!-- Jump charge bar -->
+  <div id="jump-charge-hud" class="hidden">
+    <div id="jump-charge-label">CHARGING JUMP... 0%</div>
+    <div id="jump-charge-track"><div id="jump-charge-fill"></div></div>
+  </div>
+
+  <!-- Save confirmation overlay -->
+  <div id="save-confirm" class="hidden">GAME SAVED</div>
+
+  <!-- Galaxy map overlay -->
+  <div id="galaxy-overlay" class="hidden">
+    <canvas id="galaxy-canvas"></canvas>
+    <div id="galaxy-ui">
+      <div class="panel-title" style="margin-bottom:6px">GALAXY MAP</div>
+      <div style="font-size:6px;color:#556677;line-height:2">
+        Click system to select<br>
+        [M] to close
+      </div>
+      <button id="jump-btn" class="btn hidden">JUMP</button>
+      <button id="close-galaxy-btn" class="btn" style="margin-top:auto">CLOSE [M]</button>
+    </div>
+  </div>
+
+  <!-- Spaceport overlay -->
+  <div id="spaceport-overlay" class="hidden">
+    <div id="spaceport-window">
+      <div id="sp-header">
+        <div id="sp-name">SPACEPORT</div>
+        <div id="sp-tabs">
+          <button class="tab active" data-tab="trade">TRADE</button>
+          <button class="tab" data-tab="missions">MISSIONS</button>
+          <button class="tab" data-tab="log">LOG</button>
+          <button class="tab" data-tab="outfitter">OUTFITTER</button>
+          <button class="tab" data-tab="shipyard">SHIPYARD</button>
+          <button class="tab" data-tab="crew">CREW</button>
+          <button class="tab" data-tab="repair">REPAIR</button>
+          <button class="tab" data-tab="craft">CRAFTING</button>
+          <button id="launch-btn" class="btn btn-launch">LAUNCH [L]</button>
+        </div>
+      </div>
+      <div id="sp-body"></div>
+      <div id="sp-status-bar">
+        <span id="sp-credits"></span>
+        <span id="sp-cargo"></span>
+        <span id="sp-ship"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mission log overlay -->
+  <div id="mission-log-overlay" class="hidden">
+    <div id="mission-log-window">
+      <div class="panel-title">MISSION LOG <button id="close-log-btn" class="btn">CLOSE [N]</button></div>
+      <div id="mission-log-body">
+        <div id="mission-log-list"></div>
+        <div id="mission-log-map-pane">
+          <canvas id="mission-log-canvas" width="240" height="240"></canvas>
+          <div id="mission-log-map-label">Select a mission</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Inventory overlay -->
+  <div id="inventory-overlay" class="hidden">
+    <div id="inv-window">
+      <div class="panel-title">CARGO HOLD <button id="close-inv-btn" class="btn">CLOSE [I]</button></div>
+      <div id="inv-body"></div>
+    </div>
+  </div>
+
+  <!-- Comms overlay -->
+  <div id="comms-overlay" class="hidden">
+    <div id="comms-box">
+      <div id="comms-header">
+        <span id="comms-faction-tag"></span>
+        <span id="comms-ship-name"></span>
+      </div>
+      <div id="comms-portrait"></div>
+      <div id="comms-response-text"></div>
+      <div id="comms-options-list"></div>
+      <button id="comms-close-btn" class="btn" style="margin-top:10px;font-size:6px">CLOSE CHANNEL [C]</button>
+    </div>
+  </div>
+
+  <!-- Game over -->
+  <div id="gameover-overlay" class="hidden">
+    <div id="gameover-box">
+      <div id="gameover-title">SHIP DESTROYED</div>
+      <div id="gameover-stats"></div>
+      <button id="restart-btn" class="btn">PLAY AGAIN</button>
+    </div>
+  </div>
+
+  <!-- Options overlay -->
+  <div id="options-overlay" class="hidden">
+    <div id="options-box">
+      <div class="panel-title" style="text-align:center;margin-bottom:16px">OPTIONS</div>
+      <button class="btn btn-big" id="opt-save-btn">SAVE GAME</button>
+      <button class="btn btn-big" id="opt-quit-btn" style="border-color:#ff6644;color:#ff6644">QUIT TO MENU</button>
+      <button class="btn btn-big" id="opt-close-btn">RESUME [ESC]</button>
+    </div>
+  </div>
+
+  <!-- Main menu -->
+  <div id="main-menu">
+    <div id="menu-box">
+      <div id="menu-title">STARFARER</div>
+      <div id="menu-sub">SPACE ROGUELIKE</div>
+      <button id="start-btn" class="btn btn-big">NEW GAME</button>
+      <button id="continue-btn" class="btn btn-big hidden" style="border-color:#44ff44;color:#44ff44">CONTINUE</button>
+      <div id="save-info" style="font-size:6px;color:#334455;margin-top:4px;text-align:center"></div>
+      <div id="menu-controls">
+        WASD · MOVE &nbsp; SHIFT · BOOST &nbsp; SPACE · PRIMARY FIRE &nbsp; TAB · SECONDARY FIRE<br>
+        T/Y · CYCLE TARGET &nbsp; R · NEAREST &nbsp; HOLD X · AUTO-AIM INTERCEPT<br>
+        M · GALAXY MAP (plan route) &nbsp; HOLD J · JUMP (when route set)<br>
+        L · LAND/BOARD &nbsp; I · INVENTORY &nbsp; F · REQUEST FUEL &nbsp; C · COMMS
+      </div>
+    </div>
+  </div>
+
+</div>
+<script src="js/data.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/npc.js"></script>
+<script src="js/input.js"></script>
+<script src="js/particles.js"></script>
+<script src="js/ship.js"></script>
+<script src="js/enemies.js"></script>
+<script src="js/space.js"></script>
+<script src="js/economy.js"></script>
+<script src="js/galaxy.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
