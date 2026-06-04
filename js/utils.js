@@ -30,6 +30,55 @@ G.seededRng = function(seed) {
   return () => { s = ((s*9301+49297)%233280+233280)%233280; return s/233280; };
 };
 
+// ── Cluster-based galaxy layout ───────────────────────────
+// Runs here (utils.js) so G.seededRng is available; data.js loads before utils.js.
+(function() {
+  const rng = G.seededRng('galaxy_cluster_v1');
+
+  function place(cx, cy, rx, ry, n) {
+    const pts = [], minD = 22;
+    for (let i = 0; i < n; i++) {
+      let x, y, ok, tries = 0;
+      do {
+        const a = rng() * Math.PI * 2;
+        const r = 0.12 + Math.sqrt(rng()) * 0.88;
+        x = Math.round(cx + Math.cos(a) * r * rx);
+        y = Math.round(cy + Math.sin(a) * r * ry);
+        ok = x > 20 && x < 930 && y > 20 && y < 680;
+        if (ok) for (const [px, py] of pts)
+          if (Math.hypot(x - px, y - py) < minD) { ok = false; break; }
+        tries++;
+      } while (!ok && tries < 80);
+      pts.push([x, y]);
+    }
+    return pts;
+  }
+
+  const layout = [
+    { faction: 'earth',       cx: 228, cy: 262, rx: 180, ry: 150, count: 30 },
+    { faction: 'rebellion',   cx: 722, cy: 262, rx: 180, ry: 150, count: 30 },
+    { faction: 'independent', cx: 475, cy: 245, rx: 85,  ry: 72,  count: 10 },
+    { faction: 'neutral',     cx: 475, cy: 548, rx: 122, ry: 80,  count: 10 },
+    { faction: 'pirate',      cx: 194, cy: 530, rx: 155, ry: 96,  count: 10 },
+    { faction: 'alien',       cx: 756, cy: 530, rx: 155, ry: 96,  count: 10 },
+  ];
+
+  const sorted = [...G.SYSTEMS].sort((a, b) =>
+    a.id === 'sol' ? -1 : b.id === 'sol' ? 1 : a.danger - b.danger
+  );
+
+  let si = 0;
+  for (const { faction, cx, cy, rx, ry, count } of layout) {
+    const positions = place(cx, cy, rx, ry, count);
+    for (let i = 0; i < count; i++, si++) {
+      sorted[si].pos = positions[i];
+      sorted[si].faction = faction;
+    }
+  }
+
+  G.SYSTEMS.find(s => s.id === 'sol').pos = [228, 262];
+})();
+
 // Circle-circle collision
 G.circleHit = (ax,ay,ar, bx,by,br) => (ax-bx)**2+(ay-by)**2 < (ar+br)**2;
 
@@ -49,6 +98,50 @@ G.generateLocalSystem = function(sys) {
   const bodies = [];
   const dangerF = sys.danger;
 
+  // ── Environment: nebula, asteroid ring, extra dust ───────
+  const envRng = G.seededRng(sys.id + '_env');
+
+  const nebulaPalette = [
+    { type:'nebula_blue',   fog:'#0d1f6e', starTint:[100,140,255] },
+    { type:'nebula_purple', fog:'#3d0860', starTint:[190,100,255] },
+    { type:'nebula_red',    fog:'#5a0f0f', starTint:[255,120,100] },
+    { type:'nebula_teal',   fog:'#044a4a', starTint:[ 60,200,210] },
+  ];
+  const hasNebula   = envRng() < 0.30;
+  const nebulaDef   = nebulaPalette[Math.floor(envRng() * nebulaPalette.length)];
+  const nebulaIntensity = 0.30 + envRng() * 0.45;
+  const nebula = hasNebula ? { ...nebulaDef, intensity: nebulaIntensity } : null;
+
+  // Asteroid ring ~24% of systems — tight belt around center
+  const hasRing  = envRng() < 0.24;
+  const ringR    = 3500 + envRng() * 4000;
+  const ringW    = 350  + envRng() * 500;
+  const ringAsteroids = [];
+  if(hasRing) {
+    const rCount = 60 + Math.floor(envRng() * 80);
+    const atype  = envRng() < 0.28 ? 'metallic' : envRng() < 0.38 ? 'icy' : 'rocky';
+    for(let i = 0; i < rCount; i++) {
+      const ang = (i / rCount) * Math.PI * 2 + (envRng()-0.5)*0.18;
+      const r   = ringR + (envRng()-0.5) * ringW;
+      const sz  = 7 + envRng() * 16;
+      const ra  = {
+        type:'asteroid', x:Math.cos(ang)*r, y:Math.sin(ang)*r,
+        vx:(envRng()-0.5)*5, vy:(envRng()-0.5)*5,
+        r:sz, atype,
+        angle:envRng()*Math.PI*2, rotSpeed:(envRng()-0.5)*0.25,
+        maxHp:12+Math.floor(envRng()*22), hp:0,
+        drops:G.ASTEROID_DROPS[atype]||G.ASTEROID_DROPS.rocky,
+        color:atype==='metallic'?'#998877':atype==='icy'?'#aaccdd':atype==='alien'?'#44cc88':'#776655',
+      };
+      ra.hp = ra.maxHp;
+      ringAsteroids.push(ra);
+    }
+  }
+
+  // Extra dust fields — 35% of systems have 1-2 additional dense asteroid clusters
+  const hasDust = envRng() < 0.35;
+  const extraFields = hasDust ? 1 + Math.floor(envRng()*2) : 0;
+
   const planetColors = { rocky:'#887766',ice:'#aaccff',lava:'#ff4422',ocean:'#2266ff',
     gas:'#ffaa66',terran:'#44aa44',desert:'#ccaa66' };
 
@@ -63,7 +156,7 @@ G.generateLocalSystem = function(sys) {
       bodies.push({
         type:'station',
         x:Math.cos(angle)*dist, y:Math.sin(angle)*dist,
-        r:18, orbitR:dist, orbitAngle:angle, orbitSpeed:(rng()*0.0001)*(rng()<0.5?1:-1),
+        r:18, orbitR:dist, orbitAngle:angle, orbitSpeed:(rng()*0.000005)*(rng()<0.5?1:-1),
         stype, color:'#888899',
         name: sys.name+' '+stype,
         hasSpaceport: true,
@@ -72,29 +165,33 @@ G.generateLocalSystem = function(sys) {
     }
   } else {
     // Star at center
-    bodies.push({ type:'star', x:0, y:0, r:40+rng()*20, color:sys.starColor, name:sys.name+' Star' });
+    bodies.push({ type:'star', x:0, y:0, r:160+rng()*80, color:sys.starColor, name:sys.name+' Star' });
 
-    // Sol system gets real planet names and types
+    // Sol system — scaled to real relative sizes, compressed-but-proportional orbits
     if(sys.id === 'sol') {
+      // Planet sizes scaled relative to Earth=18 using power-0.42 law for drama
+      // Orbital distances: inner planets accurate, gas giants compressed for gameplay
       const solPlanets = [
-        { name:'Mercury', ptype:'rocky',  r:6,  dist:420,  hasPort:false, color:'#aaa088' },
-        { name:'Venus',   ptype:'lava',   r:14, dist:720,  hasPort:false, color:'#ddaa44' },
-        { name:'Earth',   ptype:'terran', r:18, dist:1050, hasPort:true,  color:'#2266ff' },
-        { name:'Mars',    ptype:'desert', r:10, dist:1500, hasPort:true,  color:'#cc5533' },
-        { name:'Jupiter', ptype:'gas',    r:52, dist:2800, hasPort:false, color:'#ddaa88' },
-        { name:'Saturn',  ptype:'gas',    r:44, dist:3800, hasPort:false, color:'#ccbb88' },
-        { name:'Uranus',  ptype:'ice',    r:28, dist:4700, hasPort:false, color:'#88ccdd' },
-        { name:'Neptune', ptype:'ocean',  r:26, dist:5600, hasPort:false, color:'#2244aa' },
+        { name:'Mercury', ptype:'rocky',  r:28,  dist:380,  hasPort:false, hasRings:false },
+        { name:'Venus',   ptype:'lava',   r:56,  dist:640,  hasPort:false, hasRings:false },
+        { name:'Earth',   ptype:'terran', r:72,  dist:980,  hasPort:true,  hasRings:false },
+        { name:'Mars',    ptype:'rocky',  r:40,  dist:1520, hasPort:true,  hasRings:false },
+        { name:'Jupiter', ptype:'gas',    r:208, dist:3400, hasPort:false, hasRings:false },
+        { name:'Saturn',  ptype:'gas',    r:176, dist:4600, hasPort:false, hasRings:true  },
+        { name:'Uranus',  ptype:'ice',    r:120, dist:5700, hasPort:false, hasRings:false },
+        { name:'Neptune', ptype:'ocean',  r:112, dist:6800, hasPort:false, hasRings:false },
       ];
       for(let i=0;i<solPlanets.length;i++){
         const sp = solPlanets[i];
         const angle = rng()*Math.PI*2;
-        const orbitSpeed = (0.0001 + (solPlanets.length-i)*0.00004)*(rng()<0.5?1:-1);
+        const orbitSpeed = (0.000004 + (solPlanets.length-i)*0.00000175)*(rng()<0.5?1:-1);
+        const seed = sp.name.split('').reduce((a,c)=>a*31+c.charCodeAt(0),0) % 50000;
         bodies.push({
           type:'planet', x:Math.cos(angle)*sp.dist, y:Math.sin(angle)*sp.dist,
           r:sp.r, orbitR:sp.dist, orbitAngle:angle, orbitSpeed,
-          ptype:sp.ptype, color:sp.color, name:sp.name,
+          ptype:sp.ptype, color:'#888888', name:sp.name,
           hasSpaceport:sp.hasPort, spaceportName:sp.hasPort?(sp.name+' Station'):null,
+          hasRings:sp.hasRings, seed,
           faction:'earth',
         });
       }
@@ -107,20 +204,24 @@ G.generateLocalSystem = function(sys) {
         const angle = rng()*Math.PI*2;
         const ptype = planetTypes[Math.floor(rng()*planetTypes.length)];
         const sizeClass = rng();
-        const r = sizeClass>0.97 ? 55+rng()*30
-                : sizeClass>0.85 ? 35+rng()*20
-                : sizeClass>0.55 ? 20+rng()*12
-                : 8+rng()*10;
-        const hasPort = rng() < (ptype==='terran'?0.9:ptype==='ocean'?0.6:r>30?0.4:0.15);
+        const r = sizeClass>0.97 ? 220+rng()*120
+                : sizeClass>0.85 ? 140+rng()*80
+                : sizeClass>0.55 ? 80+rng()*48
+                : 32+rng()*40;
+        const hasPort  = rng() < (ptype==='terran'?0.9:ptype==='ocean'?0.6:r>30?0.4:0.15);
+        const hasRings = ptype==='gas' && rng() < 0.35;
+        const pname    = sys.name+' '+(['I','II','III','IV','V'][i]||'VI');
+        const seed     = pname.split('').reduce((a,c)=>a*31+c.charCodeAt(0),0) % 50000;
         bodies.push({
           type:'planet',
           x: Math.cos(angle)*dist,
           y: Math.sin(angle)*dist,
-          r, orbitR:dist, orbitAngle:angle, orbitSpeed:(rng()*0.00025+0.00006)*(rng()<0.5?1:-1),
-          ptype, color:planetColors[ptype],
-          name: sys.name+' '+(['I','II','III','IV','V'][i]||'VI'),
+          r, orbitR:dist, orbitAngle:angle, orbitSpeed:(rng()*0.0000125+0.000003)*(rng()<0.5?1:-1),
+          ptype, color: planetColors[ptype],
+          name: pname,
           hasSpaceport: hasPort,
           spaceportName: hasPort ? (sys.name+' Spaceport') : null,
+          hasRings, seed,
           faction: sys.faction,
         });
       }
@@ -136,7 +237,7 @@ G.generateLocalSystem = function(sys) {
       bodies.push({
         type:'station',
         x:Math.cos(angle)*dist, y:Math.sin(angle)*dist,
-        r:18, orbitR:dist, orbitAngle:angle, orbitSpeed:(rng()*0.0001)*(rng()<0.5?1:-1),
+        r:18, orbitR:dist, orbitAngle:angle, orbitSpeed:(rng()*0.000005)*(rng()<0.5?1:-1),
         stype, color:'#aaaacc',
         name: sys.name+' '+stype,
         hasSpaceport: true,
@@ -160,23 +261,27 @@ G.generateLocalSystem = function(sys) {
     }
   }
 
-  // Asteroid fields (multiple chunks)
-  const nFields = Math.floor(rng()*3)+1;
+  // Asteroid fields (multiple chunks + optional extra dust fields)
+  const nFields = Math.floor(rng()*3)+1 + extraFields;
   const aField = [];
   for(let f=0;f<nFields;f++){
+    const isExtra  = f >= nFields - extraFields;
     const fieldAngle = rng()*Math.PI*2;
-    const fieldDist  = 1500 + rng()*3000;
-    const nAsteroids = 8 + Math.floor(rng()*16);
-    const atype = rng()<0.3?'metallic':rng()<0.3?'icy':rng()<0.1&&dangerF>7?'alien':'rocky';
+    const fieldDist  = isExtra ? 800+rng()*2000 : 1500+rng()*3000;
+    const nAsteroids = isExtra ? 14+Math.floor(rng()*22) : 8+Math.floor(rng()*16);
+    const atype = isExtra ? (rng()<0.5?'rocky':'metallic')
+                          : rng()<0.3?'metallic':rng()<0.3?'icy':rng()<0.1&&dangerF>7?'alien':'rocky';
+    const scatter = isExtra ? 400 : 600;
     for(let a=0;a<nAsteroids;a++){
-      const ox = Math.cos(fieldAngle)*fieldDist + (rng()-0.5)*600;
-      const oy = Math.sin(fieldAngle)*fieldDist + (rng()-0.5)*600;
+      const ox = Math.cos(fieldAngle)*fieldDist + (rng()-0.5)*scatter;
+      const oy = Math.sin(fieldAngle)*fieldDist + (rng()-0.5)*scatter;
+      const sz = isExtra ? 8+rng()*14 : 16+rng()*20;
       aField.push({
         type:'asteroid', x:ox, y:oy,
         vx:(rng()-0.5)*15, vy:(rng()-0.5)*15,
-        r:16+rng()*20, atype,
+        r:sz, atype,
         angle:rng()*Math.PI*2, rotSpeed:(rng()-0.5)*0.5,
-        maxHp:30+Math.floor(rng()*40), hp:0, // set to maxHp after push
+        maxHp:30+Math.floor(rng()*40), hp:0,
         drops: G.ASTEROID_DROPS[atype] || G.ASTEROID_DROPS.rocky,
         color: atype==='metallic'?'#998877':atype==='icy'?'#aaccdd':atype==='alien'?'#44cc88':'#776655',
       });
@@ -184,19 +289,24 @@ G.generateLocalSystem = function(sys) {
     }
   }
 
-  // Derelict ships (random chance, more in dangerous systems)
-  const nDerelicts = rng() < (0.1*dangerF/5) ? Math.floor(rng()*2)+1 : 0;
+  // Derelict ships — always 1–2, more in dangerous systems
+  const nDerelicts = (rng() < G.clamp(0.08 + dangerF * 0.03, 0, 0.35) ? 1 : 0) + (dangerF >= 7 && rng() < 0.12 ? 1 : 0);
   const derelicts = [];
   const shipIds = Object.keys(G.SHIPS);
   for(let i=0;i<nDerelicts;i++){
     const angle = rng()*Math.PI*2;
     const dist  = 1000+rng()*4000;
     const shipId = shipIds[Math.floor(rng()*shipIds.length)];
+    const dTpl = G.SHIPS[shipId];
     derelicts.push({
       type:'derelict', x:Math.cos(angle)*dist, y:Math.sin(angle)*dist,
-      shipId, looted:false,
+      shipId, looted:false, dead:false,
       lootQty: 2+Math.floor(rng()*5),
       rng: rng(),
+      name:    'Derelict ' + (dTpl?.name || shipId),
+      shapeId: dTpl?.shape || 'shuttle',
+      color:   '#445566',
+      hp: 60, maxHp: 60,
     });
   }
 
@@ -231,7 +341,7 @@ G.generateLocalSystem = function(sys) {
     }
   }
 
-  return { bodies, asteroids:aField, derelicts, turrets };
+  return { bodies, asteroids:aField, derelicts, turrets, nebula, ringAsteroids };
 };
 
 // Build hyperspace connections between systems
@@ -240,31 +350,41 @@ G.buildHyperspaceRoutes = function() {
   const routes = {};
   sys.forEach(s => routes[s.id] = []);
 
-  sys.forEach((a,i) => {
-    // Find all systems within jumpR of a
-    sys.forEach((b,j) => {
-      if(i===j) return;
-      const dx = a.pos[0]-b.pos[0];
-      const dy = a.pos[1]-b.pos[1];
-      const d = Math.sqrt(dx*dx+dy*dy);
+  // Collect all valid edges within jumpR, sort shortest first
+  const edges = [];
+  for(let i = 0; i < sys.length; i++) {
+    for(let j = i+1; j < sys.length; j++) {
+      const a = sys[i], b = sys[j];
+      const dx = a.pos[0]-b.pos[0], dy = a.pos[1]-b.pos[1];
+      const d  = Math.sqrt(dx*dx+dy*dy);
       const maxR = Math.max(a.jumpR||80, b.jumpR||80);
-      if(d <= maxR) {
-        if(!routes[a.id].includes(b.id)) routes[a.id].push(b.id);
-        if(!routes[b.id].includes(a.id)) routes[b.id].push(a.id);
-      }
-    });
-    // Ensure every system has at least 1 connection (find nearest)
-    if(routes[a.id].length === 0) {
-      let nearIdx=0, nearD=Infinity;
-      sys.forEach((b,j) => {
-        if(i===j)return;
-        const d=Math.sqrt((a.pos[0]-b.pos[0])**2+(a.pos[1]-b.pos[1])**2);
-        if(d<nearD){nearD=d;nearIdx=j;}
-      });
-      routes[a.id].push(sys[nearIdx].id);
-      routes[sys[nearIdx].id].push(a.id);
+      if(d <= maxR) edges.push({ a:a.id, b:b.id, d });
     }
+  }
+  edges.sort((x,y) => x.d - y.d);
+
+  // Add edges shortest-first; cap each system at 5 connections
+  const MAX = 5;
+  for(const { a, b } of edges) {
+    if(routes[a].includes(b)) continue;
+    if(routes[a].length >= MAX || routes[b].length >= MAX) continue;
+    routes[a].push(b); routes[b].push(a);
+  }
+
+  // Guarantee every system has at least one connection
+  sys.forEach(a => {
+    if(routes[a.id].length > 0) return;
+    let nearIdx = 0, nearD = Infinity;
+    sys.forEach((b, j) => {
+      if(a.id === b.id) return;
+      const d = Math.sqrt((a.pos[0]-b.pos[0])**2+(a.pos[1]-b.pos[1])**2);
+      if(d < nearD) { nearD=d; nearIdx=j; }
+    });
+    const nb = sys[nearIdx];
+    routes[a.id].push(nb.id);
+    if(!routes[nb.id].includes(a.id)) routes[nb.id].push(a.id);
   });
+
   return routes;
 };
 
@@ -301,8 +421,8 @@ G.genEnemyShips = function(sys, count) {
 
     const angle = rng()*Math.PI*2;
     const dist  = 1500+rng()*3000;
-    const hp = 60+danger*15 + rng()*40;
-    const shields = danger>3 ? (danger-3)*20+rng()*30 : 0;
+    const hp = 120+danger*30 + rng()*80;
+    const shields = danger>3 ? (danger-3)*40+rng()*60 : 0;
     const speed   = 280 + danger*40 + rng()*180;
     const damage  = 10+danger*4+rng()*10;
     const credits = Math.floor(50+danger*30+rng()*100);
@@ -315,7 +435,7 @@ G.genEnemyShips = function(sys, count) {
       hp, maxHp:hp, shields, maxShields:shields,
       energy:100, maxEnergy:100,
       speed, turnSpeed:1.5+rng()*1.5,
-      damage, fireRate:0.8+rng()*0.8, lastShot:0,
+      damage, fireRate:1.2+rng()*1.2, lastShot:0,
       credits, cargoDrops,
       shapeId, color:col,
       faction:shipFaction,

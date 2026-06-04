@@ -15,6 +15,7 @@ G.Ship = class {
     this.vx = 0; this.vy = 0;
     this.angle = 0;    // radians, 0=pointing up
     this.angVel = 0;
+    this._reverseHeldTime = 0;
 
     // Base stats (before modules)
     this._baseMass        = tpl.baseMass;
@@ -60,16 +61,12 @@ G.Ship = class {
 
     // Boost charge: 1 second burst, 2.5s recharge
     this.boostCharge = 1.0;
+    this._boostWasActive = false;
 
-    // Module slots: { slotType: [moduleId|null, ...] }
-    this.slots = {};
-    for(const [slotType, count] of Object.entries(tpl.slots)) {
-      if(count > 0) {
-        this.slots[slotType] = new Array(count).fill(null);
-      }
-    }
+    // Module slots: flat array of instId|null, length = ship's slot count
+    this.slots = new Array(tpl.slots).fill(null);
 
-    // Installed module instances: { instanceId: { moduleId, slotType, slotIdx, hp, broken } }
+    // Installed module instances: { instanceId: { moduleId, slotIdx, hp, broken } }
     this.modules = {};
     this._nextModId = 1;
 
@@ -80,17 +77,24 @@ G.Ship = class {
     // Cargo hold
     this.cargo = {}; // itemId -> qty
 
+    // Ammunition (rounds, not cargo units)
+    this.ammo = {}; // ammoId -> count
+
     // Crew
     this.crew = []; // array of crew objects
 
+    // Module inventory: modules picked up with no free slot
+    this.moduleInventory = [];
+
     // Combat state
-    this.disabled  = false;
-    this.empTimer  = 0;
+    this.disabled    = false;
+    this.disabledHp  = 50;
+    this.empTimer    = 0;
     this.crewEfficiency = 1.0;
 
     // Install starter modules from template
-    (tpl.startModules || []).forEach(mid => this.installModule(mid, null));
-    (tpl.startWeapons  || []).forEach(wid => this.installModule(wid, null));
+    (tpl.startModules || []).forEach(mid => this.installModule(mid));
+    (tpl.startWeapons  || []).forEach(wid => this.installModule(wid));
 
     this._recompute();
     this.hull    = this.maxHull;
@@ -100,20 +104,16 @@ G.Ship = class {
   }
 
   // ── Module management ────────────────────────────────
-  installModule(moduleId, slotType) {
+  installModule(moduleId) {
     const mod = G.MODULES[moduleId] || G.WEAPONS[moduleId];
     if(!mod) return false;
 
-    const stype = slotType || mod.slot;
-    if(!this.slots[stype]) return false;
-
-    // Find first empty slot of this type
-    const idx = this.slots[stype].indexOf(null);
+    const idx = this.slots.indexOf(null);
     if(idx === -1) return false;
 
     const instId = 'm'+(this._nextModId++);
-    this.modules[instId] = { moduleId, slotType:stype, slotIdx:idx, hp:mod.hp||50, broken:false };
-    this.slots[stype][idx] = instId;
+    this.modules[instId] = { moduleId, slotIdx:idx, hp:mod.hp||50, broken:false };
+    this.slots[idx] = instId;
 
     this._recompute();
     return instId;
@@ -123,7 +123,7 @@ G.Ship = class {
     const inst = this.modules[instId];
     if(!inst) return null;
     const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
-    this.slots[inst.slotType][inst.slotIdx] = null;
+    this.slots[inst.slotIdx] = null;
     delete this.modules[instId];
     this._recompute();
     return mod;
@@ -147,8 +147,11 @@ G.Ship = class {
     this.canCraft   = false;
     this.tractorRange=0;
     this.sensorRange= 600;
-    this.canJump    = false;
-    this.jumpRange  = 0;
+    this.canJump        = false;
+    this.jumpRange      = 0;
+    this.jumpChargeTime = 99; // set from module
+    this.jumpCooldown   = 99;
+    this.jumpFuelCost   = 99;
     this.mass       = this._baseMass;
     this.thrustPower= this._baseThrust;
     this.turnSpeed  = this._baseTurn;
@@ -194,6 +197,9 @@ G.Ship = class {
       if(s.sensorRange)     this.sensorRange += s.sensorRange;
       if(s.canJump)         this.canJump      = true;
       if(s.jumpRange)       this.jumpRange   += s.jumpRange;
+      if(s.jumpChargeTime !== undefined) this.jumpChargeTime = Math.min(this.jumpChargeTime, s.jumpChargeTime);
+      if(s.jumpCooldown   !== undefined) this.jumpCooldown   = Math.min(this.jumpCooldown,   s.jumpCooldown);
+      if(s.jumpFuelCost   !== undefined) this.jumpFuelCost   = Math.min(this.jumpFuelCost,   s.jumpFuelCost);
       if(s.crewEfficiency)  this.crewEfficiency = 1+s.crewEfficiency;
 
       totalEnergyDraw += (mod.energyDraw||0);
@@ -250,35 +256,85 @@ G.Ship = class {
       this.boostCharge = Math.min(1.0, this.boostCharge + dt / 2.5);
     }
     const boostActive = boostWanted && this.boostCharge > 0;
+    // Only play sound on initial key press, not when charge refills while key is held
+    if(boostActive && !this._boostKeyWasDown) {
+      G.sound?.boost();
+    }
+    this._boostKeyWasDown = inp.boost;
+
+    // Heading basis: forward = nose direction, lateral = starboard (perpendicular)
+    const fwdX = Math.sin(this.angle),  fwdY = -Math.cos(this.angle);
+    const latX = Math.cos(this.angle),  latY =  Math.sin(this.angle);
 
     // Thrust
     // Boost: high acceleration for sharp maneuvering, but lower top speed
     const boostMult   = boostActive ? 5.0 : 1.0;
     if(inp.thrust) {
       const thrust = this.thrustPower * thrustEff * boostMult / this.mass;
-      this.vx += Math.sin(this.angle) * thrust * dt;
-      this.vy -= Math.cos(this.angle) * thrust * dt;
+      this.vx += fwdX * thrust * dt;
+      this.vy += fwdY * thrust * dt;
       if(boostActive) this.energy = Math.max(0, this.energy - 30 * dt);
       this.fuel = Math.max(0, this.fuel - this.fuelBurnRate * 0.05 * dt);
+
+      // Grip: while driving forward, fire lateral thrusters to cancel sideways drift
+      const vLat = this.vx*latX + this.vy*latY;
+      const gripMag = this.thrustPower * thrustEff * boostMult * 1.2 / this.mass;
+      const dvl = Math.sign(vLat) * Math.min(Math.abs(vLat), gripMag * dt);
+      this.vx -= latX * dvl;
+      this.vy -= latY * dvl;
     }
-    // S = retrograde burn (also boosted for hard braking)
+    // Q/E = strafe left/right (perpendicular thrust, boosted)
+    if(inp.strafeL || inp.strafeR) {
+      const dir = inp.strafeL ? -1 : 1;
+      const strafeThrust = this.thrustPower * thrustEff * boostMult * 0.65 / this.mass;
+      this.vx += latX * dir * strafeThrust * dt;
+      this.vy += latY * dir * strafeThrust * dt;
+      if(boostActive) this.energy = Math.max(0, this.energy - 15 * dt);
+    }
+    // S = retrograde burn — retro thrusters brake ~1.75x harder than forward thrust
+    const spd = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
     if(inp.reverse) {
-      const spd = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
-      if(spd > 1) {
-        const brakeMag = this.thrustPower * 0.55 * thrustEff * boostMult / this.mass;
+      this._reverseHeldTime += dt;
+      if(spd > 1 && this._reverseHeldTime < 1.0) {
+        // Braking mode: apply retrograde braking
+        const brakeMag = this.thrustPower * 2.0 * thrustEff * boostMult / this.mass;
         const bx = -(this.vx/spd) * brakeMag * dt;
         const by = -(this.vy/spd) * brakeMag * dt;
         this.vx = Math.abs(this.vx + bx) < Math.abs(bx) ? 0 : this.vx + bx;
         this.vy = Math.abs(this.vy + by) < Math.abs(by) ? 0 : this.vy + by;
+      } else if(this._reverseHeldTime >= 1.0) {
+        // Backwards vectoring mode: apply reverse thrust
+        const thrustMag = this.thrustPower * thrustEff * boostMult * 0.8 / this.mass;
+        this.vx -= fwdX * thrustMag * dt;
+        this.vy -= fwdY * thrustMag * dt;
+        this.fuel = Math.max(0, this.fuel - this.fuelBurnRate * 0.04 * dt);
       }
+    } else {
+      this._reverseHeldTime = 0;
     }
 
+    // Asymmetric "boat hull" drag: forward drifts cleanly, lateral slides snap out fast
+    let vFwd = this.vx*fwdX + this.vy*fwdY;
+    let vLat = this.vx*latX + this.vy*latY;
+    vFwd *= Math.max(0, 1 - 0.06 * dt);   // slight forward drag — momentum is preserved
+    vLat *= Math.max(0, 1 - 2.5  * dt);   // strong lateral drag — kills sideways slide
+    this.vx = fwdX*vFwd + latX*vLat;
+    this.vy = fwdY*vFwd + latY*vLat;
+
     // Speed cap: boost lowers max speed, making it better for direction changes than top speed
-    const spd = Math.sqrt(this.vx*this.vx+this.vy*this.vy);
+    const spd3 = Math.sqrt(this.vx*this.vx+this.vy*this.vy);
     const maxSpd = 300 + this.thrustPower * 0.022 * (1 / (1 + this.mass * 0.001));
-    if(spd > maxSpd * (boostActive ? 0.7 : 1.0)) {
-      const cap = maxSpd * (boostActive ? 0.7 : 1.0);
-      const sc = cap/spd;
+    const cap = maxSpd * (boostActive ? 0.7 : 1.0);
+    if(spd3 > 1) {
+      // Interstellar drag: negligible at cruise, ramps up exponentially near the cap
+      const nearDrag = 90 * Math.pow(spd3 / cap, 8);
+      const factor = Math.max(0, 1 - (nearDrag / spd3) * dt);
+      this.vx *= factor; this.vy *= factor;
+    }
+    // Hard backstop so the cap is never blown through on a big dt spike
+    const spd2 = Math.sqrt(this.vx*this.vx+this.vy*this.vy);
+    if(spd2 > cap * 1.05) {
+      const sc = (cap * 1.05) / spd2;
       this.vx *= sc; this.vy *= sc;
     }
 
@@ -327,6 +383,12 @@ G.Ship = class {
       return { shieldDmg:amount*0.5, hullDmg:0 };
     }
 
+    // Disabled ships have no power — bypass shields, damage hull directly
+    if(this.disabled) {
+      this.hull -= amount;
+      return { shieldDmg:0, hullDmg:amount };
+    }
+
     let shieldDmg = 0, hullDmg = 0;
     if(this.shields > 0) {
       shieldDmg = Math.min(this.shields, amount);
@@ -338,10 +400,11 @@ G.Ship = class {
     if(amount > 0) {
       hullDmg = amount;
       this.hull -= hullDmg;
-      this._damageModule(hullDmg);
+      if(this.hull <= 0) {
+        this.hull = Math.round(this.maxHull * 0.2);
+        this.disabled = true;
+      }
     }
-
-    if(this.hull <= 10 && !this.disabled) this.disabled = true;
     return { shieldDmg, hullDmg };
   }
 
@@ -368,7 +431,13 @@ G.Ship = class {
     const wpn = G.WEAPONS[slot.weaponId];
     if(!wpn) return null;
 
-    // Energy check
+    // Ammo check (ballistic/missile/explosive weapons)
+    if(wpn.ammo) {
+      if((this.ammo[wpn.ammo] || 0) < 1) return null;
+      this.ammo[wpn.ammo]--;
+    }
+
+    // Energy check (energy weapons)
     const eCost = wpn.energyCost || 0;
     if(this.energy < eCost) return null;
 
@@ -381,15 +450,19 @@ G.Ship = class {
 
     // Aim direction
     let aimAngle = this.angle;
-    if(slot.turret && targetX!=null) {
-      aimAngle = Math.atan2(targetX-this.x, -(targetY-this.y));
+    if(targetX != null) {
+      const toTarget = Math.atan2(targetX-this.x, -(targetY-this.y));
+      if(slot.turret) {
+        aimAngle = toTarget;
+      } else {
+        const diff = Math.abs(G.wrapAngle(toTarget - this.angle));
+        if(diff < Math.PI / 6) aimAngle = toTarget; // snap within 30°
+      }
     }
 
-    return {
+    const baseProj = {
       x: this.x + Math.sin(this.angle)*15,
       y: this.y - Math.cos(this.angle)*15,
-      vx: Math.sin(aimAngle)*wpn.projSpeed + this.vx*0.3,
-      vy: -Math.cos(aimAngle)*wpn.projSpeed + this.vy*0.3,
       angle: aimAngle,
       weaponId: wpn.id,
       damage, type:wpn.type,
@@ -399,7 +472,25 @@ G.Ship = class {
       tracking:wpn.tracking||false,
       pierce:wpn.pierce||false,
       ttl:wpn.range / wpn.projSpeed,
-      sourceId:'player',
+      sourceId: this === G.game?.player ? 'player' : this.id,
+    };
+
+    // Multi-pellet spread (shotgun-style)
+    if(wpn.pellets && wpn.pellets > 1) {
+      const spread = wpn.spread || 0.2;
+      return Array.from({ length: wpn.pellets }, (_, i) => {
+        const offset = (i / (wpn.pellets - 1) - 0.5) * spread;
+        const a = aimAngle + offset;
+        return { ...baseProj,
+          vx: Math.sin(a)*wpn.projSpeed + this.vx*0.3,
+          vy: -Math.cos(a)*wpn.projSpeed + this.vy*0.3,
+        };
+      });
+    }
+
+    return { ...baseProj,
+      vx: Math.sin(aimAngle)*wpn.projSpeed + this.vx*0.3,
+      vy: -Math.cos(aimAngle)*wpn.projSpeed + this.vy*0.3,
     };
   }
 
@@ -447,8 +538,10 @@ G.Ship = class {
       x: this.x, y: this.y, vx: this.vx, vy: this.vy, angle: this.angle,
       modules: JSON.parse(JSON.stringify(this.modules)),
       slots:   JSON.parse(JSON.stringify(this.slots)),
-      cargo:   JSON.parse(JSON.stringify(this.cargo)),
-      crew:    JSON.parse(JSON.stringify(this.crew)),
+      cargo:           JSON.parse(JSON.stringify(this.cargo)),
+      ammo:            JSON.parse(JSON.stringify(this.ammo)),
+      crew:            JSON.parse(JSON.stringify(this.crew)),
+      moduleInventory: [...(this.moduleInventory||[])],
       powerWeapons: this.powerWeapons,
       powerShields: this.powerShields,
       powerEngines: this.powerEngines,

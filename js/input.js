@@ -14,8 +14,22 @@ G.Input = class {
     this._bind();
   }
 
+  _menuOpen() {
+    const ids = ['comms-overlay','options-overlay','spaceport-overlay',
+                 'inventory-overlay','mission-log-overlay','gameover-overlay'];
+    return ids.some(id => {
+      const el = document.getElementById(id);
+      return el && !el.classList.contains('hidden');
+    });
+  }
+
   _bind() {
     window.addEventListener('keydown', e => {
+      // Don't let movement keys register while any menu is open
+      const movementKey = ['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE',
+                           'ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code);
+      if(movementKey && this._menuOpen()) return;
+
       if(!this.keys[e.code]) this.justPressed[e.code] = true;
       this.keys[e.code] = true;
       // Prevent page scroll on space/arrows
@@ -50,11 +64,13 @@ G.Input = class {
     this.mouseJustUp  = false;
   }
 
-  get thrust()  { return this.is('KeyW') || this.is('ArrowUp'); }
-  get reverse() { return this.is('KeyS') || this.is('ArrowDown'); }
-  get turnL()   { return this.is('KeyA') || this.is('ArrowLeft'); }
-  get turnR()   { return this.is('KeyD') || this.is('ArrowRight'); }
-  get boost()   { return this.is('ShiftLeft') || this.is('ShiftRight'); }
-  get fire()    { return this.is('Space'); }
-  get fireTap() { return this.pressed('Space'); }
+  get thrust()   { return this.is('KeyW') || this.is('ArrowUp'); }
+  get reverse()  { return this.is('KeyS') || this.is('ArrowDown'); }
+  get turnL()    { return this.is('KeyA') || this.is('ArrowLeft'); }
+  get turnR()    { return this.is('KeyD') || this.is('ArrowRight'); }
+  get strafeL()  { return this.is('KeyQ'); }
+  get strafeR()  { return this.is('KeyE'); }
+  get boost()    { return this.is('ShiftLeft') || this.is('ShiftRight'); }
+  get fire()     { return this.is('Space'); }
+  get fireTap()  { return this.pressed('Space'); }
 };

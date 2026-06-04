@@ -163,6 +163,7 @@ G.Economy = class {
       if(item.cat==='raw'     && sys.faction==='pirate')  available = Math.floor(rng()*15)+8;
       if(item.id==='alien_metal' && sys.faction!=='alien') available = Math.floor(rng()*2);
       if(item.cat==='craft'   && sys.danger>=5)           available = Math.floor(rng()*8)+2;
+      if(item.cat==='ammo')                               available = Math.floor(rng()*10)+8;
       available = Math.max(0, available);
       return { id:item.id, name:item.name, cat:item.cat, rarity:item.rarity, price, available };
     });
@@ -175,14 +176,14 @@ G.Economy = class {
   getShipyard(sysId) {
     const sys = G.SYSTEMS.find(s=>s.id===sysId);
     if(!sys) return [];
-    const rng = G.seededRng(sysId+'_shipyard');
-    const all = Object.values(G.SHIPS).filter(s=>s.price>0);
-    // Filter by faction affinity
+    const all = Object.values(G.SHIPS).filter(s => s.price >= 0 && s.class);
     return all.filter(s => {
-      if(s.faction==='earth'     && sys.faction==='pirate') return rng()<0.3;
-      if(s.faction==='rebellion' && sys.faction==='earth')  return rng()<0.4;
-      if(s.price > 50000 && sys.danger < 5) return rng()<0.3;
-      return true;
+      const sf = s.faction;
+      if(!sf || sf === 'neutral' || sf === 'independent') return true;
+      // Faction ships only available in matching or contested systems
+      if(sf === sys.faction) return true;
+      if(sys.faction === 'contested') return true;
+      return false;
     });
   }
 

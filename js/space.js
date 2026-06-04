@@ -12,36 +12,64 @@ G.Space = class {
     this.projectiles= [];
     this.floatingLoot=[];
     this.bgStars    = [];
+    this.nebula     = null;
     this.time       = 0;
     this._npcSpawnTimer = 0;
-    this._genBgStars();
+    this._genBgStars(null);
   }
 
-  _genBgStars() {
+  _genBgStars(nebula) {
     this.bgStars = [];
-    for(let i=0;i<300;i++) {
+    const starCount = nebula ? 180 : 300;
+    for(let i=0;i<starCount;i++) {
+      const bright = nebula ? 0.1+Math.random()*0.45 : 0.2+Math.random()*0.8;
       this.bgStars.push({
         x:Math.random()*5000-2500, y:Math.random()*5000-2500,
         r:Math.random()<0.05?2:1,
-        brightness:0.2+Math.random()*0.8,
+        brightness:bright,
         layer:Math.floor(Math.random()*3),
       });
     }
 
-    // Distant deep-space objects: galaxies, nebulae, dust clouds
     this.bgDeepObjects = [];
-    const deepTypes = ['galaxy','galaxy','nebula_blue','nebula_purple','nebula_red','nebula_teal','dust','dust'];
-    for(let i=0;i<16;i++) {
-      this.bgDeepObjects.push({
-        x: Math.random()*8000-4000,
-        y: Math.random()*8000-4000,
-        type: deepTypes[i % deepTypes.length],
-        size: 70 + Math.random()*150,
-        rotation: Math.random()*Math.PI*2,
-        alpha: 0.05 + Math.random()*0.10,
-        parallax: 0.010 + Math.random()*0.025,
-        idx: i,
-      });
+    if(nebula) {
+      // Nebula system: many large clouds of the system nebula type + dust
+      for(let i=0;i<22;i++) {
+        this.bgDeepObjects.push({
+          x:Math.random()*12000-6000, y:Math.random()*12000-6000,
+          type:nebula.type,
+          size:100+Math.random()*220,
+          rotation:Math.random()*Math.PI*2,
+          alpha:0.18+Math.random()*0.32,
+          parallax:0.007+Math.random()*0.018,
+          idx:i,
+        });
+      }
+      for(let i=0;i<8;i++) {
+        this.bgDeepObjects.push({
+          x:Math.random()*8000-4000, y:Math.random()*8000-4000,
+          type:'dust',
+          size:80+Math.random()*120,
+          rotation:Math.random()*Math.PI*2,
+          alpha:0.12+Math.random()*0.18,
+          parallax:0.012+Math.random()*0.022,
+          idx:22+i,
+        });
+      }
+    } else {
+      // Normal system: distant galaxies, light nebulae, dust
+      const deepTypes = ['galaxy','galaxy','nebula_blue','nebula_purple','nebula_red','nebula_teal','dust','dust'];
+      for(let i=0;i<16;i++) {
+        this.bgDeepObjects.push({
+          x:Math.random()*8000-4000, y:Math.random()*8000-4000,
+          type:deepTypes[i % deepTypes.length],
+          size:70+Math.random()*150,
+          rotation:Math.random()*Math.PI*2,
+          alpha:0.05+Math.random()*0.10,
+          parallax:0.010+Math.random()*0.025,
+          idx:i,
+        });
+      }
     }
   }
 
@@ -52,9 +80,11 @@ G.Space = class {
 
     const local = G.generateLocalSystem(sys);
     this.bodies     = local.bodies;
-    this.asteroids  = local.asteroids;
+    this.asteroids  = [...local.asteroids, ...(local.ringAsteroids||[])];
     this.derelicts  = local.derelicts;
     this.turrets    = local.turrets || [];
+    this.nebula     = local.nebula || null;
+    this._genBgStars(this.nebula);
     this.enemies    = [];
     this.npcs       = [];
     this.projectiles= [];
@@ -75,13 +105,18 @@ G.Space = class {
     const sys  = sysArg || G.SYSTEMS.find(s=>s.id===this.sysId);
     if(!sys) return;
 
-    // Pick faction: system faction + independents + sometimes rival factions
-    const factionPool = [sys.faction, sys.faction, 'independent'];
-    if(sys.faction==='earth' && Math.random()<0.3)      factionPool.push('rebellion');
-    if(sys.faction==='rebellion' && Math.random()<0.3)  factionPool.push('earth');
-    if(sys.danger>=4 && Math.random()<0.4)              factionPool.push('pirate');
+    // ~70% independent ships, ~30% faction ships in any system
+    let faction = 'independent';
+    if(sys.faction === 'earth' || sys.faction === 'rebellion') {
+      if(Math.random() < 0.3) faction = sys.faction;
+    } else if((sys.faction === 'pirate' || sys.faction === 'contested') && sys.danger >= 3) {
+      if(Math.random() < 0.2) faction = 'pirate';
+    }
+    // High-danger systems get occasional pirate independents too
+    if(faction === 'independent' && sys.danger >= 5 && Math.random() < 0.1) {
+      faction = 'pirate';
+    }
 
-    const faction = G.randEl(factionPool);
     const npc = new G.NPCShip(faction, this.bodies, this.sysId);
     this.npcs.push(npc);
   }
@@ -223,6 +258,32 @@ G.Space = class {
           if(mined) continue;
         }
 
+        // Regular weapons can chip at asteroids (much less efficient than mining laser)
+        if(p.type !== 'mining') {
+          for(let j=this.asteroids.length-1;j>=0;j--) {
+            const a = this.asteroids[j];
+            if(!G.circleHit(p.x,p.y,4,a.x,a.y,a.r)) continue;
+            // ~12% of normal weapon damage as mining effectiveness
+            const chipDmg = Math.max(0.5, p.damage * 0.12);
+            a.hp -= chipDmg;
+            if(particles) particles.mine_spark(a.x, a.y);
+            if(a.hp <= 0) {
+              const dropId = G.randEl(a.drops);
+              const qty = G.randInt(1,2); // smaller yield than mining laser
+              this.floatingLoot.push({
+                x:a.x, y:a.y, vx:(Math.random()-0.5)*80, vy:(Math.random()-0.5)*80,
+                type:'item', itemId:dropId, qty, rarity:G.ITEMS[dropId]?.rarity||'c',
+                ttl:60, color:G.rarityColor(G.ITEMS[dropId]?.rarity||'c'),
+              });
+              this.asteroids.splice(j,1);
+              if(particles) particles.explosion(a.x,a.y,0,0,0.5);
+              G.ui?.addMsg('Asteroid cracked!','#aa8833');
+            }
+            if(!p.pierce) { this.projectiles.splice(i,1); break; }
+          }
+          if(!this.projectiles[i] || this.projectiles[i]!==p) continue;
+        }
+
         // vs enemies
         for(let j=this.enemies.length-1;j>=0;j--) {
           const e=this.enemies[j];
@@ -258,6 +319,35 @@ G.Space = class {
             }
           }
         }
+        // vs derelicts
+        if(this.projectiles[i]===p) {
+          for(let j=this.derelicts.length-1;j>=0;j--) {
+            const d=this.derelicts[j];
+            if(d.looted||d.dead) continue;
+            if(G.circleHit(p.x,p.y,4,d.x,d.y,20)) {
+              d.hp -= p.damage;
+              if(particles) particles.burst({x:p.x,y:p.y,minSpd:20,maxSpd:80,life:0.15,r:2,color:'#ddaa44'},4);
+              if(d.hp <= 0) {
+                d.looted = true; d.dead = true;
+                if(particles) particles.explosion(d.x,d.y,0,0,0.6);
+                const sys=G.SYSTEMS.find(s=>s.id===this.sysId);
+                const drops=G.genLoot((sys?.danger||1)+1,150);
+                for(let k=0;k<Math.ceil(drops.length*0.5);k++) {
+                  if(k>=drops.length) break;
+                  const dr=drops[k];
+                  this.floatingLoot.push({
+                    x:d.x+(Math.random()-0.5)*30, y:d.y+(Math.random()-0.5)*30,
+                    vx:(Math.random()-0.5)*150, vy:(Math.random()-0.5)*150,
+                    type:'item', itemId:dr.id, qty:dr.qty, rarity:G.ITEMS[dr.id]?.rarity||'c',
+                    ttl:60, color:G.rarityColor(G.ITEMS[dr.id]?.rarity||'c'),
+                  });
+                }
+                G.ui?.addMsg('Derelict destroyed!','#ff8844');
+              }
+              if(!p.pierce){this.projectiles.splice(i,1);break;}
+            }
+          }
+        }
         // Splash damage
         if(this.projectiles[i]===p && p.splash>0) {
           this._splashDamage(p,[...this.enemies,...this.npcs],particles);
@@ -271,14 +361,23 @@ G.Space = class {
       }
     }
 
-    // Floating loot pickup
+    // Floating loot pickup + magnet attraction
+    const MAGNET_RANGE = 220;
+    const MAGNET_ACCEL = 480;
     for(let i=this.floatingLoot.length-1;i>=0;i--) {
       const l=this.floatingLoot[i];
       l.ttl-=dt; if(l.ttl<=0){this.floatingLoot.splice(i,1);continue;}
-      l.x+=l.vx*dt; l.y+=l.vy*dt; l.vx*=0.97; l.vy*=0.97;
-      const d=G.v2.dist({x:l.x,y:l.y},{x:player.x,y:player.y});
+      // Attract toward player when nearby
+      const dx=player.x-l.x, dy=player.y-l.y;
+      const d=Math.hypot(dx,dy)||1;
+      if(d < MAGNET_RANGE) {
+        const strength = MAGNET_ACCEL * (1 - d/MAGNET_RANGE);
+        l.vx += (dx/d)*strength*dt;
+        l.vy += (dy/d)*strength*dt;
+      }
+      l.x+=l.vx*dt; l.y+=l.vy*dt; l.vx*=0.96; l.vy*=0.96;
       const cr=player.tractorRange>0?player.tractorRange+40:50;
-      if(d<cr){this._collectLoot(l,player);this.floatingLoot.splice(i,1);}
+      if(d<cr && this._collectLoot(l,player)){this.floatingLoot.splice(i,1);}
     }
   }
 
@@ -310,26 +409,40 @@ G.Space = class {
         }
       }
     } else {
-      // Independent: faction witnesses in law enforcement systems create rep loss
+      // Independent: small rep loss with the owning faction for attacking in their space
       const sys = G.SYSTEMS.find(s=>s.id===this.sysId);
-      if(sys?.faction==='earth') {
+      const ownerFac = sys?.faction;
+      if(ownerFac && ownerFac !== 'independent' && ownerFac !== 'contested' && ownerFac !== 'neutral') {
+        G.game.setRel(ownerFac, G.game.getRel(ownerFac) - 2);
+        // Law-enforcement witnesses escalate and aggressively react
         for(const w of this.npcs) {
-          if(w.faction==='earth'&&Math.hypot(w.x-npc.x,w.y-npc.y)<600) {
+          if(w.faction===ownerFac && Math.hypot(w.x-npc.x,w.y-npc.y)<700) {
             w.hostile=true; w.combatTarget=player; w.dockTimer=0;
-            G.game.setRel('earth',G.game.getRel('earth')-4);
+            G.game.setRel(ownerFac, G.game.getRel(ownerFac) - 3);
           }
         }
       }
     }
 
-    npc.takeDamage(proj.damage, proj.type);
     const shieldsBefore = npc.shields;
+    npc.takeDamage(proj.damage, proj.type);
     if(particles) {
-      if(shieldsBefore>0) particles.shield_hit(proj.x,proj.y,(npc.size||1)*16);
-      else particles.burst({x:proj.x,y:proj.y,minSpd:20,maxSpd:80,life:0.15,r:2,color:proj.color},4);
+      if(shieldsBefore>0) {
+        particles.shield_hit(proj.x,proj.y,(npc.size||1)*16);
+        G.sound?.shieldHit();
+        if(npc.shields <= 0) G.sound?.shieldsLost();
+      } else {
+        particles.burst({x:proj.x,y:proj.y,minSpd:20,maxSpd:80,life:0.15,r:2,color:proj.color},4);
+        G.sound?.weaponHit(proj.type);
+      }
+    }
+    if(npc.disabled && !npc._disabledSoundPlayed) {
+      npc._disabledSoundPlayed = true;
+      G.sound?.shipDisabled();
     }
     if(npc.dead && particles) {
       particles.explosion(npc.x,npc.y,npc.vx,npc.vy,npc.size||1);
+      G.sound?.explosion();
       // More rep loss on destroy
       if(npc.faction!=='independent') G.game.setRel(npc.faction,G.game.getRel(npc.faction)-10);
       this._dropLoot(npc);
@@ -348,13 +461,28 @@ G.Space = class {
       else if(proj.type==='emp') particles.emp_hit(proj.x,proj.y);
       else particles.burst({x:proj.x,y:proj.y,minSpd:20,maxSpd:80,life:0.15,r:2,color:proj.color},4);
     }
+    // Impact sound for the player's own fire landing on a target
+    if(proj.sourceId==='player' || proj.sourceId==='turret') {
+      if(sb>0&&enemy.shields<sb) {
+        G.sound?.shieldHit();
+        if(enemy.shields <= 0) G.sound?.shieldsLost();
+      } else {
+        G.sound?.weaponHit(proj.type);
+      }
+    }
+    if(enemy.disabled && !enemy._disabledSoundPlayed) {
+      enemy._disabledSoundPlayed = true;
+      G.sound?.shipDisabled();
+    }
     if(enemy.dead&&particles) {
       particles.explosion(enemy.x,enemy.y,enemy.vx,enemy.vy,enemy.size||1);
       this._dropLoot(enemy);
+      G.sound?.explosion();
     }
   }
 
   _onHitPlayer(player, proj, particles) {
+    const shieldsBefore = player.shields;
     const res=player.takeDamage(proj.damage, proj.type);
     // Cancel jump charge if player takes hull damage while charging
     if(res.hullDmg > 0 && G.game?._jumpChargeT > 0) {
@@ -362,9 +490,21 @@ G.Space = class {
       G.ui?.addMsg('Jump cancelled — hull hit!','#ff4444');
     }
     if(particles) {
-      if(res.shieldDmg>0) { particles.shield_hit(proj.x,proj.y,22); G.sound?.shieldHit(); }
-      else if(proj.type==='emp') particles.emp_hit(player.x,player.y);
-      else { particles.burst({x:proj.x,y:proj.y,minSpd:30,maxSpd:100,life:0.2,r:2,color:'#ff8844'},6); G.sound?.hullHit(); }
+      if(res.shieldDmg>0) {
+        particles.shield_hit(proj.x,proj.y,22);
+        G.sound?.shieldHit();
+        if(shieldsBefore > 0 && player.shields <= 0) G.sound?.shieldsLost();
+      } else if(proj.type==='emp') {
+        particles.emp_hit(player.x,player.y);
+        G.sound?.weaponHit('emp');
+      } else {
+        particles.burst({x:proj.x,y:proj.y,minSpd:30,maxSpd:100,life:0.2,r:2,color:'#ff8844'},6);
+        G.sound?.weaponHit(proj.type);
+      }
+    }
+    if(player.disabled && !player._disabledSoundPlayed) {
+      player._disabledSoundPlayed = true;
+      G.sound?.shipDisabled();
     }
 
     // Allied defense: NPCs from allied factions (rep >= 50) engage the attacker
@@ -428,6 +568,21 @@ G.Space = class {
         });
       }
     }
+    // Ammo drops: ballistic ships drop kinetic rounds, others occasionally too
+    const ammoDrops = [
+      { id:'kinetic_rounds', chance: 0.45 },
+      { id:'grenades',       chance: 0.10 },
+      { id:'missiles',       chance: 0.08 },
+    ];
+    for(const ad of ammoDrops) {
+      if(Math.random() < ad.chance) {
+        this.floatingLoot.push({ x:ship.x+(Math.random()-0.5)*50, y:ship.y+(Math.random()-0.5)*50,
+          vx:(Math.random()-0.5)*30, vy:(Math.random()-0.5)*30,
+          type:'item', itemId:ad.id, qty:1, rarity:'c', ttl:45,
+          color:'#ffcc44' });
+      }
+    }
+
     // NPC cargo drops
     if(ship.cargo) {
       for(const[id,qty] of Object.entries(ship.cargo)) {
@@ -443,26 +598,48 @@ G.Space = class {
     if(loot.type==='credits') {
       G.game.credits+=loot.amount;
       G.ui.addMsg('Collected '+G.fmtCredits(loot.amount),'#ffcc00');
+      G.sound?.lootPickup();
+      return true;
     } else if(loot.type==='item') {
       const item=G.ITEMS[loot.itemId];
+      // Ammo items go to player.ammo, not cargo
+      if(item?.cat==='ammo') {
+        const rounds=(item.ammoRounds||1)*loot.qty;
+        player.ammo[loot.itemId]=(player.ammo[loot.itemId]||0)+rounds;
+        G.ui.addMsg('Picked up '+rounds+' '+item.name,G.rarityColor(loot.rarity));
+        G.ui.showLootNotif(item.name, rounds, loot.rarity);
+        G.sound?.lootPickup();
+        return true;
+      }
       if(item&&player.cargoFreeSpace()>=(item.mass||1)*loot.qty) {
         player.addCargo(loot.itemId,loot.qty);
         G.ui.addMsg('Picked up '+loot.qty+'x '+item.name,G.rarityColor(loot.rarity));
         G.ui.showLootNotif(item.name,loot.qty,loot.rarity);
+        G.sound?.lootPickup();
+        return true;
       } else {
-        G.ui.addMsg('Cargo full — item lost!','#ff4444');
+        G.ui.addMsg('Cargo full — jettison cargo to pick up','#ff8844');
+        G.sound?.cargoFull();
+        return false;
       }
     } else if(loot.type==='module') {
       const mod=G.MODULES[loot.moduleId]||G.WEAPONS[loot.moduleId];
-      if(mod && player.slots[mod.slot] && player.slots[mod.slot].includes(null)) {
+      if(mod && player.slots.includes(null)) {
         player.installModule(loot.moduleId);
         G.ui.addMsg('Module recovered: '+mod.name+' ['+mod.slot+']', G.rarityColor(loot.rarity));
         G.ui.showLootNotif(mod.name, 1, loot.rarity);
+        G.sound?.lootPickup();
+        return true;
       } else if(mod) {
-        // No free slot — add to cargo as item equivalent if it's a cargo-safe item
-        G.ui.addMsg('Module found ('+mod.name+') — no free slot!','#ff8844');
+        player.moduleInventory.push(loot.moduleId);
+        G.ui.addMsg('Module stored in inventory: '+mod.name+' (no free slot)', G.rarityColor(loot.rarity));
+        G.ui.showLootNotif(mod.name, 1, loot.rarity);
+        G.sound?.lootPickup();
+        return true;
       }
+      return true;
     }
+    return true;
   }
 
   // ── Public helpers ───────────────────────────────────────
@@ -505,7 +682,8 @@ G.Space = class {
 
   lootDerelict(derelict, player) {
     if(derelict.looted) return null;
-    derelict.looted=true;
+    derelict.looted = true;
+    derelict.dead   = true; // triggers target-clear in main loop
     const sys=G.SYSTEMS.find(s=>s.id===this.sysId);
     const drops=G.genLoot((sys?.danger||1)+2,200);
     const collected=[];
@@ -518,12 +696,12 @@ G.Space = class {
     return collected;
   }
 
-  nearestSpaceport(x,y,radius) {
-    let nearest=null, nearestD=radius;
+  nearestSpaceport(x,y,dockPad) {
+    let nearest=null, nearestD=Infinity;
     for(const b of this.bodies) {
       if(!b.hasSpaceport) continue;
       const d=G.v2.dist({x,y},{x:b.x,y:b.y});
-      if(d<nearestD){nearestD=d;nearest=b;}
+      if(d < b.r + dockPad && d < nearestD){nearestD=d;nearest=b;}
     }
     return nearest;
   }
@@ -537,11 +715,12 @@ G.Space = class {
     return nearest;
   }
 
-  // All targetable ships (enemies + hostile NPCs + all NPCs)
+  // All targetable ships/objects (enemies, NPCs, derelicts)
   allTargets() {
     return [
       ...this.enemies.filter(e=>!e.dead&&!e.boarded),
-      ...this.npcs.filter(n=>!n.dead&&!n.boarded),
+      ...this.npcs.filter(n=>!n.dead&&!n.boarded&&n.aiState!=='docked'),
+      ...this.derelicts.filter(d=>!d.looted),
     ];
   }
 

@@ -11,7 +11,9 @@ G.EnemyAI = class {
     this.patrolAngle = data.patrolAngle || 0;
     this.fleeTimer= 0;
     this.engageRange  = 700;
-    this.fleeHpPct    = 0.15;
+    this.fleeHpPct    = 0.18;
+    this._fleeMade    = false;
+    this._berserker   = false;
     this.projColor= data.color || '#ff4444';
     this.weaponType   = data.weaponType || 'laser';
     this.empStrength  = data.empStrength || 0;
@@ -21,9 +23,10 @@ G.EnemyAI = class {
 
   update(dt, player, projectiles, particles, now) {
     if(this.disabled) {
-      // Drift
       this.x += this.vx*dt;
       this.y += this.vy*dt;
+      // Spin slowly while disabled
+      this.angle += 0.4 * dt;
       return;
     }
     if(this.boarded) return;
@@ -36,43 +39,47 @@ G.EnemyAI = class {
 
     // --- State machine ---
     if(this.aiState === 'patrol') {
-      // Orbit patrol center
       this.patrolAngle += dt * 0.3;
       const tx = this.patrolCenter.x + Math.cos(this.patrolAngle)*this.patrolDist;
       const ty = this.patrolCenter.y + Math.sin(this.patrolAngle)*this.patrolDist;
       this._steerTo(tx, ty, dt);
+      this._thrust(dt);
 
       if(distToPlayer < this.engageRange) {
         this.aiState = 'engage';
       }
     } else if(this.aiState === 'engage') {
-      // Flee if low HP
-      if(this.hp/this.maxHp < this.fleeHpPct) {
-        this.aiState = 'flee';
-        this.fleeTimer = 8;
-        return;
+      // One-time flee-or-fight decision at low HP
+      if(!this._fleeMade && this.hp / this.maxHp < this.fleeHpPct) {
+        this._fleeMade = true;
+        const cowardice = { pirate:0.30, earth:0.60, rebellion:0.45, alien:0.15 }[this.faction] ?? 0.50;
+        if(Math.random() < cowardice) {
+          this.aiState = 'flee';
+          this.fleeTimer = 5 + Math.random() * 4;
+          return;
+        }
+        // Fight on — go berserker: close range, faster firing
+        this._berserker = true;
+        this.fireRate  *= 1.6;
+        this.fleeHpPct  = 0;  // no more flee checks
       }
 
-      const preferDist = 300 + this.size*50;
-      if(distToPlayer > preferDist+100) {
-        // Approach
+      // Movement: close in aggressively; orbit rather than back away
+      const preferDist = this._berserker ? 140 : 260 + this.size * 30;
+      if(distToPlayer > preferDist + 60) {
         this._steerTo(player.x, player.y, dt);
         this._thrust(dt);
-      } else if(distToPlayer < preferDist-100) {
-        // Back off
-        this._steerTo(this.x - dx, this.y - dy, dt);
-        this._thrust(dt);
       } else {
-        // Strafe / circle
-        const perpX = -dy/distToPlayer * 200;
-        const perpY =  dx/distToPlayer * 200;
-        const side = Math.sin(this.aiTimer*0.7) > 0 ? 1 : -1;
-        this._steerTo(player.x + perpX*side, player.y + perpY*side, dt);
+        // Orbit: strafe to a perpendicular point (never reverse)
+        const side = Math.sin(this.aiTimer * 0.5) > 0 ? 1 : -1;
+        const perpX = (-dy / distToPlayer) * preferDist;
+        const perpY = ( dx / distToPlayer) * preferDist;
+        this._steerTo(player.x + perpX * side, player.y + perpY * side, dt);
         this._thrust(dt);
       }
 
       // Aim and fire
-      const aimErr = Math.sin(this.aiTimer*3)*0.3; // imprecision
+      const aimErr = this._berserker ? 0 : Math.sin(this.aiTimer*3)*0.22;
       const shootAngle = angleToPlayer + aimErr;
       const angleDiff = Math.abs(G.wrapAngle(this.angle - shootAngle));
 
@@ -89,8 +96,8 @@ G.EnemyAI = class {
           type:this.weaponType,
           splash:this.weaponType==='explosion'?60:0,
           empStrength:this.empStrength,
-          range:600, traveled:0,
-          ttl:0.8,
+          range:700, traveled:0,
+          ttl:0.9,
           color:this.projColor, width:2,
           sourceId:this.id,
           tracking:this.weaponType==='missile',
@@ -100,21 +107,37 @@ G.EnemyAI = class {
           x:this.x+Math.sin(this.angle)*18, y:this.y-Math.cos(this.angle)*18,
           minSpd:20, maxSpd:60, life:0.15, r:2, color:this.projColor,
         });
+        G.sound?.enemyWeapon(this.weaponType, distToPlayer);
       }
 
-      // Break off if player gets far
-      if(distToPlayer > this.engageRange*1.8) {
-        this.aiState = 'patrol';
-      }
     } else if(this.aiState === 'flee') {
       this.fleeTimer -= dt;
-      // Run away
       this._steerTo(this.x - dx*2, this.y - dy*2, dt);
       this._thrust(dt, true);
-      if(this.fleeTimer <= 0 || distToPlayer > this.engageRange*2) {
-        this.aiState = 'patrol';
+
+      if(this.fleeTimer <= 0 && this.hp > 0) {
+        this._hyperEscape(particles);
       }
     }
+
+    // Apply velocity to position
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+  }
+
+  _hyperEscape(particles) {
+    if(particles) {
+      // Flash and streak effect
+      for(let i = 0; i < 20; i++) {
+        particles.emit({
+          x: this.x, y: this.y,
+          vx: Math.sin(this.angle)*300 + (Math.random()-0.5)*80,
+          vy: -Math.cos(this.angle)*300 + (Math.random()-0.5)*80,
+          life: 0.4, r: 1.5, color: '#aaddff', drag: 0.7, fade: true,
+        });
+      }
+    }
+    this.dead = true;
   }
 
   _steerTo(tx, ty, dt) {
@@ -139,10 +162,13 @@ G.EnemyAI = class {
 
   takeDamage(amount, type) {
     if(type==='emp') {
-      this.shields = Math.max(0, this.shields-amount*0.5);
-      this.empTimer= 5;
-      this.disabled= true;
-      setTimeout(()=>{ if(!this.dead) this.disabled=false; }, 5000);
+      this.shields = Math.max(0, this.shields - amount*0.5);
+      this.empTimer = 5;
+      return;
+    }
+    if(this.disabled) {
+      this.hp -= amount;
+      if(this.hp <= 0) this.dead = true;
       return;
     }
     if(this.shields > 0) {
@@ -152,11 +178,11 @@ G.EnemyAI = class {
       amount *= 0.2;
     }
     this.hp -= amount;
-    if(this.hp <= 10 && !this.disabled) {
+    if(this.hp <= 0) {
+      this.hp = Math.round(this.maxHp * 0.2);
       this.disabled = true;
-      this.hp = 10;
+      this.aiState = 'disabled';
     }
-    if(this.hp <= 0) this.dead = true;
   }
 };
 G.EnemyAI._uid = 0;

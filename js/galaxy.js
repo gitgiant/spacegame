@@ -4,11 +4,16 @@ G.Galaxy = class {
   constructor() {
     this.routes     = G.buildHyperspaceRoutes();
     this.visited    = new Set(['sol']);
+    this.known      = new Set(['sol']); // visited + their neighbors
     this.selected   = null;
     this.hoveredSys = null;
-    this.jumpRoute  = []; // planned multi-hop route (array of sysIds, not including current)
+    this.jumpRoute  = [];
     this._canvas    = null;
     this._ctx       = null;
+    // Zoom/pan state
+    this._zoom = 1.0;
+    this._panX = 0;
+    this._panY = 0;
   }
 
   init() {
@@ -20,19 +25,17 @@ G.Galaxy = class {
     this._canvas.style.height = '700px';
 
     this._canvas.addEventListener('mousemove', e => {
-      const r  = this._canvas.getBoundingClientRect();
-      const mx = (e.clientX-r.left)*(950/r.width);
-      const my = (e.clientY-r.top)*(700/r.height);
-      this.hoveredSys = this._sysAt(mx,my);
+      const rect = this._canvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * (950 / rect.width);
+      const my = (e.clientY - rect.top)  * (700 / rect.height);
+      this.hoveredSys = this._sysAt(mx, my);
     });
 
     this._canvas.addEventListener('click', e => {
       if(!this.hoveredSys) return;
-      const targetId = this.hoveredSys.id;
+      const targetId  = this.hoveredSys.id;
       const currentId = G.game?.currentSysId;
       if(targetId === currentId) return;
-
-      // Build route from current system to clicked system
       const route = this._findRoute(currentId, targetId);
       if(route && route.length > 0) {
         this.jumpRoute = route;
@@ -43,230 +46,401 @@ G.Galaxy = class {
       }
     });
 
-    document.getElementById('close-galaxy-btn').addEventListener('click', () => {
-      G.game.closeGalaxy();
-    });
+    // Mouse-wheel zoom centered on cursor position
+    this._canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      const rect = this._canvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * (950 / rect.width);
+      const my = (e.clientY - rect.top)  * (700 / rect.height);
+      const f  = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      const newZoom = Math.max(0.45, Math.min(4.5, this._zoom * f));
+      const scale   = newZoom / this._zoom;
+      this._panX  = mx - (mx - this._panX) * scale;
+      this._panY  = my - (my - this._panY) * scale;
+      this._zoom  = newZoom;
+    }, { passive: false });
+
+    document.getElementById('close-galaxy-btn')
+      .addEventListener('click', () => G.game.closeGalaxy());
 
     const jb = document.getElementById('jump-btn');
     if(jb) jb.classList.add('hidden');
   }
 
-  // BFS pathfinding from fromId to toId, returns array of sysIds (not including from)
+  // ── Coordinate helpers ───────────────────────────────────
+  _toWorld(cx, cy) {
+    return [(cx - this._panX) / this._zoom, (cy - this._panY) / this._zoom];
+  }
+  _toCanvas(wx, wy) {
+    return [wx * this._zoom + this._panX, wy * this._zoom + this._panY];
+  }
+
+  // ── Route finding ────────────────────────────────────────
   _findRoute(fromId, toId) {
     if(fromId === toId) return [];
-    const queue = [[fromId]];
+    const queue   = [[fromId]];
     const visited = new Set([fromId]);
-    while(queue.length > 0) {
+    while(queue.length) {
       const path = queue.shift();
       const cur  = path[path.length - 1];
       for(const next of (this.routes[cur] || [])) {
         if(visited.has(next)) continue;
         visited.add(next);
-        const newPath = [...path, next];
-        if(next === toId) return newPath.slice(1);
-        queue.push(newPath);
+        const np = [...path, next];
+        if(next === toId) return np.slice(1);
+        queue.push(np);
       }
     }
     return null;
   }
 
   canJumpTo(sysId) {
-    const player = G.game?.player;
-    if(!player?.canJump) return false;
-    const current = G.SYSTEMS.find(s=>s.id===G.game.currentSysId);
-    if(!current) return false;
-    return (this.routes[current.id]||[]).includes(sysId);
+    if(!G.game?.player?.canJump) return false;
+    const cur = G.SYSTEMS.find(s => s.id === G.game.currentSysId);
+    return cur ? (this.routes[cur.id] || []).includes(sysId) : false;
   }
 
-  // Returns the next hop system that can be jumped to right now
   nextJumpableHop() {
     if(!this.jumpRoute.length) return null;
-    const nextId = this.jumpRoute[0];
-    if(this.canJumpTo(nextId)) return G.SYSTEMS.find(s=>s.id===nextId);
-    return null;
+    const id = this.jumpRoute[0];
+    return this.canJumpTo(id) ? G.SYSTEMS.find(s => s.id === id) : null;
   }
 
-  clearRoute() {
-    this.jumpRoute = [];
-    this.selected  = null;
+  clearRoute() { this.jumpRoute = []; this.selected = null; }
+
+  // Mark a system visited and reveal its neighbors on the map
+  revealAround(sysId) {
+    this.visited.add(sysId);
+    this.known.add(sysId);
+    for(const nb of (this.routes[sysId] || [])) this.known.add(nb);
   }
 
-  _sysAt(mx,my) {
+  _sysAt(mx, my) {
+    // Only pick known systems
+    const [wx, wy] = this._toWorld(mx, my);
     for(const sys of G.SYSTEMS) {
-      const d = Math.sqrt((sys.pos[0]-mx)**2+(sys.pos[1]-my)**2);
-      if(d<=10) return sys;
+      if(!this.known.has(sys.id)) continue;
+      if(Math.hypot(sys.pos[0] - wx, sys.pos[1] - wy) <= 10) return sys;
     }
     return null;
   }
+
 
   _missionTargets() {
-    const targets = {};
-    if(!G.game) return targets;
+    const t = {};
+    if(!G.game) return t;
     for(const m of G.game.activeMissions) {
-      if(m.completed||m.failed) continue;
+      if(m.completed || m.failed) continue;
       const dest = m.params.dest || m.params.target;
-      if(dest) {
-        if(!targets[dest]) targets[dest] = [];
-        targets[dest].push(m.type);
-      }
+      if(dest) { (t[dest] = t[dest] || []).push(m.type); }
     }
-    return targets;
+    return t;
   }
 
+  // ── Main draw ────────────────────────────────────────────
   draw(playerSysId) {
     const ctx = this._ctx;
     if(!ctx) return;
-    ctx.clearRect(0,0,950,700);
-    this._drawBackground(ctx);
 
-    const missionTargets = this._missionTargets();
+    // 1. Canvas-space background (stars stay fixed as you pan/zoom)
+    ctx.clearRect(0, 0, 950, 700);
+    this._drawStarsAndFill(ctx);
+
+    // 2. Galaxy content in zoom-space
+    ctx.save();
+    ctx.setTransform(this._zoom, 0, 0, this._zoom, this._panX, this._panY);
+    this._drawNebulaeAndCore(ctx);
+    this._drawRouteLines(ctx, playerSysId);
+    this._drawMissionPings(ctx);
+    this._drawSystems(ctx, playerSysId);
+    ctx.restore();
+
+    // 3. Canvas-space UI overlays
+    if(this.jumpRoute.length > 0) {
+      this._drawRoutePanel(ctx, playerSysId);
+    } else if(this.hoveredSys && this.hoveredSys.id !== playerSysId) {
+      const [csx, csy] = this._toCanvas(...this.hoveredSys.pos);
+      this._drawHoverPanel(ctx, this.hoveredSys, playerSysId, csx, csy);
+    }
+    this._drawLegend(ctx);
+    this._drawZoomHint(ctx);
+  }
+
+  // ── Stars (canvas-space, fixed) ──────────────────────────
+  _drawStarsAndFill(ctx) {
+    ctx.fillStyle = '#00010a';
+    ctx.fillRect(0, 0, 950, 700);
+    const rng = G.seededRng('galaxy_bg3');
+    for(let i = 0; i < 900; i++) {
+      const x = rng() * 950, y = rng() * 700;
+      const d = Math.hypot(x - 475, y - 345);
+      const density = Math.max(0.1, 1 - d / 460);
+      if(rng() > density * 0.7 + 0.3) continue;
+      const bright = 0.06 + rng() * 0.6 * density;
+      const sz = rng() < 0.04 ? 1.5 : 0.8;
+      ctx.fillStyle = `rgba(${200 + rng() * 55 | 0},${210 + rng() * 45 | 0},255,${bright})`;
+      ctx.fillRect(x | 0, y | 0, sz, sz);
+    }
+  }
+
+  // ── Galactic core (world-space, zooms with map) ──────────
+  _drawNebulaeAndCore(ctx) {
+    const CX = 475, CY = 345;
+
+    // Outer diffuse haze over the whole map
+    const haze = ctx.createRadialGradient(CX, CY, 140, CX, CY, 490);
+    haze.addColorStop(0, 'rgba(18,22,65,0.22)');
+    haze.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = haze; ctx.fillRect(0, 0, 950, 700);
+
+    // Core outer corona — purple-blue
+    const corona = ctx.createRadialGradient(CX, CY, 50, CX, CY, 185);
+    corona.addColorStop(0,   'rgba(130,80,240,0.18)');
+    corona.addColorStop(0.5, 'rgba(65,45,155,0.09)');
+    corona.addColorStop(1,   'rgba(0,0,0,0)');
+    ctx.fillStyle = corona; ctx.fillRect(CX-185, CY-185, 370, 370);
+
+    // Core mid warm bulge — yellow-orange
+    const bulge = ctx.createRadialGradient(CX, CY, 8, CX, CY, 90);
+    bulge.addColorStop(0,    'rgba(255,238,155,0.48)');
+    bulge.addColorStop(0.45, 'rgba(220,168,85,0.22)');
+    bulge.addColorStop(1,    'rgba(150,100,38,0)');
+    ctx.fillStyle = bulge; ctx.fillRect(CX-90, CY-90, 180, 180);
+
+    // Core hot bright center
+    const hot = ctx.createRadialGradient(CX, CY, 0, CX, CY, 36);
+    hot.addColorStop(0,   'rgba(255,252,228,0.80)');
+    hot.addColorStop(0.3, 'rgba(255,228,130,0.48)');
+    hot.addColorStop(0.7, 'rgba(240,175,70,0.16)');
+    hot.addColorStop(1,   'rgba(200,140,55,0)');
+    ctx.fillStyle = hot; ctx.fillRect(CX-36, CY-36, 72, 72);
+
+    // Dense core star cluster
+    const cRng = G.seededRng('core_stars_v3');
+    ctx.save();
+    for (let i = 0; i < 280; i++) {
+      const a    = cRng() * Math.PI * 2;
+      const r    = Math.sqrt(cRng()) * 88;
+      const x    = CX + Math.cos(a) * r;
+      const y    = CY + Math.sin(a) * r;
+      const fade = 1 - r / 88;
+      const bright = (0.28 + cRng() * 0.72) * (0.35 + fade * 0.65);
+      if (cRng() < 0.22) {
+        ctx.fillStyle = `rgba(165,198,255,${bright * 0.72})`;
+      } else {
+        const g = 188 + cRng() * 60 | 0;
+        const b = 95  + cRng() * 85 | 0;
+        ctx.fillStyle = `rgba(255,${g},${b},${bright})`;
+      }
+      const sz = (r < 16 && cRng() < 0.14) ? 2 : 1;
+      ctx.fillRect((x - sz * 0.5) | 0, (y - sz * 0.5) | 0, sz, sz);
+    }
+    ctx.restore();
+
+    // Subtle dust arcs curving around the bulge
+    const dustRng = G.seededRng('core_dust_v1');
+    ctx.save();
+    for (let i = 0; i < 5; i++) {
+      const a0 = dustRng() * Math.PI * 2;
+      const r  = 95 + dustRng() * 55;
+      const span = 0.9 + dustRng() * 1.1;
+      ctx.beginPath();
+      ctx.arc(CX, CY, r, a0, a0 + span);
+      ctx.strokeStyle = `rgba(0,0,0,${0.06 + dustRng() * 0.09})`;
+      ctx.lineWidth = 20 + dustRng() * 28;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  // ── Route lines ──────────────────────────────────────────
+  _drawRouteLines(ctx, playerSysId) {
     const routeSet = new Set(this.jumpRoute);
-
-    // ── Hyperspace routes ────────────────────────────────
+    const lw = 1 / this._zoom;
     const drawn = new Set();
+
     for(const [sysId, conns] of Object.entries(this.routes)) {
-      const a = G.SYSTEMS.find(s=>s.id===sysId);
+      const a = G.SYSTEMS.find(s => s.id === sysId);
       if(!a) continue;
       for(const connId of conns) {
-        const key = [sysId,connId].sort().join('_');
+        const key = [sysId, connId].sort().join('|');
         if(drawn.has(key)) continue;
         drawn.add(key);
-        const b = G.SYSTEMS.find(s=>s.id===connId);
+        const b = G.SYSTEMS.find(s => s.id === connId);
         if(!b) continue;
-        const aVis = this.visited.has(sysId), bVis = this.visited.has(connId);
 
-        // Highlight route connections
-        const onRoute = routeSet.has(sysId) && routeSet.has(connId)
-          || (sysId===playerSysId && routeSet.has(connId) && connId===this.jumpRoute[0])
-          || (connId===playerSysId && routeSet.has(sysId) && sysId===this.jumpRoute[0]);
+        // Hide routes where either endpoint is unknown
+        if(!this.known.has(sysId) || !this.known.has(connId)) continue;
+        const aVis = this.visited.has(sysId), bVis = this.visited.has(connId);
+        // Don't draw lines between two unvisited-known nodes
+        if(!aVis && !bVis) continue;
+
+        const onRoute = (routeSet.has(sysId) && routeSet.has(connId))
+          || (sysId === playerSysId && connId === this.jumpRoute[0])
+          || (connId === playerSysId && sysId === this.jumpRoute[0]);
 
         ctx.beginPath();
-        ctx.moveTo(a.pos[0],a.pos[1]);
-        ctx.lineTo(b.pos[0],b.pos[1]);
+        ctx.moveTo(a.pos[0], a.pos[1]);
+        ctx.lineTo(b.pos[0], b.pos[1]);
         if(onRoute) {
-          ctx.strokeStyle='rgba(0,200,255,0.55)';
-          ctx.lineWidth=2;
+          ctx.strokeStyle = 'rgba(0,200,255,0.65)'; ctx.lineWidth = 2 * lw;
+        } else if(aVis && bVis) {
+          ctx.strokeStyle = 'rgba(70,120,170,0.28)'; ctx.lineWidth = lw;
         } else {
-          ctx.strokeStyle = (aVis||bVis) ? 'rgba(80,130,180,0.3)' : 'rgba(40,60,80,0.15)';
-          ctx.lineWidth=0.5;
+          // One visited, one known-unvisited: dim dotted line
+          ctx.strokeStyle = 'rgba(50,80,110,0.20)'; ctx.lineWidth = lw;
+          ctx.setLineDash([3/this._zoom, 5/this._zoom]);
         }
         ctx.stroke();
-        ctx.lineWidth=0.5;
+        ctx.setLineDash([]);
       }
     }
 
-    // ── Reachable routes highlight (from current position) ───
-    if(G.game && G.game.player.canJump) {
-      const reachable = this.routes[playerSysId]||[];
-      const cs = G.SYSTEMS.find(s=>s.id===playerSysId);
-      for(const rid of reachable) {
-        const rs = G.SYSTEMS.find(s=>s.id===rid);
-        if(!rs||!cs) continue;
+    // Reachable-from-current highlight
+    if(G.game?.player.canJump) {
+      const cs = G.SYSTEMS.find(s => s.id === playerSysId);
+      for(const rid of (this.routes[playerSysId] || [])) {
+        const rs = G.SYSTEMS.find(s => s.id === rid);
+        if(!rs || !cs) continue;
         ctx.beginPath();
-        ctx.moveTo(cs.pos[0],cs.pos[1]);
-        ctx.lineTo(rs.pos[0],rs.pos[1]);
-        ctx.strokeStyle='rgba(0,200,255,0.18)';
-        ctx.lineWidth=1.5; ctx.stroke(); ctx.lineWidth=0.5;
+        ctx.moveTo(cs.pos[0], cs.pos[1]);
+        ctx.lineTo(rs.pos[0], rs.pos[1]);
+        ctx.strokeStyle = 'rgba(0,200,255,0.20)';
+        ctx.lineWidth = 1.5 * lw; ctx.stroke();
       }
     }
+  }
 
-    // ── Mission destination highlights ──────────────────
-    for(const [sysId, types] of Object.entries(missionTargets)) {
-      const sys = G.SYSTEMS.find(s=>s.id===sysId);
+  // ── Mission destination pings ────────────────────────────
+  _drawMissionPings(ctx) {
+    const pulse = 0.4 + 0.4 * Math.sin(Date.now() * 0.003);
+    for(const [sysId] of Object.entries(this._missionTargets())) {
+      const sys = G.SYSTEMS.find(s => s.id === sysId);
       if(!sys) continue;
-      const [sx,sy] = sys.pos;
-      const pulse = 0.4 + 0.4*Math.sin(Date.now()*0.003);
-      ctx.beginPath(); ctx.arc(sx,sy,12+pulse*3,0,Math.PI*2);
-      ctx.strokeStyle=`rgba(255,200,0,${0.5+pulse*0.3})`;
-      ctx.lineWidth=1.5; ctx.stroke(); ctx.lineWidth=0.5;
+      const [sx, sy] = sys.pos;
+      ctx.beginPath(); ctx.arc(sx, sy, 12 + pulse * 3, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255,200,0,${0.5 + pulse * 0.3})`;
+      ctx.lineWidth = 1.5 / this._zoom; ctx.stroke();
     }
+  }
 
-    // ── Systems ──────────────────────────────────────────
+  // ── System nodes ─────────────────────────────────────────
+  _drawSystems(ctx, playerSysId) {
+    const routeSet = new Set(this.jumpRoute);
+    const lw = 1 / this._zoom;
+
     for(const sys of G.SYSTEMS) {
-      const [sx,sy] = sys.pos;
-      const fac     = G.FACTIONS[sys.faction];
+      const [sx, sy] = sys.pos;
       const visited = this.visited.has(sys.id);
-      const isCur   = sys.id===playerSysId;
-      const isHov   = sys===this.hoveredSys;
+      const isCur   = sys.id === playerSysId;
+
+      // Skip completely unknown systems
+      if(!this.known.has(sys.id) && !isCur) continue;
+
+      const isHov   = sys === this.hoveredSys;
       const isRoute = routeSet.has(sys.id);
       const isNext  = this.jumpRoute.length > 0 && sys.id === this.jumpRoute[0];
 
-      // Relation ring (drawn first so other indicators sit on top)
+      // Known-but-unvisited: empty white circle
+      if(!visited && !isCur) {
+        ctx.globalAlpha = isHov ? 0.9 : 0.5;
+        ctx.beginPath(); ctx.arc(sx, sy, isHov ? 3.5 : 2.8, 0, Math.PI * 2);
+        ctx.strokeStyle = isHov ? '#ffffff' : 'rgba(200,215,235,0.85)';
+        ctx.lineWidth = 0.9 * lw;
+        ctx.stroke();
+        ctx.globalAlpha = 1.0;
+        continue;
+      }
+
+      const fac     = G.FACTIONS[sys.faction];
+      // Faction color — grey for contested/neutral/independent
+      const isGreyFac = !fac || sys.faction === 'neutral'
+                     || sys.faction === 'independent' || sys.faction === 'contested';
+      const facCol = isGreyFac ? '#888888' : (fac?.color || '#888888');
+
+      // Relation ring color (shown as border of the node dot)
+      let relCol = null;
       if(G.game && !isCur) {
         const rel = G.game.getRel(sys.faction);
-        let relCol;
-        if(rel >= 50)       relCol = 'rgba(0,255,102,0.55)';
-        else if(rel >= -20) relCol = 'rgba(130,130,130,0.35)';
-        else if(rel >= -50) relCol = 'rgba(255,200,0,0.6)';
-        else                relCol = 'rgba(255,55,55,0.65)';
-        ctx.beginPath(); ctx.arc(sx,sy,7,0,Math.PI*2);
-        ctx.strokeStyle=relCol; ctx.lineWidth=2; ctx.stroke(); ctx.lineWidth=0.5;
+        relCol = rel >= 50  ? '#00ff66'
+               : rel >= -20 ? '#777777'
+               : rel >= -50 ? '#ffcc00'
+               :              '#ff3333';
       }
 
+      // Outer hover / route / next indicators
       if(isCur) {
-        ctx.beginPath(); ctx.arc(sx,sy,13,0,Math.PI*2);
-        ctx.fillStyle='rgba(0,255,238,0.1)'; ctx.fill();
+        ctx.beginPath(); ctx.arc(sx, sy, 15, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0,255,238,0.07)'; ctx.fill();
       }
       if(isNext) {
-        ctx.beginPath(); ctx.arc(sx,sy,10,0,Math.PI*2);
-        ctx.strokeStyle='#00ffee'; ctx.lineWidth=2; ctx.stroke(); ctx.lineWidth=0.5;
+        ctx.beginPath(); ctx.arc(sx, sy, 10, 0, Math.PI * 2);
+        ctx.strokeStyle = '#00ffee'; ctx.lineWidth = 2 * lw; ctx.stroke();
       } else if(isRoute) {
-        ctx.beginPath(); ctx.arc(sx,sy,8,0,Math.PI*2);
-        ctx.strokeStyle='rgba(0,180,255,0.7)'; ctx.lineWidth=1.5; ctx.stroke(); ctx.lineWidth=0.5;
+        ctx.beginPath(); ctx.arc(sx, sy, 8, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(0,180,255,0.75)'; ctx.lineWidth = 1.5 * lw; ctx.stroke();
       } else if(isHov && !isCur) {
-        ctx.beginPath(); ctx.arc(sx,sy,8,0,Math.PI*2);
-        ctx.strokeStyle='rgba(0,200,200,0.6)'; ctx.lineWidth=1.5; ctx.stroke(); ctx.lineWidth=0.5;
+        ctx.beginPath(); ctx.arc(sx, sy, 8, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(0,220,220,0.7)'; ctx.lineWidth = 1.5 * lw; ctx.stroke();
       }
 
-      const r   = visited ? 4 : 2.5;
-      const col = visited ? (fac?.color||'#aaa') : '#334455';
-      const dotCol = isCur ? '#00ffee' : (isRoute?'#44aaff':col);
+      // Node dot — faction colored, dimmed if unvisited
+      const r = isCur ? 5.5 : (visited ? 4.5 : 3);
+      const dotFill = isCur ? '#00ffee' : (isRoute ? '#44aaff' : facCol);
+      ctx.globalAlpha = (visited || isCur) ? 1.0 : 0.38;
+
       if(sys.noStar) {
-        ctx.strokeStyle=dotCol; ctx.lineWidth=1.2;
-        ctx.beginPath(); ctx.moveTo(sx,sy-r*1.3); ctx.lineTo(sx+r*1.3,sy);
-        ctx.lineTo(sx,sy+r*1.3); ctx.lineTo(sx-r*1.3,sy); ctx.closePath();
-        ctx.stroke(); ctx.lineWidth=0.5;
+        // Alien/void systems: diamond shape
+        ctx.beginPath();
+        ctx.moveTo(sx, sy - r * 1.4); ctx.lineTo(sx + r * 1.4, sy);
+        ctx.lineTo(sx, sy + r * 1.4); ctx.lineTo(sx - r * 1.4, sy);
+        ctx.closePath();
+        ctx.strokeStyle = dotFill; ctx.lineWidth = 1.5 * lw; ctx.stroke();
       } else {
-        ctx.beginPath(); ctx.arc(sx,sy,r,0,Math.PI*2);
-        ctx.fillStyle=dotCol; ctx.fill();
+        ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        ctx.fillStyle = dotFill; ctx.fill();
+        // Relation indicator as the node's stroke border
+        if(relCol) {
+          ctx.strokeStyle = relCol;
+          ctx.lineWidth   = 1.8 * lw;
+          ctx.stroke();
+        }
       }
+      ctx.globalAlpha = 1.0;
 
-      if(visited||isHov||isNext||isCur) {
-        ctx.fillStyle = isCur ? '#00ffee' : isNext ? '#00ffee' : (fac?.color||'#aaaaaa');
-        ctx.font = isCur ? 'bold 8px "Press Start 2P",monospace' : '7px "Press Start 2P",monospace';
-        ctx.fillText(sys.name, sx+7, sy-5);
+      // Label — always show for current/next/hovered; visited only when zoom > 0.8
+      const showLabel = isCur || isNext || isHov || (visited && this._zoom > 0.7);
+      if(showLabel) {
+        const labelCol = (isCur || isNext) ? '#00ffee' : facCol;
+        ctx.fillStyle = labelCol;
+        ctx.globalAlpha = (visited || isCur) ? 1.0 : 0.55;
+        ctx.font = `${isCur ? 'bold ' : ''}8px "Press Start 2P",monospace`;
+        ctx.fillText(sys.name, sx + 6, sy - 5);
+        ctx.globalAlpha = 1.0;
       }
     }
 
-    // ── Current system pulse ─────────────────────────────
-    const curSys = G.SYSTEMS.find(s=>s.id===playerSysId);
-    if(curSys) {
-      const pulse = 0.5+0.5*Math.sin(Date.now()*0.003);
-      ctx.beginPath(); ctx.arc(curSys.pos[0],curSys.pos[1],6+pulse*3,0,Math.PI*2);
-      ctx.strokeStyle=`rgba(0,255,238,${0.4+pulse*0.4})`; ctx.lineWidth=1.5; ctx.stroke();
+    // Current system pulse ring
+    const cur = G.SYSTEMS.find(s => s.id === playerSysId);
+    if(cur) {
+      const pulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.003);
+      ctx.beginPath(); ctx.arc(cur.pos[0], cur.pos[1], 7 + pulse * 3, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(0,255,238,${0.4 + pulse * 0.4})`;
+      ctx.lineWidth = 1.5 / this._zoom; ctx.stroke();
     }
-
-    // ── Route info panel ─────────────────────────────────
-    if(this.jumpRoute.length > 0) this._drawRoutePanel(ctx, playerSysId);
-    // ── Hover panel ──────────────────────────────────────
-    else if(this.hoveredSys && this.hoveredSys.id !== playerSysId) {
-      this._drawHoverPanel(ctx, this.hoveredSys, playerSysId);
-    }
-
-    this._drawLegend(ctx);
   }
 
+  // ── Route panel (canvas-space) ───────────────────────────
   _drawRoutePanel(ctx, playerSysId) {
-    const dest   = G.SYSTEMS.find(s=>s.id===this.jumpRoute[this.jumpRoute.length-1]);
-    const next   = G.SYSTEMS.find(s=>s.id===this.jumpRoute[0]);
-    const hops   = this.jumpRoute.length;
-    const fuelNeed = hops * 10;
-    const fuelHave = G.game?.player.fuel || 0;
-    const fuelJumps = Math.floor(fuelHave / 10);
+    const dest  = G.SYSTEMS.find(s => s.id === this.jumpRoute[this.jumpRoute.length - 1]);
+    const next  = G.SYSTEMS.find(s => s.id === this.jumpRoute[0]);
+    const hops  = this.jumpRoute.length;
+    const fuel  = G.game?.player.fuel || 0;
+    const PW = 220, PH = 130, px = 950 - PW - 12, py = 12;
 
-    const PW=220, PH=130, px=950-PW-12, py=12;
     ctx.save();
-    ctx.fillStyle='rgba(0,8,20,0.94)'; ctx.strokeStyle='#1a6a4a'; ctx.lineWidth=1;
+    ctx.fillStyle = 'rgba(0,8,20,0.94)'; ctx.strokeStyle = '#1a6a4a'; ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(px+4,py); ctx.lineTo(px+PW-4,py); ctx.quadraticCurveTo(px+PW,py,px+PW,py+4);
     ctx.lineTo(px+PW,py+PH-4); ctx.quadraticCurveTo(px+PW,py+PH,px+PW-4,py+PH);
@@ -274,171 +448,117 @@ G.Galaxy = class {
     ctx.lineTo(px,py+4); ctx.quadraticCurveTo(px,py,px+4,py); ctx.closePath();
     ctx.fill(); ctx.stroke();
 
-    ctx.font='7px "Press Start 2P",monospace'; ctx.fillStyle='#00ffee';
-    ctx.fillText('ROUTE PLANNED', px+8, py+15);
-    ctx.font='6px "Press Start 2P",monospace'; ctx.fillStyle='#aaa';
-    ctx.fillText('NEXT: '+(next?.name||'?'), px+8, py+30);
-    ctx.fillText('DEST: '+(dest?.name||'?'), px+8, py+43);
-    ctx.fillText('HOPS: '+hops, px+8, py+56);
-    ctx.fillStyle = fuelHave >= fuelNeed ? '#44ff44' : '#ff4444';
-    ctx.fillText('FUEL: '+Math.ceil(fuelHave)+' ('+fuelJumps+' jumps)', px+8, py+70);
-    ctx.fillStyle='#00ffee';
-    ctx.fillText('HOLD [J] TO JUMP', px+8, py+88);
-    ctx.fillStyle='#556677'; ctx.font='5px "Press Start 2P",monospace';
-    ctx.fillText('click system to reroute', px+8, py+102);
-    ctx.fillText('[M] close map', px+8, py+115);
+    ctx.font = '8px "Press Start 2P",monospace'; ctx.fillStyle = '#00ffee';
+    ctx.fillText('ROUTE PLANNED', px+8, py+16);
+    ctx.font = '7px "Press Start 2P",monospace'; ctx.fillStyle = '#aaa';
+    ctx.fillText('NEXT: ' + (next?.name || '?'), px+8, py+32);
+    ctx.fillText('DEST: ' + (dest?.name || '?'), px+8, py+46);
+    ctx.fillText('HOPS: ' + hops, px+8, py+60);
+    ctx.fillStyle = fuel >= hops*10 ? '#44ff44' : '#ff4444';
+    ctx.fillText('FUEL: ' + Math.ceil(fuel) + ' (' + Math.floor(fuel/10) + ' jumps)', px+8, py+74);
+    ctx.fillStyle = '#00ffee';
+    ctx.fillText('HOLD [J] TO JUMP', px+8, py+92);
+    ctx.fillStyle = '#556677'; ctx.font = '6px "Press Start 2P",monospace';
+    ctx.fillText('click system to reroute', px+8, py+107);
+    ctx.fillText('[M] close map', px+8, py+120);
     ctx.restore();
   }
 
-  _drawHoverPanel(ctx, sys, playerSysId) {
-    const [sx,sy]= sys.pos;
+  // ── Hover panel (canvas-space, positioned near node) ────
+  _drawHoverPanel(ctx, sys, playerSysId, csx, csy) {
     const fac    = G.FACTIONS[sys.faction];
-    const facRel = G.game ? G.game.getRel(sys.faction) : 0;
-    const visited= this.visited.has(sys.id);
+    const rel    = G.game ? G.game.getRel(sys.faction) : 0;
+    const visited = this.visited.has(sys.id);
     const route  = this._findRoute(playerSysId, sys.id);
     const hops   = route ? route.length : null;
+    const facCol = (fac && sys.faction !== 'contested' && sys.faction !== 'neutral')
+                 ? fac.color : '#aaaaaa';
 
-    const PW=200, PH=140;
-    let px = Math.min(sx+15, 950-PW-8);
-    let py = Math.max(8, Math.min(sy-20, 700-PH-8));
+    const PW = 200, PH = 140;
+    const px = Math.min(csx + 18, 950 - PW - 8);
+    const py = Math.max(8, Math.min(csy - 20, 700 - PH - 8));
 
     ctx.save();
-    ctx.fillStyle='rgba(3,10,22,0.94)'; ctx.strokeStyle='#1a4a6a'; ctx.lineWidth=1;
-    const r=4;
+    ctx.fillStyle = 'rgba(3,10,22,0.94)'; ctx.strokeStyle = '#1a4a6a'; ctx.lineWidth = 1;
+    const rr = 4;
     ctx.beginPath();
-    ctx.moveTo(px+r,py); ctx.lineTo(px+PW-r,py); ctx.quadraticCurveTo(px+PW,py,px+PW,py+r);
-    ctx.lineTo(px+PW,py+PH-r); ctx.quadraticCurveTo(px+PW,py+PH,px+PW-r,py+PH);
-    ctx.lineTo(px+r,py+PH); ctx.quadraticCurveTo(px,py+PH,px,py+PH-r);
-    ctx.lineTo(px,py+r); ctx.quadraticCurveTo(px,py,px+r,py);
+    ctx.moveTo(px+rr,py); ctx.lineTo(px+PW-rr,py); ctx.quadraticCurveTo(px+PW,py,px+PW,py+rr);
+    ctx.lineTo(px+PW,py+PH-rr); ctx.quadraticCurveTo(px+PW,py+PH,px+PW-rr,py+PH);
+    ctx.lineTo(px+rr,py+PH); ctx.quadraticCurveTo(px,py+PH,px,py+PH-rr);
+    ctx.lineTo(px,py+rr); ctx.quadraticCurveTo(px,py,px+rr,py);
     ctx.closePath(); ctx.fill(); ctx.stroke();
 
-    ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(px,py+PH/2);
-    ctx.strokeStyle='rgba(0,200,200,0.25)'; ctx.lineWidth=0.5; ctx.stroke();
+    // Connector line from node to panel
+    ctx.beginPath(); ctx.moveTo(csx, csy); ctx.lineTo(px, py + PH / 2);
+    ctx.strokeStyle = 'rgba(0,200,200,0.22)'; ctx.lineWidth = 0.5; ctx.stroke();
 
-    ctx.font='8px "Press Start 2P",monospace';
-    ctx.fillStyle = fac?.color||'#00ffee';
-    ctx.fillText(sys.name.slice(0,18), px+8, py+16);
-    ctx.font='6px "Press Start 2P",monospace'; ctx.fillStyle='#aaa';
-    const stars='★'.repeat(Math.min(sys.danger,5))+'☆'.repeat(Math.max(0,5-sys.danger));
-    ctx.fillText('Faction: '+(fac?.name||sys.faction).slice(0,14), px+8, py+30);
-    ctx.fillStyle='#ff8844';
-    ctx.fillText('Danger: '+stars, px+8, py+42);
-    ctx.fillStyle=visited?'#44ff44':'#888';
-    ctx.fillText(visited?'Visited':'Unexplored', px+8, py+54);
-    ctx.fillStyle=facRel>0?'#44ff44':facRel<0?'#ff4444':'#aaa';
-    ctx.fillText('Rep: '+facRel, px+8, py+66);
+    ctx.font = '10px "Press Start 2P",monospace';
+    ctx.fillStyle = facCol;
+    ctx.fillText(sys.name.slice(0, 18), px+8, py+18);
+    ctx.font = '7px "Press Start 2P",monospace'; ctx.fillStyle = '#aaa';
+    const stars = '★'.repeat(Math.min(sys.danger, 5)) + '☆'.repeat(Math.max(0, 5 - sys.danger));
+    ctx.fillText('Faction: ' + (fac?.name || sys.faction).slice(0, 14), px+8, py+33);
+    ctx.fillStyle = '#ff8844';
+    ctx.fillText('Danger:  ' + stars, px+8, py+46);
+    ctx.fillStyle = visited ? '#44ff44' : '#888';
+    ctx.fillText(visited ? 'Visited' : 'Unexplored', px+8, py+59);
+    ctx.fillStyle = rel > 0 ? '#44ff44' : rel < 0 ? '#ff4444' : '#aaa';
+    ctx.fillText('Rep: ' + rel, px+8, py+72);
     if(hops !== null) {
-      ctx.fillStyle='#00aaff';
-      ctx.fillText('Route: '+hops+' hop'+(hops!==1?'s':'')+' / '+(hops*10)+' fuel', px+8, py+80);
-      ctx.fillStyle='#aaaaaa';
-      ctx.fillText('Click to set destination', px+8, py+96);
+      ctx.fillStyle = '#00aaff';
+      ctx.fillText(hops + ' hop' + (hops !== 1 ? 's' : '') + ' / ' + (hops * 10) + ' fuel', px+8, py+88);
+      ctx.fillStyle = '#aaaaaa';
+      ctx.fillText('Click to set destination', px+8, py+104);
     } else {
-      ctx.fillStyle='#666'; ctx.fillText('Unreachable', px+8, py+80);
+      ctx.fillStyle = '#666'; ctx.fillText('Unreachable', px+8, py+88);
     }
     ctx.restore();
   }
 
+  // ── Legend (canvas-space, bottom) ───────────────────────
   _drawLegend(ctx) {
-    const facItems=[
-      {col:'#4488ff',txt:'EARTH GOV'},
-      {col:'#ff6600',txt:'REBELLION'},
-      {col:'#cc2222',txt:'PIRATES'},
-      {col:'#00ff88',txt:'ALIENS'},
-      {col:'#aaaaaa',txt:'CONTESTED'},
+    const armItems = [
+      { col: '#4488ff', txt: 'EARTH'       },
+      { col: '#ff6600', txt: 'REBELLION'   },
+      { col: '#cc2222', txt: 'PIRATES'     },
+      { col: '#00ff88', txt: 'ALIEN'       },
+      { col: '#aaaaaa', txt: 'INDEPENDENT' },
     ];
-    const relItems=[
-      {col:'rgba(0,255,102,0.9)',  txt:'ALLIED'},
-      {col:'rgba(130,130,130,0.9)',txt:'NEUTRAL'},
-      {col:'rgba(255,200,0,0.9)',  txt:'DANGER'},
-      {col:'rgba(255,55,55,0.9)', txt:'HOSTILE'},
+    const relItems = [
+      { col: '#00ff66', txt: 'ALLIED'   },
+      { col: '#777777', txt: 'NEUTRAL'  },
+      { col: '#ffcc00', txt: 'CAUTION'  },
+      { col: '#ff3333', txt: 'HOSTILE'  },
     ];
     ctx.save();
-    ctx.font='6px "Press Start 2P",monospace';
+    ctx.font = '7px "Press Start 2P",monospace';
 
-    // Faction row
-    let lx=8, ly=678;
-    for(const {col,txt} of facItems) {
-      ctx.fillStyle=col; ctx.fillRect(lx,ly-6,8,8);
-      ctx.fillStyle='#778899'; ctx.fillText(txt,lx+12,ly);
-      lx+=txt.length*5+26;
+    let lx = 8, ly = 675;
+    for(const { col, txt } of armItems) {
+      ctx.fillStyle = col; ctx.fillRect(lx, ly - 7, 9, 9);
+      ctx.fillStyle = '#778899'; ctx.fillText(txt, lx + 14, ly);
+      lx += txt.length * 6 + 30;
     }
 
-    // Relation row
-    lx=8; ly=693;
-    for(const {col,txt} of relItems) {
-      ctx.beginPath(); ctx.arc(lx+4,ly-3,4,0,Math.PI*2);
-      ctx.strokeStyle=col; ctx.lineWidth=1.5; ctx.stroke(); ctx.lineWidth=0.5;
-      ctx.fillStyle='#778899'; ctx.fillText(txt,lx+12,ly);
-      lx+=txt.length*5+26;
+    // Relation ring legend (small circle with colored stroke)
+    lx = 8; ly = 693;
+    ctx.font = '6px "Press Start 2P",monospace';
+    for(const { col, txt } of relItems) {
+      ctx.beginPath(); ctx.arc(lx + 4, ly - 3, 5, 0, Math.PI * 2);
+      ctx.fillStyle = '#111'; ctx.fill();
+      ctx.strokeStyle = col; ctx.lineWidth = 1.8; ctx.stroke();
+      ctx.fillStyle = '#778899'; ctx.fillText(txt, lx + 14, ly);
+      lx += txt.length * 6.5 + 28;
     }
+    ctx.lineWidth = 0.5;
     ctx.restore();
   }
 
-  _drawBackground(ctx) {
-    // Deep space base
-    ctx.fillStyle='#00010a';
-    ctx.fillRect(0,0,950,700);
-
-    // Background star field - denser near galactic core
-    const rng = G.seededRng('galaxy_bg2');
-    for(let i=0;i<800;i++){
-      const x = rng()*950;
-      const y = rng()*700;
-      const dx = x-475, dy = y-345;
-      const dist = Math.sqrt(dx*dx+dy*dy);
-      const densityFactor = Math.max(0.1, 1 - dist/500);
-      if(rng() > densityFactor * 0.8 + 0.2) continue;
-      const bright = 0.1 + rng()*0.7 * densityFactor;
-      const size   = rng() < 0.04 ? 1.5 : 0.8;
-      const r2 = Math.floor(200+rng()*55), g2 = Math.floor(210+rng()*45);
-      ctx.fillStyle = `rgba(${r2},${g2},255,${bright})`;
-      ctx.fillRect(x|0, y|0, size, size);
-    }
-
-    // Galactic core glow - layered radial gradients
-    const coreGrads = [
-      { r:80,  col0:'rgba(240,200,120,0.22)', col1:'rgba(200,160,80,0)' },
-      { r:200, col0:'rgba(140,100,200,0.12)', col1:'rgba(80,60,150,0)' },
-      { r:400, col0:'rgba(40,60,160,0.07)',   col1:'rgba(0,0,0,0)' },
-    ];
-    for(const g of coreGrads){
-      const grad = ctx.createRadialGradient(475,345,0,475,345,g.r);
-      grad.addColorStop(0, g.col0); grad.addColorStop(1, g.col1);
-      ctx.fillStyle=grad; ctx.fillRect(0,0,950,700);
-    }
-
-    // Spiral arm nebula hints
+  _drawZoomHint(ctx) {
     ctx.save();
-    ctx.globalAlpha = 0.04;
-
-    // Symmetric spiral arms radiating from cluster center (475,345)
-    const arms = [
-      { end:[800,100], ctrl:[680,200], col:'#4488ff' },
-      { end:[800,590], ctrl:[680,470], col:'#ff6600' },
-      { end:[150,590], ctrl:[280,470], col:'#4466ff' },
-      { end:[150,100], ctrl:[280,200], col:'#ff4400' },
-    ];
-    for(const arm of arms){
-      const g = ctx.createLinearGradient(475,345, arm.end[0],arm.end[1]);
-      g.addColorStop(0, arm.col); g.addColorStop(1,'transparent');
-      ctx.strokeStyle=g; ctx.lineWidth=120;
-      ctx.beginPath(); ctx.moveTo(475,345);
-      ctx.quadraticCurveTo(arm.ctrl[0],arm.ctrl[1],arm.end[0],arm.end[1]);
-      ctx.stroke();
-    }
-
+    ctx.font = '6px "Press Start 2P",monospace';
+    ctx.fillStyle = 'rgba(80,100,120,0.7)';
+    ctx.fillText('SCROLL to zoom · CLICK system to route', 8, 14);
     ctx.restore();
-
-    // Faction zone tints (very subtle) — concentric rings matching the new cluster layout
-    const zoneTints = [
-      { cx:475, cy:345, r:160, col:'rgba(20,50,180,0.05)' },  // earth core (blue)
-      { cx:475, cy:345, r:270, col:'rgba(60,30,120,0.03)' },  // mid ring
-      { cx:475, cy:345, r:360, col:'rgba(80,20,60,0.03)' },   // outer ring
-    ];
-    for(const z of zoneTints){
-      const g = ctx.createRadialGradient(z.cx,z.cy,0,z.cx,z.cy,z.r);
-      g.addColorStop(0,z.col); g.addColorStop(1,'rgba(0,0,0,0)');
-      ctx.fillStyle=g; ctx.fillRect(0,0,950,700);
-    }
   }
 };

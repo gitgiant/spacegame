@@ -233,6 +233,62 @@ G.Sprites = {
       armor:   [[-6,0],[6,0]],
       turret:  [[0,-5]],
     },
+    earth_shuttle: {
+      weapon:  [[0,-8]],
+      engine:  [[-4,12],[4,12]],
+      shield:  [[0,-1]],
+      cargo:   [[-4,2],[4,2],[-4,7],[4,7]],
+      fuel:    [[-5,8],[5,8]],
+      jump:    [[0,5]],
+      sensor:  [[0,-6]],
+      power:   [[0,1]],
+      crew:    [[0,3]],
+      special: [[-4,9],[4,9]],
+      armor:   [[-5,0],[5,0]],
+      turret:  [[0,-5]],
+    },
+    earth_patrol: {
+      weapon:  [[-5,10],[5,10],[0,-8]],
+      engine:  [[-4,12],[4,12]],
+      shield:  [[0,-1]],
+      cargo:   [[0,4]],
+      fuel:    [[0,6]],
+      jump:    [[0,1]],
+      sensor:  [[0,-7]],
+      power:   [[0,2]],
+      crew:    [[0,3]],
+      special: [[0,5]],
+      armor:   [[-5,0],[5,0]],
+      turret:  [[0,-4]],
+    },
+    rebel_fighter: {
+      weapon:  [[-4,6],[4,6],[0,-8]],
+      engine:  [[-3,11],[3,11]],
+      shield:  [[0,0]],
+      cargo:   [[0,4]],
+      fuel:    [[0,5]],
+      jump:    [[0,1]],
+      sensor:  [[0,-6]],
+      power:   [[0,2]],
+      crew:    [[0,3]],
+      special: [[0,5]],
+      armor:   [[-5,1],[5,1]],
+      turret:  [[0,-4]],
+    },
+    rebel_hauler: {
+      weapon:  [[-7,2],[7,2]],
+      engine:  [[-6,15],[0,14],[6,15]],
+      shield:  [[0,-2]],
+      cargo:   [[-5,5],[5,5],[-5,10],[5,10]],
+      fuel:    [[-6,12],[6,12]],
+      jump:    [[0,5]],
+      sensor:  [[0,-6]],
+      power:   [[-4,0],[4,0]],
+      crew:    [[0,3]],
+      special: [[-3,8],[3,8]],
+      armor:   [[-6,0],[0,0],[6,0]],
+      turret:  [[-4,-4],[4,-4]],
+    },
   },
 
   // ── Ship drawing functions (32×32, pointing up) ─────────
@@ -545,6 +601,156 @@ G.Sprites = {
       r(E,3,25,6,5);  r(E,10,25,6,5); r(E,16,25,6,5); r(E,23,25,6,5);
       r('#ffcc44',3,30,6,1); r('#ffcc44',23,30,6,1);
       r('#ffee88',10,30,6,1); r('#ffee88',16,30,6,1);
+    },
+
+    // ── EARTH_SHUTTLE: Government boxy transport ──────────
+    earth_shuttle(ctx, col) {
+      const S = G.Sprites, H=col, D=S._sh(col,-55), L=S._sh(col,70);
+      const C='#091420', Gx='#1a4488', E='#ff9922', M='#556677', W='#1a2a30';
+      const Wh='#ccd8ee'; // clean white highlight
+      const r=(c,x,y,w,h)=>S._rc(ctx,c,x,y,w,h);
+      // flat blunt prow (y=0..2)
+      r(H,12,0,8,1); r(L,13,0,6,1);
+      r(H,11,1,10,2);
+      // panoramic cockpit windshield (y=3..5)
+      r(H,10,3,12,1);
+      r(C,11,4,10,1); r(Gx,11,4,5,1); r(Wh,11,4,2,1);
+      r(H,10,5,12,1);
+      // Earth Gov blue stripe (y=6)
+      r(L,10,6,12,1); r(Wh,11,6,4,1);
+      // main boxy hull (y=7..16)
+      r(H,10,7,12,10); r(M,10,7,1,10); r(M,21,7,1,10); r(L,10,7,1,1);
+      // front cargo/passenger compartment
+      r(D,11,8,10,3); r(M,11,8,1,3); r(M,20,8,1,3); r(M,11,10,10,1);
+      // rear section panels
+      r(D,11,12,10,4); r(M,11,12,1,4); r(M,20,12,1,4); r(M,11,15,10,1);
+      // docking port (starboard side, y=10..12)
+      r(W,21,10,3,3); r(M,22,11,1,1);
+      // gov side stripe
+      r(L,10,9,1,2);
+      // aft transition (y=17..19)
+      r(H,11,17,10,3); r(M,11,17,1,3); r(M,20,17,1,3);
+      // twin engine nozzles (y=20..27)
+      r(W,11,20,5,2); r(W,16,20,5,2);
+      r(E,11,22,5,4); r(E,16,22,5,4);
+      r(E,12,26,3,1); r(E,17,26,3,1);
+      r('#ffcc44',12,27,3,1); r('#ffcc44',17,27,3,1);
+    },
+
+    // ── EARTH_PATROL: Clean delta-wing patrol fighter ──────
+    earth_patrol(ctx, col) {
+      const S = G.Sprites, H=col, D=S._sh(col,-55), L=S._sh(col,70);
+      const C='#091420', Gx='#1a4488', E='#ff9922', M='#556677', W='#1a2a30';
+      const Wh='#ccd8ee'; // white trim
+      const r=(c,x,y,w,h)=>S._rc(ctx,c,x,y,w,h);
+      // sharp pointed nose (y=0..3)
+      r(H,15,0,2,1); r(L,15,0,1,1);
+      r(H,14,1,4,1); r(H,14,2,4,2);
+      // narrow canopy (y=4..6)
+      r(H,14,4,4,1);
+      r(C,15,5,2,2); r(Gx,15,5,1,1); r(Wh,15,5,1,1);
+      r(H,14,7,4,1);
+      // slim upper body (y=8..10)
+      r(H,14,8,4,3); r(M,14,8,1,3); r(M,17,8,1,3);
+      // swept delta wings (y=8..16)
+      r(D,12,8,2,1);  r(D,19,8,1,1);
+      r(D,10,9,4,1);  r(D,18,9,4,1);
+      r(D,8,10,6,1);  r(D,18,10,6,1);
+      r(D,6,11,8,1);  r(D,18,11,8,1);
+      r(D,5,12,9,2);  r(D,18,12,9,2);
+      r(D,6,14,7,1);  r(D,19,14,7,1);
+      r(D,8,15,5,1);  r(D,19,15,5,1);
+      r(D,10,16,3,1); r(D,19,16,3,1);
+      r(L,5,12,1,1);  r(L,26,12,1,1); // nav lights
+      r(W,5,13,2,1);  r(W,25,13,2,1); // wingtip missiles
+      // body through wings
+      r(H,14,8,4,9); r(M,14,8,1,9); r(M,17,8,1,9);
+      // Earth gov stripe
+      r(L,14,11,4,1); r(Wh,15,11,2,1);
+      // lower body (y=17..21)
+      r(H,14,17,4,5); r(M,14,17,1,5); r(M,17,17,1,5);
+      // twin engine pods (y=22..27)
+      r(W,12,22,4,2); r(W,16,22,4,2);
+      r(E,12,24,4,3); r(E,16,24,4,3);
+      r(E,13,27,2,1); r(E,17,27,2,1);
+    },
+
+    // ── REBEL_FIGHTER: Scrappy modified fighter ────────────
+    rebel_fighter(ctx, col) {
+      const S = G.Sprites, H=col, D=S._sh(col,-55), L=S._sh(col,70);
+      const C='#091420', Gx='#334488', E='#ff9922', M='#556677', W='#1a2a30';
+      const Rb='#993300'; // rebellion dark orange
+      const Ru='#5a3518'; // worn/rusted metal
+      const r=(c,x,y,w,h)=>S._rc(ctx,c,x,y,w,h);
+      // battered nose (y=0..3)
+      r(H,15,0,2,1); r(L,15,0,1,1);
+      r(H,14,1,4,1); r(H,13,2,6,1); r(H,14,3,4,1);
+      // worn cockpit (y=4..6)
+      r(H,13,4,6,1);
+      r(C,14,5,4,2); r(Gx,14,5,2,1); r(Ru,16,6,1,1); // cracked glass
+      r(H,13,7,6,1);
+      // upper body (y=8..10)
+      r(H,13,8,6,3); r(M,13,8,1,3); r(M,18,8,1,3);
+      // scavenged swept wings (y=9..15)
+      r(D,9,9,4,1);  r(D,19,9,4,1);
+      r(D,7,10,6,1); r(D,19,10,6,1);
+      r(D,5,11,8,2); r(D,19,11,8,2);
+      r(D,6,13,7,1); r(D,19,13,7,1);
+      r(D,8,14,5,1); r(D,19,14,5,1);
+      r(D,10,15,3,1);r(D,19,15,3,1);
+      r(Ru,6,11,2,1); r(Ru,24,11,2,1); // weld patches
+      r(W,5,12,2,1);  r(W,25,12,2,1); // bolted-on gun pylons
+      // body through wings
+      r(H,13,9,6,7); r(M,13,9,1,7); r(M,18,9,1,7);
+      // rebellion orange stripe
+      r(Rb,14,12,4,1);
+      // asymmetric gun pod (starboard, y=10..14)
+      r(M,11,10,2,4); r(W,11,10,1,1);
+      // lower body (y=16..20)
+      r(H,13,16,6,5); r(M,13,16,1,5); r(M,18,16,1,5);
+      r(Ru,14,18,2,1); // damage patch
+      // mismatched twin engines (y=21..27)
+      r(W,13,21,3,2); r(W,17,21,2,2);
+      r(E,13,23,3,3); r(E,17,23,2,3);
+      r('#cc6600',14,26,2,1); r('#cc6600',17,26,2,1);
+      r(Ru,13,27,4,1); // exhaust discoloration
+    },
+
+    // ── REBEL_HAULER: Armed rebel supply ship ─────────────
+    rebel_hauler(ctx, col) {
+      const S = G.Sprites, H=col, D=S._sh(col,-55), L=S._sh(col,70);
+      const C='#091420', Gx='#334488', E='#ff9922', M='#556677', W='#1a2a30';
+      const Rb='#993300'; // rebellion orange-red
+      const Ru='#5a3518'; // worn metal
+      const r=(c,x,y,w,h)=>S._rc(ctx,c,x,y,w,h);
+      // wide blunt prow (y=0..2)
+      r(H,9,0,14,1); r(L,10,0,10,1);
+      r(H,8,1,16,2);
+      // offset port cockpit (y=3..5)
+      r(C,9,3,4,1); r(Gx,9,3,2,1);
+      r(H,8,4,16,2); r(C,9,4,4,1); r(Gx,9,4,2,1);
+      // rebellion livery stripe across bow (y=6)
+      r(Rb,8,6,16,1); r(L,9,6,6,1);
+      // main wide hull (y=7..15)
+      r(H,7,7,18,9); r(M,7,7,1,9); r(M,24,7,1,9); r(L,7,7,1,1);
+      // two cargo bay sections
+      r(D,8,8,7,6);  r(D,16,8,7,6);
+      r(M,8,8,1,6);  r(M,14,8,1,6); r(M,16,8,1,6); r(M,22,8,1,6);
+      r(M,8,13,7,1); r(M,16,13,7,1);
+      // rebellion stripe across hull
+      r(Rb,7,11,18,1);
+      // side gun pods (y=4..9)
+      r(W,5,4,2,6);  r(W,25,4,2,6);
+      r(M,4,6,1,2);  r(M,27,6,1,2); // barrels
+      r(Ru,5,5,2,2); r(Ru,25,5,2,2); // rough mounts
+      // aft section (y=16..19)
+      r(H,8,16,16,4); r(M,8,16,1,4); r(M,23,16,1,4);
+      r(Rb,9,18,14,1); // aft stripe
+      // triple engine block (y=20..27)
+      r(W,7,20,6,2);  r(W,14,20,4,2); r(W,19,20,6,2);
+      r(E,7,22,6,4);  r(E,14,22,4,4); r(E,19,22,6,4);
+      r('#cc6600',8,26,4,1); r('#cc6600',14,26,4,1); r('#cc6600',20,26,4,1);
+      r(Ru,7,27,6,1); // exhaust discoloration
     },
 
     // ── PIRATE_FIGHTER: Battered Bf 109 + salvaged TIE ───

@@ -19,9 +19,17 @@ G.SoundEngine = class {
     this._alertAt   = -99;
     this._hullHitAt = -99;
     this._shldHitAt = -99;
+    this._wpnHitAt  = -99;
 
     this.enabled = true;
     this.volume  = 0.45;
+
+    // Music
+    this.musicEnabled = true;
+    this.musicVolume  = 0.30;
+    this._musicGain   = null;
+    this._musicNodes  = [];   // oscillators / sources to stop on disable
+    this._musicTimer  = null; // setTimeout handle for next chord
 
     // Resume AudioContext on any user interaction
     const tryResume = () => {
@@ -38,7 +46,11 @@ G.SoundEngine = class {
       this._master = this._ac.createGain();
       this._master.gain.value = this.volume;
       this._master.connect(this._ac.destination);
+      this._musicGain = this._ac.createGain();
+      this._musicGain.gain.value = this.musicEnabled ? this.musicVolume : 0;
+      this._musicGain.connect(this._ac.destination);
       this._startEngine();
+      if (this.musicEnabled) this._scheduleChord();
     }
     return this._ac;
   }
@@ -77,7 +89,7 @@ G.SoundEngine = class {
   updateEngine(speed, thrusting) {
     if (!this.enabled || !this._ac || !this._engReady) return;
     const now = this._ac.currentTime;
-    const targetGain = thrusting ? 0.28 : 0;
+    const targetGain = thrusting ? 0.22 : 0;
     this._engGain.gain.setTargetAtTime(targetGain, now, 0.08);
   }
 
@@ -153,23 +165,58 @@ G.SoundEngine = class {
     }
   }
 
+  // ── Enemy weapon (distance-attenuated) ───────────────────
+  enemyWeapon(type, dist) {
+    if (!this.enabled) return;
+    const MAX = 1300;
+    if (dist > MAX) return;
+    const ac  = this._ctx();
+    const now = ac.currentTime;
+    // Rate-limit to avoid audio spam when many enemies fire at once
+    if (now - (this._lastEnemySnd || 0) < 0.07) return;
+    this._lastEnemySnd = now;
+    const vol = 0.07 * (1 - dist / MAX);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol, now);
+    g.connect(this._master);
+    if (type === 'laser') {
+      const osc = ac.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(600, now);
+      osc.frequency.exponentialRampToValueAtTime(180, now + 0.09);
+      const g2 = ac.createGain();
+      g2.gain.setValueAtTime(1, now);
+      g2.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+      osc.connect(g2); g2.connect(g);
+      osc.start(now); osc.stop(now + 0.10);
+    } else {
+      const src = ac.createBufferSource();
+      src.buffer = this._noise(0.10);
+      const flt = ac.createBiquadFilter();
+      flt.type = 'bandpass'; flt.frequency.value = 200; flt.Q.value = 0.6;
+      src.connect(flt); flt.connect(g);
+      src.start(now); src.stop(now + 0.12);
+    }
+  }
+
   // ── Landing / launch ─────────────────────────────────────
+  // Land is the mirror of launch: filter sweeps high→low, gain fades out
   land() {
     if (!this.enabled) return;
     const ac  = this._ctx();
     const now = ac.currentTime;
     const src = ac.createBufferSource();
-    src.buffer = this._noise(2.8);
+    src.buffer = this._noise(1.4);
     const flt = ac.createBiquadFilter();
     flt.type = 'lowpass';
     flt.frequency.setValueAtTime(4000, now);
-    flt.frequency.exponentialRampToValueAtTime(80, now + 2.8);
+    flt.frequency.exponentialRampToValueAtTime(80, now + 1.4);
     const g = ac.createGain();
-    g.gain.setValueAtTime(0.38, now);
-    g.gain.setValueAtTime(0.38, now + 1.6);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 2.8);
+    g.gain.setValueAtTime(0.30, now);
+    g.gain.setValueAtTime(0.30, now + 0.5);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 1.4);
     src.connect(flt); flt.connect(g); g.connect(this._master);
-    src.start(now); src.stop(now + 2.81);
+    src.start(now); src.stop(now + 1.41);
   }
 
   launch() {
@@ -184,8 +231,8 @@ G.SoundEngine = class {
     flt.frequency.exponentialRampToValueAtTime(4000, now + 1.4);
     const g = ac.createGain();
     g.gain.setValueAtTime(0, now);
-    g.gain.linearRampToValueAtTime(0.38, now + 0.1);
-    g.gain.setValueAtTime(0.38, now + 0.9);
+    g.gain.linearRampToValueAtTime(0.30, now + 0.1);
+    g.gain.setValueAtTime(0.30, now + 0.9);
     g.gain.exponentialRampToValueAtTime(0.001, now + 1.4);
     src.connect(flt); flt.connect(g); g.connect(this._master);
     src.start(now); src.stop(now + 1.41);
@@ -340,6 +387,226 @@ G.SoundEngine = class {
     osc.start(now); osc.stop(now + 0.15);
   }
 
+  shieldsLost() {
+    if (!this.enabled) return;
+    const ac  = this._ctx();
+    const now = ac.currentTime;
+    // Descending tone sweep indicating shield failure
+    const osc = ac.createOscillator();
+    osc.type  = 'sine';
+    osc.frequency.setValueAtTime(1200, now);
+    osc.frequency.exponentialRampToValueAtTime(300, now + 0.35);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.15, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    osc.connect(g); g.connect(this._master);
+    osc.start(now); osc.stop(now + 0.36);
+  }
+
+  shipDisabled() {
+    if (!this.enabled) return;
+    const ac  = this._ctx();
+    const now = ac.currentTime;
+    // Multi-tone warning beep for disability
+    [800, 500].forEach((freq, i) => {
+      const osc = ac.createOscillator();
+      osc.type = 'square';
+      osc.frequency.value = freq;
+      const g = ac.createGain();
+      const t = now + i * 0.15;
+      g.gain.setValueAtTime(0.12, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+      osc.connect(g); g.connect(this._master);
+      osc.start(t); osc.stop(t + 0.13);
+    });
+  }
+
+  // ── Per-weapon hull impacts ──────────────────────────────
+  // Dispatches to a distinct synth per weapon type (G.WEAPONS[].type)
+  weaponHit(type) {
+    if (!this.enabled || !this._ac) return;
+    const now = this._ac.currentTime;
+    if (now - this._wpnHitAt < 0.05) return;   // global debounce vs rapid fire
+    this._wpnHitAt = now;
+    switch (type) {
+      case 'laser':     return this._hitLaser();
+      case 'missile':   return this._hitMissile();
+      case 'explosion': return this._hitExplosion();
+      case 'emp':       return this._hitEmp();
+      case 'mining':    return this._hitMining();
+      case 'projectile':
+      default:          return this._hitKinetic();
+    }
+  }
+
+  // Laser — bright electric sizzle with a quick descending zap
+  _hitLaser() {
+    const ac = this._ctx(), now = ac.currentTime;
+    const src = ac.createBufferSource(); src.buffer = this._noise(0.08);
+    const flt = ac.createBiquadFilter(); flt.type = 'highpass'; flt.frequency.value = 2200;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.16, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+    src.connect(flt); flt.connect(g); g.connect(this._master);
+    src.start(now); src.stop(now + 0.09);
+    const osc = ac.createOscillator(); osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(1800, now);
+    osc.frequency.exponentialRampToValueAtTime(500, now + 0.07);
+    const g2 = ac.createGain();
+    g2.gain.setValueAtTime(0.08, now);
+    g2.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+    osc.connect(g2); g2.connect(this._master);
+    osc.start(now); osc.stop(now + 0.08);
+  }
+
+  // Kinetic (railgun/autocannon/mass driver) — hard metallic clang
+  _hitKinetic() {
+    const ac = this._ctx(), now = ac.currentTime;
+    const src = ac.createBufferSource(); src.buffer = this._noise(0.1);
+    const flt = ac.createBiquadFilter(); flt.type = 'lowpass'; flt.frequency.value = 600;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.3, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+    src.connect(flt); flt.connect(g); g.connect(this._master);
+    src.start(now); src.stop(now + 0.11);
+    const osc = ac.createOscillator(); osc.type = 'square';
+    osc.frequency.setValueAtTime(440, now);
+    osc.frequency.exponentialRampToValueAtTime(220, now + 0.09);
+    const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1600; bp.Q.value = 6;
+    const g2 = ac.createGain();
+    g2.gain.setValueAtTime(0.1, now);
+    g2.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    osc.connect(bp); bp.connect(g2); g2.connect(this._master);
+    osc.start(now); osc.stop(now + 0.13);
+  }
+
+  // Missile — punchy boom with a low sine thump
+  _hitMissile() {
+    const ac = this._ctx(), now = ac.currentTime;
+    const src = ac.createBufferSource(); src.buffer = this._noise(0.35);
+    const flt = ac.createBiquadFilter(); flt.type = 'lowpass';
+    flt.frequency.setValueAtTime(1400, now);
+    flt.frequency.exponentialRampToValueAtTime(120, now + 0.35);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.4, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    src.connect(flt); flt.connect(g); g.connect(this._master);
+    src.start(now); src.stop(now + 0.36);
+    const osc = ac.createOscillator(); osc.type = 'sine';
+    osc.frequency.setValueAtTime(140, now);
+    osc.frequency.exponentialRampToValueAtTime(50, now + 0.3);
+    const g2 = ac.createGain();
+    g2.gain.setValueAtTime(0.3, now);
+    g2.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    osc.connect(g2); g2.connect(this._master);
+    osc.start(now); osc.stop(now + 0.31);
+  }
+
+  // Explosion (grenade) — bigger, deeper detonation
+  _hitExplosion() {
+    const ac = this._ctx(), now = ac.currentTime;
+    const src = ac.createBufferSource(); src.buffer = this._noise(0.5);
+    const flt = ac.createBiquadFilter(); flt.type = 'lowpass';
+    flt.frequency.setValueAtTime(1800, now);
+    flt.frequency.exponentialRampToValueAtTime(90, now + 0.5);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.45, now);
+    g.gain.setValueAtTime(0.4, now + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    src.connect(flt); flt.connect(g); g.connect(this._master);
+    src.start(now); src.stop(now + 0.51);
+    const osc = ac.createOscillator(); osc.type = 'sine';
+    osc.frequency.setValueAtTime(110, now);
+    osc.frequency.exponentialRampToValueAtTime(40, now + 0.45);
+    const g2 = ac.createGain();
+    g2.gain.setValueAtTime(0.32, now);
+    g2.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+    osc.connect(g2); g2.connect(this._master);
+    osc.start(now); osc.stop(now + 0.46);
+  }
+
+  // EMP — buzzy electric crackle (square tone gated by a fast LFO)
+  _hitEmp() {
+    const ac = this._ctx(), now = ac.currentTime;
+    const osc = ac.createOscillator(); osc.type = 'square';
+    osc.frequency.setValueAtTime(900, now);
+    osc.frequency.exponentialRampToValueAtTime(180, now + 0.22);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.12, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+    const lfo = ac.createOscillator(); lfo.type = 'square'; lfo.frequency.value = 60;
+    const lfoG = ac.createGain(); lfoG.gain.value = 0.06;
+    lfo.connect(lfoG); lfoG.connect(g.gain);
+    osc.connect(g); g.connect(this._master);
+    osc.start(now); osc.stop(now + 0.23);
+    lfo.start(now); lfo.stop(now + 0.23);
+  }
+
+  // Mining laser — gritty rocky crunch
+  _hitMining() {
+    const ac = this._ctx(), now = ac.currentTime;
+    const src = ac.createBufferSource(); src.buffer = this._noise(0.15);
+    const flt = ac.createBiquadFilter(); flt.type = 'bandpass'; flt.frequency.value = 900; flt.Q.value = 1.2;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.26, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    src.connect(flt); flt.connect(g); g.connect(this._master);
+    src.start(now); src.stop(now + 0.16);
+  }
+
+  lootPickup() {
+    if (!this.enabled) return;
+    const ac  = this._ctx();
+    const now = ac.currentTime;
+    // Quick ascending chime for picking up loot
+    [{ f: 660, t: 0 }, { f: 990, t: 0.08 }, { f: 1320, t: 0.16 }].forEach(({ f, t }) => {
+      const osc = ac.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = f;
+      const g = ac.createGain();
+      g.gain.setValueAtTime(0.12, now + t);
+      g.gain.exponentialRampToValueAtTime(0.001, now + t + 0.15);
+      osc.connect(g); g.connect(this._master);
+      osc.start(now + t); osc.stop(now + t + 0.16);
+    });
+  }
+
+  boost() {
+    if (!this.enabled) return;
+    const ac  = this._ctx();
+    const now = ac.currentTime;
+    // Sweeping high-pass filter white noise for boost
+    const src = ac.createBufferSource();
+    src.buffer = this._noise(0.25);
+    const flt = ac.createBiquadFilter();
+    flt.type = 'highpass';
+    flt.frequency.setValueAtTime(800, now);
+    flt.frequency.exponentialRampToValueAtTime(3500, now + 0.25);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.16, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+    src.connect(flt); flt.connect(g); g.connect(this._master);
+    src.start(now); src.stop(now + 0.26);
+  }
+
+  cargoFull() {
+    if (!this.enabled) return;
+    const ac  = this._ctx();
+    const now = ac.currentTime;
+    // Double buzz indicating cargo is full
+    [900, 700].forEach((freq, i) => {
+      const osc = ac.createOscillator();
+      osc.type = 'square';
+      osc.frequency.value = freq;
+      const g = ac.createGain();
+      const t = now + i * 0.12;
+      g.gain.setValueAtTime(0.14, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.10);
+      osc.connect(g); g.connect(this._master);
+      osc.start(t); osc.stop(t + 0.11);
+    });
+  }
+
   // ── Target lock ──────────────────────────────────────────
   targetLock() {
     if (!this.enabled) return;
@@ -433,54 +700,39 @@ G.SoundEngine = class {
     if (now - this._alertAt < 8.0) return; // max once per 8s
     this._alertAt = now;
 
-    // Soft-clip waveshaper for klaxon distortion
-    const curve = new Float32Array(256);
-    for (let i = 0; i < 256; i++) {
-      const x = (i * 2) / 255 - 1;
-      curve[i] = (Math.PI + 80) * x / (Math.PI + 80 * Math.abs(x));
-    }
+    // Single Star Trek-style red-alert klaxon: two-tone WHOOP
+    // Tone A (high): 1050 Hz square, short attack/decay
+    const oscA = ac.createOscillator();
+    oscA.type = 'square';
+    oscA.frequency.setValueAtTime(1050, now);
+    oscA.frequency.linearRampToValueAtTime(850, now + 0.18);
+    const gA = ac.createGain();
+    gA.gain.setValueAtTime(0,    now);
+    gA.gain.linearRampToValueAtTime(0.22, now + 0.02);
+    gA.gain.setValueAtTime(0.22, now + 0.16);
+    gA.gain.linearRampToValueAtTime(0,    now + 0.22);
 
-    // Three "WHOOP" sweeps
-    for (let rep = 0; rep < 3; rep++) {
-      const t0 = now + rep * 0.55;
+    // Tone B (low): 580 Hz square, follows immediately
+    const oscB = ac.createOscillator();
+    oscB.type = 'square';
+    oscB.frequency.setValueAtTime(580, now + 0.24);
+    oscB.frequency.linearRampToValueAtTime(450, now + 0.44);
+    const gB = ac.createGain();
+    gB.gain.setValueAtTime(0,    now + 0.24);
+    gB.gain.linearRampToValueAtTime(0.28, now + 0.26);
+    gB.gain.setValueAtTime(0.28, now + 0.42);
+    gB.gain.linearRampToValueAtTime(0,    now + 0.50);
 
-      // Sawtooth klaxon: sweeps 360Hz → 760Hz → 360Hz
-      const osc = ac.createOscillator();
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(360, t0);
-      osc.frequency.linearRampToValueAtTime(760, t0 + 0.24);
-      osc.frequency.linearRampToValueAtTime(360, t0 + 0.46);
+    // Shared bandpass for klaxon character
+    const flt = ac.createBiquadFilter();
+    flt.type = 'bandpass'; flt.frequency.value = 750; flt.Q.value = 1.2;
 
-      const shaper = ac.createWaveShaper();
-      shaper.curve = curve;
-      shaper.oversample = '2x';
+    oscA.connect(gA); gA.connect(flt);
+    oscB.connect(gB); gB.connect(flt);
+    flt.connect(this._master);
 
-      // Sub-bass punch underneath
-      const sub = ac.createOscillator();
-      sub.type = 'sine';
-      sub.frequency.value = 58;
-      const subG = ac.createGain();
-      subG.gain.value = 0.28;
-
-      // Bandpass to shape the klaxon timbre
-      const flt = ac.createBiquadFilter();
-      flt.type = 'bandpass';
-      flt.frequency.value = 580;
-      flt.Q.value = 1.4;
-
-      const g = ac.createGain();
-      g.gain.setValueAtTime(0,    t0);
-      g.gain.linearRampToValueAtTime(0.40, t0 + 0.03);
-      g.gain.setValueAtTime(0.40, t0 + 0.44);
-      g.gain.linearRampToValueAtTime(0,    t0 + 0.50);
-
-      osc.connect(shaper); shaper.connect(flt);
-      sub.connect(subG);   subG.connect(flt);
-      flt.connect(g);      g.connect(this._master);
-
-      osc.start(t0); osc.stop(t0 + 0.51);
-      sub.start(t0); sub.stop(t0 + 0.51);
-    }
+    oscA.start(now); oscA.stop(now + 0.55);
+    oscB.start(now + 0.24); oscB.stop(now + 0.55);
   }
 
   commsPing() {
@@ -533,6 +785,95 @@ G.SoundEngine = class {
     if (this._master) {
       this._master.gain.setTargetAtTime(this.volume, this._ac.currentTime, 0.05);
     }
+  }
+
+  setEnabled(on) {
+    this.enabled = on;
+    if (!on && this._master) {
+      this._master.gain.setTargetAtTime(0, this._ac.currentTime, 0.05);
+    } else if (on && this._master) {
+      this._master.gain.setTargetAtTime(this.volume, this._ac.currentTime, 0.05);
+    }
+  }
+
+  // ── Ambient music (procedural space pads) ────────────────
+  setMusicEnabled(on) {
+    this.musicEnabled = on;
+    if (!this._ac) return;
+    const now = this._ac.currentTime;
+    if (on) {
+      this._musicGain.gain.setTargetAtTime(this.musicVolume, now, 0.8);
+      if (!this._musicTimer) this._scheduleChord();
+    } else {
+      this._musicGain.gain.setTargetAtTime(0, now, 0.8);
+      if (this._musicTimer) { clearTimeout(this._musicTimer); this._musicTimer = null; }
+    }
+  }
+
+  setMusicVolume(v) {
+    this.musicVolume = Math.max(0, Math.min(1, v));
+    if (this._musicGain && this.musicEnabled) {
+      this._musicGain.gain.setTargetAtTime(this.musicVolume, this._ac.currentTime, 0.05);
+    }
+  }
+
+  _scheduleChord() {
+    if (!this.musicEnabled || !this._ac) return;
+    // Space-minor pentatonic drone: root + intervals in Hz (built around A2=110Hz)
+    const roots = [55, 82.4, 110, 138.6, 164.8];
+    const root  = roots[Math.floor(Math.random() * roots.length)];
+    const intervals = [1, 1.5, 1.782, 2, 2.25, 3];
+    const count = 2 + Math.floor(Math.random() * 2);
+    const chosen = intervals.sort(() => Math.random() - 0.5).slice(0, count);
+    chosen.unshift(1);
+
+    const ac  = this._ac;
+    const now = ac.currentTime;
+    const dur = 9 + Math.random() * 8;   // 9–17 s per chord
+    const fade = 2.5;
+
+    chosen.forEach((ratio, i) => {
+      const freq = root * ratio;
+      const osc  = ac.createOscillator();
+      osc.type   = i === 0 ? 'sine' : (Math.random() < 0.5 ? 'sine' : 'triangle');
+      osc.frequency.value = freq;
+      // Slight vibrato via another osc
+      const vib = ac.createOscillator();
+      vib.frequency.value = 0.3 + Math.random() * 0.4;
+      const vibG = ac.createGain();
+      vibG.gain.value = freq * 0.003;
+      vib.connect(vibG);
+      vibG.connect(osc.frequency);
+
+      const g = ac.createGain();
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(0.12 / chosen.length, now + fade);
+      g.gain.setValueAtTime(0.12 / chosen.length, now + dur - fade);
+      g.gain.linearRampToValueAtTime(0, now + dur);
+
+      osc.connect(g);  g.connect(this._musicGain);
+      vib.start(now);  osc.start(now);
+      vib.stop(now + dur + 0.1);  osc.stop(now + dur + 0.1);
+    });
+
+    // Sparse high bell
+    if (Math.random() < 0.5) {
+      const bell = ac.createOscillator();
+      bell.type = 'sine';
+      bell.frequency.value = root * 4 * (Math.random() < 0.5 ? 1.5 : 2);
+      const bg = ac.createGain();
+      const onset = now + 2 + Math.random() * (dur - 5);
+      bg.gain.setValueAtTime(0, onset);
+      bg.gain.linearRampToValueAtTime(0.04, onset + 0.08);
+      bg.gain.exponentialRampToValueAtTime(0.001, onset + 3.5);
+      bell.connect(bg); bg.connect(this._musicGain);
+      bell.start(onset); bell.stop(onset + 4);
+    }
+
+    this._musicTimer = setTimeout(() => {
+      this._musicTimer = null;
+      this._scheduleChord();
+    }, (dur - fade / 2) * 1000);
   }
 
   // ── White noise buffer helper ────────────────────────────

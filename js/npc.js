@@ -98,11 +98,11 @@ G.NPCShip = class {
 
     // Pick ship type appropriate to faction
     const shipPool = {
-      earth:       ['shuttle','fighter','merchant'],
-      rebellion:   ['shuttle','gunboat','fighter'],
-      pirate:      ['pirate_fighter','gunboat'],
-      independent: ['shuttle','merchant','freighter'],
-      alien:       ['alien_fighter','alien_cruiser'],
+      earth:       ['earth_shuttle','earth_corvette','earth_patrol','earth_hauler','earth_shuttle'],
+      rebellion:   ['rebel_runner','rebel_corvette','rebel_frigate','rebel_hauler','rebel_runner'],
+      pirate:      ['pirate_skiff','pirate_corvette','pirate_raider','pirate_skiff'],
+      independent: ['shuttle','miner_ship','container_ship','tanker_ship','corvette'],
+      alien:       ['alien_scout','alien_warship','alien_scout'],
     };
     const pool   = shipPool[faction]||shipPool.independent;
     this.shipId  = pool[Math.floor(Math.random()*pool.length)];
@@ -111,11 +111,17 @@ G.NPCShip = class {
     this.color   = G.FACTIONS[faction]?.color||'#888888';
     this.size    = tpl.size||1.0;
 
-    // Stats
-    this.maxHp     = 60+Math.random()*60;
-    this.hp        = this.maxHp;
-    this.maxShields= faction==='earth'?80:faction==='rebellion'?40:0;
-    this.shields   = this.maxShields;
+    // Stats derived from ship template so larger ships are tankier and slower
+    const hullVar = 0.8 + Math.random() * 0.4;
+    this.maxHp      = tpl.baseHull * hullVar;
+    this.hp         = this.maxHp;
+    // Shields: faction modifier × hull-relative base (larger ships get more)
+    const shieldBase = tpl.baseHull * 0.35 * hullVar;
+    this.maxShields = faction==='earth'      ? shieldBase
+                    : faction==='rebellion'  ? shieldBase * 0.6
+                    : faction==='independent'? shieldBase * 0.15
+                    : 0;
+    this.shields = this.maxShields;
 
     // Spawn at system edge, facing inward
     const spawnAngle = Math.random()*Math.PI*2;
@@ -125,15 +131,19 @@ G.NPCShip = class {
     this.vx = 0; this.vy = 0;
     this.angle = spawnAngle + Math.PI; // face center
 
-    this.speed     = 220+Math.random()*200;
-    this.turnSpeed = 1.4+Math.random()*1.0;
+    // Speed and agility scale inversely with ship mass
+    const massRatio = 80 / (tpl.baseMass || 80);
+    this.speed     = (tpl.baseThrust / (tpl.baseMass || 80) * 1.8 + 80) * (0.8 + Math.random() * 0.4);
+    this.turnSpeed = tpl.baseTurn * (0.8 + Math.random() * 0.4);
     this.fireRate  = 0.5+Math.random()*0.7;
     this.damage    = 10+Math.random()*10;
     this.lastShot  = 0;
 
     // AI
-    this.aiState  = 'entering';
-    this.dockTimer= 0;
+    this.aiState       = 'entering';
+    this.dockTimer     = 0;
+    this.jumpChargeT   = 0;
+    this.jumpCharging  = false;
     this.targetX  = 0;
     this.targetY  = 0;
     this.dockBody = null;
@@ -146,6 +156,9 @@ G.NPCShip = class {
     this.disabled     = false;
     this.boarded      = false;
     this.empTimer     = 0;
+    this.jumpingOut   = false;
+    this.jumpOutTimer = 0;
+    this.landingScale = 1;
 
     // Cargo / credits
     this.credits = 80+Math.floor(Math.random()*400);
@@ -173,6 +186,18 @@ G.NPCShip = class {
   update(dt, bodies, otherNPCs, enemies, projectiles, particles, now) {
     if(this.dead||this.boarded) return;
 
+    // Hyperspace jump-out sequence
+    if(this.jumpingOut) {
+      this.jumpOutTimer -= dt;
+      this.x += this.vx * dt;
+      this.y += this.vy * dt;
+      if(particles && Math.random() < 0.7)
+        particles.engine_trail(this.x, this.y, this.angle, this.vx, this.vy, this.size||1);
+      if(this.jumpOutTimer <= 0) this.dead = true;
+      return;
+    }
+
+    if(this.disabled) { this.x+=this.vx*dt; this.y+=this.vy*dt; return; }
     if(this.empTimer>0) { this.empTimer-=dt; this.x+=this.vx*dt; this.y+=this.vy*dt; return; }
 
     // Occasional radio chatter to the player
@@ -215,6 +240,7 @@ G.NPCShip = class {
 
     // Autonomous behavior
     this._updateAutonomous(dt);
+    this._applyDrag(dt);
     this.x+=this.vx*dt; this.y+=this.vy*dt;
 
     // Scan for hostile faction ships to engage
@@ -251,7 +277,19 @@ G.NPCShip = class {
           const drag = Math.pow(0.85, dt * 60);
           this.vx *= drag; this.vy *= drag;
         }
-        if(dist2 < 30) {
+        if(dist2 < 200) {
+          this.aiState='landing'; this.landingScale=1; this.vx=0; this.vy=0;
+        }
+        break;
+      }
+      case 'landing': {
+        // Zoom into the planet center, shrink to zero
+        const ldx=this.targetX-this.x, ldy=this.targetY-this.y;
+        const ld=Math.hypot(ldx,ldy)||1;
+        this.vx += (ldx/ld)*this.speed*dt*3;
+        this.vy += (ldy/ld)*this.speed*dt*3;
+        this.landingScale = Math.max(0, this.landingScale - dt*2.8);
+        if(this.landingScale <= 0) {
           this.aiState='docked'; this.dockTimer=8+Math.random()*22;
           this.vx=0; this.vy=0;
         }
@@ -259,13 +297,73 @@ G.NPCShip = class {
       }
       case 'docked':
         this.dockTimer-=dt;
-        if(this.dockTimer<=0) { this.aiState='transit_to_jump'; this._setJumpTarget(); }
+        if(this.dockTimer<=0) {
+          this.aiState='transit_to_jump'; this._setJumpTarget();
+          this.landingScale=1; // reappear at full size
+        }
         break;
+      case 'fuel_rendezvous': {
+        const player = G.game?.player;
+        if(!player) { this.aiState='transit_to_jump'; this._setJumpTarget(); break; }
+        const fdx = player.x - this.x, fdy = player.y - this.y;
+        const fdist = Math.hypot(fdx, fdy);
+        if(fdist > 140) {
+          this._steerTo(player.x, player.y, dt);
+          this._thrust(dt);
+        } else {
+          // Matched-velocity braking alongside the player
+          this.vx += (player.vx - this.vx) * Math.min(1, dt * 4);
+          this.vy += (player.vy - this.vy) * Math.min(1, dt * 4);
+          if(!this._fuelTransferDone) {
+            this._fuelTransferDone = true;
+            const fuelNeeded = Math.max(0, player.maxFuel - player.fuel);
+            if(fuelNeeded < 1) {
+              G.ui?.addMsg(this.name+': Your tanks are full — no transfer needed.', '#aaaaaa');
+            } else {
+              const cost = Math.round(fuelNeeded * (this.fuelRendezvousPrice || 8));
+              if(G.game.credits >= cost) {
+                G.game.credits -= cost;
+                player.fuel = player.maxFuel;
+                G.sound?.menuClick?.();
+                G.ui?.addMsg('Fuel transfer complete: +'+Math.round(fuelNeeded)+' fuel for '+G.fmtCredits(cost), '#ff8844');
+              } else {
+                G.ui?.addMsg(this.name+': You can\'t cover the cost — transfer aborted.', '#ff4444');
+              }
+            }
+            this._fuelDepartTimer = 3;
+          }
+          this._fuelDepartTimer -= dt;
+          if(this._fuelDepartTimer <= 0) {
+            this.fuelRendezvous = false;
+            this.aiState = 'transit_to_jump';
+            this._setJumpTarget();
+          }
+        }
+        break;
+      }
       case 'transit_to_jump':
         this._steerTo(this.targetX, this.targetY, dt);
         this._thrust(dt);
-        if(Math.hypot(this.x-this.targetX,this.y-this.targetY) < 130) this.dead=true;
+        if(Math.hypot(this.x-this.targetX,this.y-this.targetY) < 130) {
+          // Reached jump point — start warmup charge
+          this.aiState = 'charging_jump';
+          this.jumpChargeT = 0;
+          this.vx = 0; this.vy = 0;
+        }
         break;
+      case 'charging_jump': {
+        const chargeTime = 2.5;
+        this.jumpChargeT += dt;
+        if(this.jumpChargeT >= chargeTime) {
+          // Hyperspace jump-out
+          this.jumpingOut = true;
+          this.jumpOutTimer = 0.45;
+          this.vx = Math.sin(this.angle)*6000;
+          this.vy = -Math.cos(this.angle)*6000;
+          if(particles) particles.warp_effect(this.x, this.y);
+        }
+        break;
+      }
     }
   }
 
@@ -304,26 +402,50 @@ G.NPCShip = class {
   }
 
   _thrust(dt) {
-    this.vx+=Math.sin(this.angle)*this.speed*dt*0.4;
-    this.vy-=Math.cos(this.angle)*this.speed*dt*0.4;
+    const fwdX=Math.sin(this.angle), fwdY=-Math.cos(this.angle);
+    const latX=Math.cos(this.angle), latY= Math.sin(this.angle);
+    const accel=this.speed*0.4;
+
+    this.vx+=fwdX*accel*dt;
+    this.vy+=fwdY*accel*dt;
+
+    // Grip: cancel sideways velocity while thrusting forward
+    const vLat=this.vx*latX+this.vy*latY;
+    const dvl=Math.sign(vLat)*Math.min(Math.abs(vLat), accel*1.0*dt);
+    this.vx-=latX*dvl; this.vy-=latY*dvl;
+
     const s=Math.hypot(this.vx,this.vy);
     if(s>this.speed){this.vx*=this.speed/s;this.vy*=this.speed/s;}
   }
 
+  _applyDrag(dt) {
+    const fwdX=Math.sin(this.angle), fwdY=-Math.cos(this.angle);
+    const latX=Math.cos(this.angle), latY= Math.sin(this.angle);
+    let vFwd=this.vx*fwdX+this.vy*fwdY;
+    let vLat=this.vx*latX+this.vy*latY;
+    vFwd*=Math.max(0, 1-0.08*dt);   // slight forward drag
+    vLat*=Math.max(0, 1-2.5*dt);    // strong lateral drag
+    this.vx=fwdX*vFwd+latX*vLat;
+    this.vy=fwdY*vFwd+latY*vLat;
+  }
+
   takeDamage(amount, type) {
     if(type==='emp'){this.empTimer=4;this.shields=0;return;}
+    if(this.disabled){this.hp-=amount;if(this.hp<=0)this.dead=true;return;}
     if(this.shields>0){const sd=Math.min(this.shields,amount);this.shields-=sd;amount=(amount-sd)*0.2;}
     this.hp-=amount;
-    if(this.hp<=10&&!this.disabled){this.disabled=true;this.hp=10;}
-    if(this.hp<=0)this.dead=true;
+    if(this.hp<=0){this.hp=Math.round((this.maxHp||this.hp)*0.2)||10;this.disabled=true;}
   }
 
   // Returns array of comms options
   getCommsOptions(playerFuelPct) {
+    const fuelNeeded  = G.game?.player ? Math.max(0, G.game.player.maxFuel - G.game.player.fuel) : 0;
+    const fuelCostEst = Math.round(fuelNeeded * 8);
     const opts = [
       { key:'hail',    label:'Hail',           color:'#00ffee' },
       { key:'trade',   label:'Propose Trade',  color:'#ffcc00' },
-      { key:'fuel',    label:'Request Fuel',   color:'#ff8844', disabled: playerFuelPct > 0.4 },
+      { key:'fuel',    label:`Request Fuel — ${G.fmtCredits(fuelCostEst)} (rendezvous)`, color:'#ff8844',
+        disabled: this.hostile || playerFuelPct > 0.9 },
       { key:'threaten',label:'Threaten',       color:'#ff4444' },
     ];
     if(this.hostile) {
@@ -341,10 +463,19 @@ G.NPCShip = class {
     const res  = { text:base, hostile:false, fuelAmt:0, fuelCost:0, tradeItems:[], forgiveResult:null };
 
     if(action==='fuel') {
-      const fuelAmt  = 15+Math.floor(Math.random()*20);
-      const fuelCost = fuelAmt*6;
-      res.text=base.replace('{cost}','$ '+fuelCost);
-      res.fuelAmt=fuelAmt; res.fuelCost=fuelCost;
+      const player   = G.game?.player;
+      const fuelNeeded = player ? Math.max(0, player.maxFuel - player.fuel) : 0;
+      const fuelCost   = Math.round(fuelNeeded * 8);
+      res.text = `Roger that. En route for fuel transfer — ${G.fmtCredits(fuelCost)} when we dock.`;
+      res.fuelRendezvous = true;
+      res.fuelAmt  = fuelNeeded;
+      res.fuelCost = fuelCost;
+      // Activate rendezvous AI on the NPC
+      this.fuelRendezvous      = true;
+      this.fuelRendezvousPrice = 8;
+      this._fuelTransferDone   = false;
+      this._fuelDepartTimer    = 0;
+      this.aiState = 'fuel_rendezvous';
     }
     if(action==='trade') {
       res.tradeItems = Object.entries(this.cargo).map(([id,qty])=>({id,qty,price:Math.round((G.ITEMS[id]?.base||100)*0.9)}));

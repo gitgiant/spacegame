@@ -12,36 +12,36 @@
 <div id="game-container">
   <canvas id="gameCanvas"></canvas>
 
-  <!-- Hostile enemy alert -->
-  <div id="hostile-alert" class="hidden"></div>
-
-  <!-- Target off-screen portrait -->
-  <div id="target-offscreen" class="hidden">
-    <canvas id="tgt-off-canvas" width="64" height="64"></canvas>
-    <div id="tgt-off-body">
-      <div id="tgt-off-name"></div>
-      <div class="bar-row"><div class="bar-bg sm"><div id="tgt-off-hull" class="bar bar-hull"></div></div></div>
-      <div class="bar-row" id="tgt-off-shld-row"><div class="bar-bg sm"><div id="tgt-off-shld" class="bar bar-shield"></div></div></div>
-      <div id="tgt-off-dist"></div>
-    </div>
-    <div id="tgt-off-arrow">▲</div>
-  </div>
+  <!-- FPS counter -->
+  <div id="fps-counter" class="hidden"></div>
 
   <!-- Floating top overlays (transparent, minimal) -->
   <div id="hud-top" class="hidden">
     <div id="system-label"></div>
     <div id="target-panel" class="hidden">
-      <div id="tgt-name"></div>
-      <div class="bar-row"><span class="bar-lbl">H</span><div class="bar-bg sm"><div id="tgt-hull-bar" class="bar bar-hull"></div></div></div>
-      <div class="bar-row"><span class="bar-lbl">S</span><div class="bar-bg sm"><div id="tgt-shld-bar" class="bar bar-shield"></div></div></div>
-      <div id="tgt-dist"></div>
+      <canvas id="tgt-canvas" width="48" height="48"></canvas>
+      <div id="tgt-panel-body">
+        <div style="display:flex;align-items:center;gap:6px">
+          <div id="tgt-name"></div>
+          <div id="tgt-arrow" class="hidden">▲</div>
+        </div>
+        <div class="bar-row"><span class="bar-lbl">H</span><div class="bar-bg sm"><div id="tgt-hull-bar" class="bar bar-hull"></div></div></div>
+        <div class="bar-row"><span class="bar-lbl">S</span><div class="bar-bg sm"><div id="tgt-shld-bar" class="bar bar-shield"></div></div></div>
+        <div id="tgt-dist"></div>
+      </div>
     </div>
+    <!-- Hostile enemy alert — below target panel -->
+    <div id="hostile-alert" class="hidden"></div>
   </div>
 
   <!-- Minimap (top-right floating) -->
   <div id="minimap-wrap" class="hidden">
+    <button id="minimap-toggle-btn" onclick="G.game?.toggleMinimap()">MAP ▲</button>
     <canvas id="minimap" width="180" height="180"></canvas>
   </div>
+
+  <!-- Autopilot indicator -->
+  <div id="autopilot-hud" class="hidden"></div>
 
   <!-- Broken module warnings (above HUD) -->
   <div id="hud-warnings" class="hidden"></div>
@@ -53,11 +53,16 @@
       <div class="sbar-row"><div class="sbar-bg"><div id="bar-hull" class="sbar sbar-hull"></div></div><span class="sbar-lbl">H</span></div>
       <div class="sbar-row"><div class="sbar-bg"><div id="bar-shield" class="sbar sbar-shield"></div></div><span class="sbar-lbl">S</span></div>
       <div class="sbar-row"><div class="sbar-bg"><div id="bar-fuel" class="sbar sbar-fuel"></div></div><span class="sbar-lbl">F</span></div>
+      <div class="sbar-row"><div class="sbar-bg"><div id="bar-energy" class="sbar sbar-energy"></div></div><span class="sbar-lbl">E</span></div>
     </div>
     <!-- Messages — bottom center -->
     <div id="hud-msgs"><div id="msgs"></div></div>
     <!-- Info — bottom right -->
     <div id="hud-info">
+      <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px">
+        <div id="vel-arrow" style="font-size:9px;color:#334455;display:inline-block;line-height:1;opacity:0.18">▲</div>
+        <div id="speed-hud"></div>
+      </div>
       <div id="credits-hud"></div>
       <div id="cargo-hud"></div>
       <div id="weapon-hud"></div>
@@ -85,11 +90,13 @@
     <canvas id="galaxy-canvas"></canvas>
     <div id="galaxy-ui">
       <div class="panel-title" style="margin-bottom:6px">GALAXY MAP</div>
-      <div style="font-size:6px;color:#556677;line-height:2">
+      <div style="font-size:6px;color:#556677;line-height:2;margin-bottom:8px">
         Click system to select<br>
         [M] to close
       </div>
       <button id="jump-btn" class="btn hidden">JUMP</button>
+      <div style="font-size:6px;color:#556677;margin-top:12px;margin-bottom:4px;letter-spacing:1px">FACTION STANDING</div>
+      <div id="opt-factions" style="font-size:6px"></div>
       <button id="close-galaxy-btn" class="btn" style="margin-top:auto">CLOSE [M]</button>
     </div>
   </div>
@@ -102,12 +109,12 @@
         <div id="sp-tabs">
           <button class="tab active" data-tab="trade">TRADE</button>
           <button class="tab" data-tab="missions">MISSIONS</button>
-          <button class="tab" data-tab="log">LOG</button>
           <button class="tab" data-tab="outfitter">OUTFITTER</button>
           <button class="tab" data-tab="shipyard">SHIPYARD</button>
           <button class="tab" data-tab="crew">CREW</button>
           <button class="tab" data-tab="repair">REPAIR</button>
           <button class="tab" data-tab="craft">CRAFTING</button>
+          <button class="tab" data-tab="inventory">INVENTORY</button>
           <button id="launch-btn" class="btn btn-launch">LAUNCH [L]</button>
         </div>
       </div>
@@ -169,13 +176,41 @@
   <div id="options-overlay" class="hidden">
     <div id="options-box">
       <div class="panel-title" style="text-align:center;margin-bottom:16px">OPTIONS</div>
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
-        <span style="font-size:6px;color:#aabbcc;font-family:'Press Start 2P',monospace;min-width:48px">SOUND</span>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="font-size:6px;color:#aabbcc;font-family:'Press Start 2P',monospace;min-width:48px">SFX</span>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="opt-sfx-enabled" checked style="accent-color:#00ffee;width:13px;height:13px">
+          <span id="opt-sfx-label" style="font-size:6px;color:#00ffee;font-family:'Press Start 2P',monospace">ON</span>
+        </label>
         <input type="range" id="opt-volume" min="0" max="100" value="45" style="flex:1;accent-color:#00ffee">
         <span id="opt-volume-val" style="font-size:6px;color:#00ffee;font-family:'Press Start 2P',monospace;min-width:28px">45%</span>
       </div>
-      <div style="font-size:6px;color:#556677;font-family:'Press Start 2P',monospace;margin-bottom:8px;letter-spacing:1px">FACTION STANDING</div>
-      <div id="opt-factions"></div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <span style="font-size:6px;color:#aabbcc;font-family:'Press Start 2P',monospace;min-width:48px">MUSIC</span>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="opt-music-enabled" checked style="accent-color:#bb88ff;width:13px;height:13px">
+          <span id="opt-music-label" style="font-size:6px;color:#bb88ff;font-family:'Press Start 2P',monospace">ON</span>
+        </label>
+        <input type="range" id="opt-music-volume" min="0" max="100" value="30" style="flex:1;accent-color:#bb88ff">
+        <span id="opt-music-vol-val" style="font-size:6px;color:#bb88ff;font-family:'Press Start 2P',monospace;min-width:28px">30%</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <span style="font-size:6px;color:#aabbcc;font-family:'Press Start 2P',monospace;min-width:48px">FPS</span>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="opt-fps-enabled" style="accent-color:#ffdd44;width:13px;height:13px">
+          <span id="opt-fps-label" style="font-size:6px;color:#ffdd44;font-family:'Press Start 2P',monospace">OFF</span>
+        </label>
+      </div>
+      <div style="font-size:6px;color:#556677;font-family:'Press Start 2P',monospace;margin:12px 0 6px;letter-spacing:1px">CONTROLS</div>
+      <div style="font-size:5px;color:#667788;font-family:'Press Start 2P',monospace;line-height:2.2;margin-bottom:12px">
+        W/S · THRUST/BRAKE &nbsp; A/D · TURN &nbsp; Q/E · STRAFE<br>
+        SHIFT · BOOST &nbsp; S (hold 1s) · REVERSE THRUST<br>
+        SPACE · FIRE ALL WEAPONS &nbsp; T/Y · CYCLE TARGET<br>
+        R · NEAREST TARGET &nbsp; P · AUTOPILOT<br>
+        M · GALAXY MAP &nbsp; HOLD J · HYPERSPACE JUMP<br>
+        L · LAND/BOARD &nbsp; I · INVENTORY &nbsp; N · MISSION LOG<br>
+        C · COMMS &nbsp; F · REQUEST FUEL &nbsp; ESC · OPTIONS
+      </div>
       <button class="btn btn-big" id="opt-save-btn">SAVE GAME</button>
       <button class="btn btn-big" id="opt-quit-btn" style="border-color:#ff6644;color:#ff6644">QUIT TO MENU</button>
       <button class="btn btn-big" id="opt-close-btn">RESUME [ESC]</button>
@@ -191,8 +226,8 @@
       <button id="continue-btn" class="btn btn-big hidden" style="border-color:#44ff44;color:#44ff44">CONTINUE</button>
       <div id="save-info" style="font-size:6px;color:#334455;margin-top:4px;text-align:center"></div>
       <div id="menu-controls">
-        WASD · MOVE &nbsp; SHIFT · BOOST &nbsp; SPACE · PRIMARY FIRE &nbsp; TAB · SECONDARY FIRE<br>
-        T/Y · CYCLE TARGET &nbsp; R · NEAREST &nbsp; HOLD X · AUTO-AIM INTERCEPT<br>
+        WASD · MOVE &nbsp; Q/E · STRAFE &nbsp; SHIFT · BOOST &nbsp; SPACE · PRIMARY FIRE &nbsp; TAB · SECONDARY FIRE<br>
+        T/Y · CYCLE TARGET &nbsp; R · NEAREST &nbsp; HOLD X · AUTO-AIM &nbsp; P · AUTOPILOT<br>
         M · GALAXY MAP (plan route) &nbsp; HOLD J · JUMP (when route set)<br>
         L · LAND/BOARD &nbsp; I · INVENTORY &nbsp; F · REQUEST FUEL &nbsp; C · COMMS
       </div>
@@ -203,6 +238,7 @@
 <script src="js/data.js"></script>
 <script src="js/utils.js"></script>
 <script src="js/sprites.js"></script>
+<script src="js/planets.js"></script>
 <script src="js/npc.js"></script>
 <script src="js/input.js"></script>
 <script src="js/particles.js"></script>
