@@ -378,6 +378,7 @@ G.SHIPS = {
     startModules:['basic_engine','jump_drive','small_cargo','escape_pod','crew_quarters','basic_sensors','reactor'],
     startWeapons:['laser_cannon'],
     shape:'shuttle', color:'#8899bb', size:1.0,
+    expansionLimit:3,
     stats:'HULL:80  CARGO:8  SLOTS:8',
   },
   merchant: {
@@ -390,6 +391,7 @@ G.SHIPS = {
     startModules:['basic_engine','jump_drive','medium_cargo','medium_cargo','fuel_tank'],
     startWeapons:['autocannon'],
     shape:'merchant', color:'#aacc88', size:1.2,
+    expansionLimit:5,
     stats:'HULL:120  CARGO:20  SLOTS:11',
   },
   scout: {
@@ -402,6 +404,7 @@ G.SHIPS = {
     startModules:['improved_engine','jump_drive','basic_sensors','small_cargo'],
     startWeapons:['laser_cannon'],
     shape:'scout', color:'#88ccee', size:0.85,
+    expansionLimit:2,
     stats:'HULL:60  SPEED:FAST  SENSORS:GOOD',
   },
   fighter: {
@@ -414,6 +417,7 @@ G.SHIPS = {
     startModules:['improved_engine','light_shield','jump_drive','small_cargo'],
     startWeapons:['laser_cannon','autocannon'],
     shape:'fighter', color:'#4488ff', size:0.9,
+    expansionLimit:3,
     stats:'HULL:90  WEAPONS:3  SPEED:HIGH',
   },
   gunboat: {
@@ -426,6 +430,7 @@ G.SHIPS = {
     startModules:['basic_engine','medium_shield','jump_drive','crew_quarters'],
     startWeapons:['heavy_laser','autocannon','autocannon'],
     shape:'gunboat', color:'#ff8844', size:1.2,
+    expansionLimit:4,
     stats:'HULL:160  WEAPONS:4  SHIELDS:MED',
   },
   corvette: {
@@ -438,6 +443,7 @@ G.SHIPS = {
     startModules:['improved_engine','medium_shield','jump_drive','medium_cargo'],
     startWeapons:['heavy_laser','autocannon','auto_turret'],
     shape:'corvette', color:'#5599ff', size:1.3,
+    expansionLimit:5,
     stats:'HULL:200  WEAPONS:3  BALANCED',
   },
   freighter: {
@@ -450,6 +456,7 @@ G.SHIPS = {
     startModules:['basic_engine','jump_drive','large_cargo','large_cargo','large_cargo','reactor'],
     startWeapons:['autocannon'],
     shape:'freighter', color:'#888866', size:1.6,
+    expansionLimit:8,
     stats:'HULL:180  CARGO:50  SPEED:SLOW',
   },
   battlecruiser: {
@@ -462,6 +469,7 @@ G.SHIPS = {
     startModules:['military_engine','heavy_shield','heavy_shield','jump_drive','heavy_armor','military_reactor'],
     startWeapons:['heavy_laser','heavy_laser','railgun','auto_turret'],
     shape:'battlecruiser', color:'#336699', size:1.8,
+    expansionLimit:6,
     stats:'HULL:400  WEAPONS:5  HEAVILY ARMORED',
   },
   carrier: {
@@ -474,6 +482,7 @@ G.SHIPS = {
     startModules:['military_engine','heavy_shield','jump_drive','officer_block','officer_block','military_reactor','military_sensors'],
     startWeapons:['railgun','auto_turret','auto_turret'],
     shape:'carrier', color:'#996633', size:2.0,
+    expansionLimit:7,
     stats:'HULL:350  DRONES  MASSIVE',
   },
   dreadnought: {
@@ -486,6 +495,7 @@ G.SHIPS = {
     startModules:['military_engine','heavy_shield','heavy_shield','jump_drive','heavy_armor','heavy_armor','military_reactor','military_reactor'],
     startWeapons:['artillery','artillery','heavy_laser','heavy_laser','auto_turret','auto_turret'],
     shape:'dreadnought', color:'#224466', size:2.4,
+    expansionLimit:8,
     stats:'HULL:800  WEAPONS:6  INVINCIBLE',
   },
 };

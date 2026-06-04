@@ -27,6 +27,22 @@ G.Space = class {
         layer:Math.floor(Math.random()*3),
       });
     }
+
+    // Distant deep-space objects: galaxies, nebulae, dust clouds
+    this.bgDeepObjects = [];
+    const deepTypes = ['galaxy','galaxy','nebula_blue','nebula_purple','nebula_red','nebula_teal','dust','dust'];
+    for(let i=0;i<16;i++) {
+      this.bgDeepObjects.push({
+        x: Math.random()*8000-4000,
+        y: Math.random()*8000-4000,
+        type: deepTypes[i % deepTypes.length],
+        size: 70 + Math.random()*150,
+        rotation: Math.random()*Math.PI*2,
+        alpha: 0.05 + Math.random()*0.10,
+        parallax: 0.010 + Math.random()*0.025,
+        idx: i,
+      });
+    }
   }
 
   loadSystem(sysId) {

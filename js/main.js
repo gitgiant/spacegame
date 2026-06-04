@@ -1,6 +1,8 @@
 'use strict';
 // ── Constants ─────────────────────────────────────────────
-G.CANVAS_W = 1200;
+G.BASE_CANVAS_W = 1200;
+G.BASE_CANVAS_H = 750;
+G.CANVAS_W = 1200; // updated dynamically by _resize
 G.CANVAS_H = 750;
 G.SAVE_KEY  = 'starfarer_save_v2';
 
@@ -10,14 +12,22 @@ G.Renderer = class {
     this.canvas = canvas;
     this.ctx    = canvas.getContext('2d');
     this.ctx.imageSmoothingEnabled = false;
+    this._deepBgCache = new Map();
     this._resize();
     window.addEventListener('resize', ()=>this._resize());
   }
 
   _resize() {
-    const ratio = Math.min(window.innerWidth/G.CANVAS_W, window.innerHeight/G.CANVAS_H);
-    this.canvas.width  = G.CANVAS_W;
-    this.canvas.height = G.CANVAS_H;
+    // Scale to fill height; on ultrawide expand canvas width to fill screen (no black bars)
+    const ratio = Math.min(window.innerWidth / G.BASE_CANVAS_W, window.innerHeight / G.BASE_CANVAS_H);
+    const logW  = Math.round(window.innerWidth  / ratio);
+    const logH  = Math.round(window.innerHeight / ratio);
+
+    G.CANVAS_W = logW;
+    G.CANVAS_H = logH;
+
+    this.canvas.width  = logW;
+    this.canvas.height = logH;
     this.canvas.style.width  = '100%';
     this.canvas.style.height = '100%';
     this.canvas.style.left   = '0';
@@ -25,14 +35,14 @@ G.Renderer = class {
 
     const gc = document.getElementById('game-container');
     if (gc) {
-      const offX = Math.floor((window.innerWidth  - G.CANVAS_W * ratio) / 2);
-      const offY = Math.floor((window.innerHeight - G.CANVAS_H * ratio) / 2);
-      gc.style.width           = G.CANVAS_W + 'px';
-      gc.style.height          = G.CANVAS_H + 'px';
-      gc.style.left            = offX + 'px';
-      gc.style.top             = offY + 'px';
+      gc.style.width           = logW + 'px';
+      gc.style.height          = logH + 'px';
+      gc.style.left            = '0';
+      gc.style.top             = '0';
       gc.style.transform       = `scale(${ratio})`;
       gc.style.transformOrigin = 'top left';
+      gc.style.setProperty('--canvas-w', logW + 'px');
+      gc.style.setProperty('--canvas-h', logH + 'px');
     }
   }
 
@@ -75,23 +85,18 @@ G.Renderer = class {
   drawShip(x, y, angle, shapeId, color, scale=1, thrusting=false, boosting=false) {
     const shape = G.SHAPES[shapeId] || G.SHAPES.shuttle;
     const ctx = this.ctx;
+    const SZ = G.Sprites.SZ;
     ctx.save();
     ctx.translate(x|0, y|0);
     ctx.rotate(angle);
     ctx.scale(scale, scale);
 
-    if(shape.body && shape.body.length>0) {
-      ctx.beginPath();
-      ctx.moveTo(shape.body[0][0], shape.body[0][1]);
-      shape.body.slice(1).forEach(([px,py])=>ctx.lineTo(px,py));
-      ctx.closePath();
-      ctx.fillStyle   = color || shape.color;
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth   = 1/scale;
-      ctx.fill();
-      ctx.stroke();
-    }
+    // Draw pixel-art sprite centred at origin
+    const sprite = G.Sprites.get(shapeId, color || shape.color);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(sprite, -(SZ>>1), -(SZ>>1), SZ, SZ);
 
+    // Engine thrust flame overlay (on top of sprite)
     if(thrusting && shape.enginePts) {
       const ew = shape.engineW || 5;
       for(const [ex,ey] of shape.enginePts) {
@@ -107,6 +112,48 @@ G.Renderer = class {
         ctx.closePath();
         ctx.fillStyle = grad;
         ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  // Draw module icon overlays for the player's installed modules
+  drawModuleOverlay(player, shapeId, scale) {
+    if(!player || !player.modules) return;
+    const ctx = this.ctx;
+    const MSZ = G.Sprites.MSZ;
+    const half = MSZ >> 1;
+    const offsets = G.Sprites.slotOffsets[shapeId] || G.Sprites.slotOffsets.shuttle;
+    const slotCount = {};
+    ctx.save();
+    ctx.translate(player.x|0, player.y|0);
+    ctx.rotate(player.angle);
+    ctx.scale(scale, scale);
+    ctx.imageSmoothingEnabled = false;
+
+    for(const inst of Object.values(player.modules)) {
+      const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+      if(!mod) continue;
+      const visual = mod.visual || (G.WEAPONS[inst.moduleId] ? 'weapon' : 'special');
+      const slotType = inst.slotType;
+      const positions = offsets[slotType];
+      if(!positions || positions.length === 0) continue;
+      const idx = (slotCount[slotType] = (slotCount[slotType]||0));
+      slotCount[slotType]++;
+      const [sx, sy] = positions[idx % positions.length];
+      const icon = G.Sprites.getMod(visual);
+      if(inst.broken) {
+        ctx.globalAlpha = 0.4;
+        ctx.drawImage(icon, sx-half, sy-half, MSZ, MSZ);
+        ctx.globalAlpha = 1;
+        // Draw red X over broken module
+        ctx.fillStyle = '#ff2222';
+        ctx.fillRect(sx-half,   sy-half,   2, 2);
+        ctx.fillRect(sx+half-2, sy-half,   2, 2);
+        ctx.fillRect(sx-half,   sy+half-2, 2, 2);
+        ctx.fillRect(sx+half-2, sy+half-2, 2, 2);
+      } else {
+        ctx.drawImage(icon, sx-half, sy-half, MSZ, MSZ);
       }
     }
     ctx.restore();
@@ -379,6 +426,128 @@ G.Renderer = class {
     }
   }
 
+  // ── Deep background sprite builder ───────────────────────
+  _makeDeepSprite(type, sz) {
+    const S = ((sz * 2 + 4) | 0);
+    const c = document.createElement('canvas');
+    c.width = c.height = S;
+    const ctx = c.getContext('2d');
+    const cx = S / 2, cy = S / 2;
+
+    if (type === 'galaxy') {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(1, 0.52);
+      // Core glow
+      const core = ctx.createRadialGradient(0, 0, 0, 0, 0, sz * 0.28);
+      core.addColorStop(0,   'rgba(255,248,215,1)');
+      core.addColorStop(0.12,'rgba(255,220,160,0.72)');
+      core.addColorStop(0.4, 'rgba(180,160,255,0.22)');
+      core.addColorStop(1,   'rgba(0,0,0,0)');
+      ctx.fillStyle = core;
+      ctx.beginPath(); ctx.arc(0, 0, sz * 0.65, 0, Math.PI * 2); ctx.fill();
+      // Two spiral arms
+      for (let arm = 0; arm < 2; arm++) {
+        const base = arm * Math.PI;
+        for (let i = 0; i < 70; i++) {
+          const t = i / 70;
+          const a = base + t * Math.PI * 3.2;
+          const r = (0.04 + t * 0.88) * sz;
+          const sp = r * 0.22;
+          const dx = Math.cos(a) * r + (Math.random() - 0.5) * sp;
+          const dy = Math.sin(a) * r + (Math.random() - 0.5) * sp;
+          const al = (1 - t) * (0.45 + Math.random() * 0.5);
+          const bv = Math.floor(200 + t * 55);
+          const ds = Math.random() < 0.09 ? 2 : 1;
+          ctx.fillStyle = `rgba(${bv},${bv - 28},255,${al.toFixed(2)})`;
+          ctx.fillRect(dx | 0, dy | 0, ds, ds);
+        }
+      }
+      // Halo star dust
+      for (let i = 0; i < 45; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.random() * sz * 0.82;
+        const al = (0.12 + Math.random() * 0.4) * (1 - r / sz);
+        ctx.fillStyle = `rgba(255,255,255,${al.toFixed(2)})`;
+        ctx.fillRect((Math.cos(a) * r) | 0, (Math.sin(a) * r) | 0, 1, 1);
+      }
+      ctx.restore();
+
+    } else if (type.startsWith('nebula')) {
+      const pals = {
+        nebula_blue:   [[30,80,255],[0,130,255],[80,160,255]],
+        nebula_purple: [[140,40,255],[190,90,255],[90,30,180]],
+        nebula_red:    [[255,70,30],[255,130,50],[190,30,10]],
+        nebula_teal:   [[0,190,170],[40,240,190],[0,130,110]],
+      };
+      const pal = pals[type] || pals.nebula_blue;
+      const n = 3 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + Math.random() * 0.9;
+        const dist = sz * (0.08 + Math.random() * 0.24);
+        const lx = cx + Math.cos(a) * dist;
+        const ly = cy + Math.sin(a) * dist;
+        const lr = sz * (0.28 + Math.random() * 0.34);
+        const col = pal[i % pal.length];
+        const g = ctx.createRadialGradient(lx, ly, 0, lx, ly, lr);
+        g.addColorStop(0,   `rgba(${col[0]},${col[1]},${col[2]},0.48)`);
+        g.addColorStop(0.4, `rgba(${col[0]},${col[1]},${col[2]},0.16)`);
+        g.addColorStop(1,   'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(lx, ly, lr, 0, Math.PI * 2); ctx.fill();
+      }
+      // Embedded star pixels
+      for (let i = 0; i < 35; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.random() * sz * 0.52;
+        const al = 0.28 + Math.random() * 0.6;
+        ctx.fillStyle = `rgba(255,255,255,${al.toFixed(2)})`;
+        ctx.fillRect((cx + Math.cos(a) * r) | 0, (cy + Math.sin(a) * r) | 0, 1, 1);
+      }
+
+    } else { // dust cloud
+      const cols = [[160,140,100],[130,115,85],[170,150,105]];
+      for (let i = 0; i < 5; i++) {
+        const dx = (Math.random() - 0.5) * sz * 0.7;
+        const dy = (Math.random() - 0.5) * sz * 0.55;
+        const lr = sz * (0.2 + Math.random() * 0.26);
+        const col = cols[i % cols.length];
+        const g = ctx.createRadialGradient(cx+dx, cy+dy, 0, cx+dx, cy+dy, lr);
+        g.addColorStop(0,    `rgba(${col[0]},${col[1]},${col[2]},0.18)`);
+        g.addColorStop(0.55, `rgba(${col[0]},${col[1]},${col[2]},0.06)`);
+        g.addColorStop(1,    'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(cx+dx, cy+dy, lr, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    return c;
+  }
+
+  drawDeepBg(deepObjects, camX, camY) {
+    if (!deepObjects || !deepObjects.length) return;
+    const ctx = this.ctx;
+    const tileW = G.CANVAS_W * 2;
+    const tileH = G.CANVAS_H * 2;
+    ctx.save();
+    for (const obj of deepObjects) {
+      const key = obj.type + '_' + (obj.size | 0) + '_' + obj.idx;
+      if (!this._deepBgCache.has(key)) {
+        this._deepBgCache.set(key, this._makeDeepSprite(obj.type, obj.size));
+      }
+      const sprite = this._deepBgCache.get(key);
+      const px = obj.parallax;
+      const sx = ((obj.x - camX * px) % tileW + tileW * 1.5) % tileW;
+      const sy = ((obj.y - camY * px) % tileH + tileH * 1.5) % tileH;
+      ctx.save();
+      ctx.globalAlpha = obj.alpha;
+      ctx.translate(sx | 0, sy | 0);
+      ctx.rotate(obj.rotation);
+      ctx.drawImage(sprite, -(obj.size) | 0, -(obj.size) | 0);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
   // ── Hyperspace animation render ──────────────────────────
   renderHyperspace(game) {
     const ctx = this.ctx;
@@ -442,6 +611,7 @@ G.Renderer = class {
     const ctx = this.ctx;
 
     this.clear();
+    this.drawDeepBg(space.bgDeepObjects, camX, camY);
     this.drawBg(space.bgStars, camX, camY, 1, 0);
 
     ctx.save();
@@ -550,6 +720,7 @@ G.Renderer = class {
     const shipColor = G.SHIPS[player.templateId]?.color || '#8899bb';
     const shapeId   = G.SHIPS[player.templateId]?.shape || 'shuttle';
     this.drawShip(player.x,player.y,player.angle,shapeId,shipColor,1,thrusting,boosting);
+    this.drawModuleOverlay(player, shapeId, 1);
 
     if(player.shields>0) {
       const alpha=0.12+0.28*(player.shields/player.maxShields);
@@ -592,6 +763,7 @@ G.Game = class {
     this.currentSysId='sol';
     this.target    = null;
     this.camX=0; this.camY=0;
+    this._camLeadX=0; this._camLeadY=0;
 
     // Hyperspace state
     this.hyperspaceT      = 0;
@@ -687,10 +859,12 @@ G.Game = class {
     this.player.y = d.playerPos?.y || 400;
 
     // Load space scene
+    this.economy._marketCache = {};
     this.space = new G.Space();
     this.space.loadSystem(this.currentSysId);
     this.camX = this.player.x - G.CANVAS_W/2;
     this.camY = this.player.y - G.CANVAS_H/2;
+    this._camLeadX=0; this._camLeadY=0;
     this.target = null;
     this.state = 'space';
 
@@ -713,6 +887,7 @@ G.Game = class {
     this.target=null;
     this.hyperspaceT=0; this.hyperspaceTarget=null; this._jumpChargeT=0; this._jumpCooldown=0;
 
+    this.economy._marketCache = {};
     this.player = new G.Ship('shuttle');
     this.player.x=800; this.player.y=300;
     this.space = new G.Space();
@@ -721,6 +896,7 @@ G.Game = class {
     this.galaxy.clearRoute();
     this.camX=this.player.x-G.CANVAS_W/2;
     this.camY=this.player.y-G.CANVAS_H/2;
+    this._camLeadX=0; this._camLeadY=0;
 
     document.getElementById('main-menu').classList.add('hidden');
     document.getElementById('gameover-overlay').classList.add('hidden');
@@ -956,9 +1132,15 @@ G.Game = class {
       }
     }
 
-    // Camera follow
-    this.camX=G.lerp(this.camX, p.x-G.CANVAS_W/2, Math.min(dt*6,1));
-    this.camY=G.lerp(this.camY, p.y-G.CANVAS_H/2, Math.min(dt*6,1));
+    // Camera follow with speed-based lead-ahead
+    const _spd = Math.sqrt(p.vx*p.vx + p.vy*p.vy);
+    const _leadFrac = G.clamp((_spd - 100) / 400, 0, 1);
+    const _tLeadX = _leadFrac * 180 * (_spd > 0 ? p.vx / _spd : 0);
+    const _tLeadY = _leadFrac * 180 * (_spd > 0 ? p.vy / _spd : 0);
+    this._camLeadX = G.lerp(this._camLeadX, _tLeadX, Math.min(dt * 2.5, 1));
+    this._camLeadY = G.lerp(this._camLeadY, _tLeadY, Math.min(dt * 2.5, 1));
+    this.camX=G.lerp(this.camX, p.x-G.CANVAS_W/2+this._camLeadX, Math.min(dt*6,1));
+    this.camY=G.lerp(this.camY, p.y-G.CANVAS_H/2+this._camLeadY, Math.min(dt*6,1));
 
     // Interact prompts
     const nearPort=this.space.nearestSpaceport(p.x,p.y,140);

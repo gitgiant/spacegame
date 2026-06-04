@@ -59,56 +59,52 @@ html, body {
 }
 #hud-top.hidden { display: none; }
 
-/* ── Bottom HUD bar ─────────────────────────────────────── */
+/* ── Minimal floating HUD ───────────────────────────────── */
 #hud {
   position: absolute;
-  bottom: 0; left: 0; right: 0;
-  height: 68px;
-  background: rgba(3,10,22,0.92);
-  border-top: 1px solid var(--col-border);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
+  inset: 0;
   pointer-events: none;
 }
 #hud.hidden { display: none; }
 
-#hud-bars {
-  flex: 0 0 195px;
+#stat-bars {
+  position: absolute;
+  bottom: 18px; left: 18px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
 }
-
-#power-panel {
-  flex: 0 0 160px;
-  border-left: 1px solid var(--col-border);
-  padding-left: 8px;
-  pointer-events: all;
-}
-
-#hud-mid {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
+.sbar-row { display: flex; align-items: center; gap: 5px; }
+.sbar-lbl { width: 8px; font-size: 6px; color: var(--col-dim); }
+.sbar-bg {
+  width: 80px; height: 5px;
+  background: rgba(8,20,36,0.85);
+  border: 1px solid var(--col-border);
   overflow: hidden;
+}
+.sbar { height: 100%; transition: width 0.1s; }
+.sbar-hull   { background: var(--col-hull); }
+.sbar-shield { background: var(--col-shield); }
+.sbar-fuel   { background: var(--col-fuel); }
+
+#hud-msgs {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 #hud-info {
-  flex: 0 0 145px;
+  position: absolute;
+  bottom: 18px; right: 18px;
+  text-align: right;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 3px;
-  text-align: right;
-  border-left: 1px solid var(--col-border);
-  padding-left: 8px;
+  gap: 4px;
+  pointer-events: none;
 }
 
+/* Keep bar-row/bar/bar-bg for target panel and off-screen portrait */
 .bar-row {
   display: flex;
   align-items: center;
@@ -128,29 +124,6 @@ html, body {
 .bar-shield { background: var(--col-shield); }
 .bar-energy { background: var(--col-energy); }
 .bar-fuel   { background: var(--col-fuel); }
-.bar-row span:last-child { width: 24px; text-align: right; font-size: 6px; color: var(--col-bright); }
-
-#power-panel {
-  margin-top: 6px;
-  border-top: 1px solid var(--col-border);
-  padding-top: 6px;
-  pointer-events: all;
-}
-.pwr-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 6px;
-  margin-bottom: 3px;
-}
-.pwr-row span:first-child { width: 22px; color: var(--col-dim); }
-.pwr-row input[type=range] {
-  flex: 1;
-  height: 6px;
-  accent-color: var(--col-bright);
-  cursor: pointer;
-}
-.pwr-row span:last-child { width: 22px; color: var(--col-bright); }
 
 #system-label {
   font-size: 10px;
@@ -176,7 +149,8 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-width: 400px;
+  max-width: 380px;
+  align-items: center;
 }
 .msg-line {
   font-size: 7px;
@@ -254,8 +228,8 @@ html, body {
 #spaceport-overlay.hidden { display: none; }
 
 #spaceport-window {
-  width: 95vw; max-width: 1100px;
-  height: 90vh;
+  width: min(95%, 1100px);
+  height: calc(var(--canvas-h, 750px) * 0.9);
   background: var(--col-panel);
   border: 2px solid var(--col-border);
   display: flex;
@@ -366,8 +340,8 @@ html, body {
   z-index: 180;
 }
 #mission-log-window {
-  width: 880px; max-width: 95vw;
-  height: 80vh;
+  width: min(880px, 95%);
+  height: calc(var(--canvas-h, 750px) * 0.8);
   background: var(--col-panel);
   border: 2px solid var(--col-border);
   display: flex;
@@ -457,7 +431,7 @@ html, body {
 
 #inv-window {
   width: 700px;
-  max-height: 80vh;
+  max-height: calc(var(--canvas-h, 750px) * 0.8);
   background: var(--col-panel);
   border: 2px solid var(--col-border);
   padding: 12px;
@@ -585,7 +559,7 @@ html, body {
 /* ── Comms overlay ──────────────────────────────────────── */
 #comms-overlay {
   position: absolute;
-  bottom: 80px; left: 20px;
+  bottom: 16px; left: 16px;
   z-index: 200;
 }
 #comms-overlay.hidden { display: none; }
@@ -681,7 +655,7 @@ html, body {
 /* ── Derelict / boarding prompt ─────────────────────────── */
 #interact-prompt {
   position: absolute;
-  bottom: 60px; left: 50%; transform: translateX(-50%);
+  bottom: 55px; left: 50%; transform: translateX(-50%);
   background: rgba(5,15,30,0.9);
   border: 1px solid var(--col-bright);
   padding: 8px 16px;
@@ -713,7 +687,7 @@ html, body {
 /* ── Jump charge bar ────────────────────────────────────── */
 #jump-charge-hud {
   position: absolute;
-  bottom: 82px; left: 50%; transform: translateX(-50%);
+  bottom: 16px; left: 50%; transform: translateX(-50%);
   background: rgba(0,8,22,0.92);
   border: 1px solid #1a4a6a;
   padding: 5px 10px 6px;
@@ -737,6 +711,85 @@ html, body {
   height: 100%;
   width: 0%;
   background: linear-gradient(to right, #0044ff, #00ffee);
+}
+
+/* ── Hostile alert ────────────────────────────────────────── */
+#hostile-alert {
+  position: absolute;
+  top: 42px; left: 50%; transform: translateX(-50%);
+  font-size: 8px;
+  color: #ff3333;
+  background: rgba(40,0,0,0.90);
+  border: 1px solid #882222;
+  padding: 4px 14px;
+  pointer-events: none;
+  z-index: 120;
+  white-space: nowrap;
+  animation: hostilePulse 1.2s infinite;
+}
+#hostile-alert.hidden { display: none !important; }
+@keyframes hostilePulse {
+  0%, 100% { opacity: 1; border-color: #ff4444; }
+  50%       { opacity: 0.5; border-color: #661111; }
+}
+
+/* ── Target off-screen portrait ───────────────────────────── */
+#target-offscreen {
+  position: absolute;
+  top: 10px; left: 10px;
+  background: rgba(5,15,30,0.94);
+  border: 1px solid #cc3333;
+  padding: 7px 9px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  pointer-events: none;
+  z-index: 120;
+}
+#target-offscreen.hidden { display: none !important; }
+#tgt-off-canvas {
+  border: 1px solid #882222;
+  image-rendering: pixelated;
+  flex-shrink: 0;
+}
+#tgt-off-body {
+  display: flex; flex-direction: column; gap: 4px;
+  min-width: 72px;
+}
+#tgt-off-name { font-size: 5px; color: #ff8888; }
+#tgt-off-dist { font-size: 5px; color: var(--col-dim); margin-top: 1px; }
+#tgt-off-arrow {
+  font-size: 20px;
+  color: #ff3333;
+  line-height: 1;
+  flex-shrink: 0;
+  display: block;
+}
+
+/* ── HUD warnings (broken module alerts) ─────────────────── */
+#hud-warnings {
+  position: absolute;
+  bottom: 55px; left: 50%; transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 110;
+  background: rgba(30,0,0,0.88);
+  border: 1px solid #aa2222;
+  padding: 4px 12px;
+  max-width: 600px;
+}
+#hud-warnings.hidden { display: none !important; }
+.hud-warn-item {
+  font-size: 7px;
+  color: #ff4444;
+  animation: warnBlink 1s infinite;
+}
+@keyframes warnBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 
 /* ── Save confirmation ──────────────────────────────────── */

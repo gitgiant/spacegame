@@ -12,6 +12,21 @@
 <div id="game-container">
   <canvas id="gameCanvas"></canvas>
 
+  <!-- Hostile enemy alert -->
+  <div id="hostile-alert" class="hidden"></div>
+
+  <!-- Target off-screen portrait -->
+  <div id="target-offscreen" class="hidden">
+    <canvas id="tgt-off-canvas" width="64" height="64"></canvas>
+    <div id="tgt-off-body">
+      <div id="tgt-off-name"></div>
+      <div class="bar-row"><div class="bar-bg sm"><div id="tgt-off-hull" class="bar bar-hull"></div></div></div>
+      <div class="bar-row" id="tgt-off-shld-row"><div class="bar-bg sm"><div id="tgt-off-shld" class="bar bar-shield"></div></div></div>
+      <div id="tgt-off-dist"></div>
+    </div>
+    <div id="tgt-off-arrow">▲</div>
+  </div>
+
   <!-- Floating top overlays (transparent, minimal) -->
   <div id="hud-top" class="hidden">
     <div id="system-label"></div>
@@ -28,30 +43,23 @@
     <canvas id="minimap" width="180" height="180"></canvas>
   </div>
 
-  <!-- Bottom HUD bar -->
+  <!-- Broken module warnings (above HUD) -->
+  <div id="hud-warnings" class="hidden"></div>
+
+  <!-- Minimal floating HUD -->
   <div id="hud" class="hidden">
-    <!-- Stat bars -->
-    <div id="hud-bars">
-      <div class="bar-row"><span class="bar-lbl">HULL</span><div class="bar-bg"><div id="bar-hull" class="bar bar-hull"></div></div><span id="val-hull">100</span></div>
-      <div class="bar-row"><span class="bar-lbl">SHLD</span><div class="bar-bg"><div id="bar-shield" class="bar bar-shield"></div></div><span id="val-shield">0</span></div>
-      <div class="bar-row"><span class="bar-lbl">ENRG</span><div class="bar-bg"><div id="bar-energy" class="bar bar-energy"></div></div><span id="val-energy">100</span></div>
-      <div class="bar-row"><span class="bar-lbl">FUEL</span><div class="bar-bg"><div id="bar-fuel" class="bar bar-fuel"></div></div><span id="val-fuel">50</span></div>
+    <!-- Stat bars — bottom left -->
+    <div id="stat-bars">
+      <div class="sbar-row"><div class="sbar-bg"><div id="bar-hull" class="sbar sbar-hull"></div></div><span class="sbar-lbl">H</span></div>
+      <div class="sbar-row"><div class="sbar-bg"><div id="bar-shield" class="sbar sbar-shield"></div></div><span class="sbar-lbl">S</span></div>
+      <div class="sbar-row"><div class="sbar-bg"><div id="bar-fuel" class="sbar sbar-fuel"></div></div><span class="sbar-lbl">F</span></div>
     </div>
-    <!-- Power sliders (compact) -->
-    <div id="power-panel">
-      <div class="pwr-row"><span>WEP</span><input type="range" id="pwr-wpn" min="0" max="100" value="33"><span id="pv-wpn">33%</span></div>
-      <div class="pwr-row"><span>SHD</span><input type="range" id="pwr-shd" min="0" max="100" value="33"><span id="pv-shd">33%</span></div>
-      <div class="pwr-row"><span>ENG</span><input type="range" id="pwr-eng" min="0" max="100" value="34"><span id="pv-eng">34%</span></div>
-    </div>
-    <!-- Messages -->
-    <div id="hud-mid">
-      <div id="msgs"></div>
-    </div>
-    <!-- Right info -->
+    <!-- Messages — bottom center -->
+    <div id="hud-msgs"><div id="msgs"></div></div>
+    <!-- Info — bottom right -->
     <div id="hud-info">
-      <div id="credits-hud">$ 1,000</div>
-      <div id="cargo-hud">CARGO 0/0</div>
-      <div id="speed-hud">SPD 0</div>
+      <div id="credits-hud"></div>
+      <div id="cargo-hud"></div>
       <div id="weapon-hud"></div>
     </div>
   </div>
@@ -187,6 +195,7 @@
 </div>
 <script src="js/data.js"></script>
 <script src="js/utils.js"></script>
+<script src="js/sprites.js"></script>
 <script src="js/npc.js"></script>
 <script src="js/input.js"></script>
 <script src="js/particles.js"></script>

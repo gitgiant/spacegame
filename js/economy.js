@@ -3,6 +3,7 @@
 G.Economy = class {
   constructor() {
     this._missionCache = {}; // sysId -> [{...}]
+    this._marketCache  = {}; // sysId -> [{...}]  persists per session so stock depletes
   }
 
   // Generate mission list for a spaceport
@@ -145,26 +146,29 @@ G.Economy = class {
     }
   }
 
-  // Get market items for a spaceport
+  // Get market items for a spaceport (cached — stock depletes when player buys)
   getMarket(sysId) {
+    if(this._marketCache[sysId]) return this._marketCache[sysId];
+
     const sys = G.SYSTEMS.find(s=>s.id===sysId);
     if(!sys) return [];
 
     const rng = G.seededRng(sysId+'_market');
     const allItems = Object.values(G.ITEMS).filter(it=>it.cat!=='mission');
 
-    return allItems.map(item => {
+    const result = allItems.map(item => {
       const price = G.marketPrice(item.id, sysId);
-      // rng() is now always [0,1) so floor results are always >= 0
-      let available = Math.floor(rng()*18)+3;   // 3–20 baseline
-      if(item.cat==='luxury'  && sys.danger<4)       available = Math.floor(rng()*4)+1;
-      if(item.cat==='raw'     && sys.faction==='pirate') available = Math.floor(rng()*15)+8;
-      if(item.id==='alien_metal' && sys.faction!=='alien') available = Math.floor(rng()*2); // 0 or 1
-      if(item.cat==='craft'   && sys.danger>=5)      available = Math.floor(rng()*8)+2;
-      // Always at least 0 (alien_metal can be 0 intentionally)
+      let available = Math.floor(rng()*18)+3;
+      if(item.cat==='luxury'  && sys.danger<4)           available = Math.floor(rng()*4)+1;
+      if(item.cat==='raw'     && sys.faction==='pirate')  available = Math.floor(rng()*15)+8;
+      if(item.id==='alien_metal' && sys.faction!=='alien') available = Math.floor(rng()*2);
+      if(item.cat==='craft'   && sys.danger>=5)           available = Math.floor(rng()*8)+2;
       available = Math.max(0, available);
       return { id:item.id, name:item.name, cat:item.cat, rarity:item.rarity, price, available };
     });
+
+    this._marketCache[sysId] = result;
+    return result;
   }
 
   // Get ships for sale

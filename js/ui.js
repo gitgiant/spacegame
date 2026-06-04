@@ -31,10 +31,12 @@ G.UI = class {
     const ids=['hud','hud-top','galaxy-overlay','spaceport-overlay','inventory-overlay',
       'gameover-overlay','main-menu','system-label','target-panel','tgt-name',
       'tgt-hull-bar','tgt-shld-bar','tgt-dist','msgs','credits-hud','cargo-hud',
-      'speed-hud','weapon-hud','bar-hull','bar-shield','bar-energy','bar-fuel',
-      'val-hull','val-shield','val-energy','val-fuel','pwr-wpn','pwr-shd','pwr-eng',
-      'pv-wpn','pv-shd','pv-eng','sp-name','sp-body','sp-credits','sp-cargo','sp-ship',
-      'jump-btn','gameover-title','gameover-stats'];
+      'weapon-hud','bar-hull','bar-shield','bar-fuel',
+      'sp-name','sp-body','sp-credits','sp-cargo','sp-ship',
+      'jump-btn','gameover-title','gameover-stats',
+      'hostile-alert',
+      'target-offscreen','tgt-off-canvas','tgt-off-name','tgt-off-dist',
+      'tgt-off-hull','tgt-off-shld','tgt-off-shld-row','tgt-off-arrow'];
     for(const id of ids) this.els[id]=document.getElementById(id);
 
     const ln=document.createElement('div'); ln.id='loot-notif';
@@ -83,10 +85,6 @@ G.UI = class {
       const save=localStorage.getItem(G.SAVE_KEY);
       if(save) G.game.loadGame(save);
     });
-    ['pwr-wpn','pwr-shd','pwr-eng'].forEach(id=>{
-      document.getElementById(id)?.addEventListener('input',()=>this._onPowerChange());
-    });
-
     // Minimap click → target nearest ship at position
     document.getElementById('minimap')?.addEventListener('click', e=>{
       if(!G.game?.space) return;
@@ -108,44 +106,125 @@ G.UI = class {
     });
   }
 
-  _onPowerChange() {
-    const w=+document.getElementById('pwr-wpn').value;
-    const s=+document.getElementById('pwr-shd').value;
-    const e=+document.getElementById('pwr-eng').value;
-    const total=w+s+e||1;
-    const p=G.game.player;
-    p.powerWeapons=w/total; p.powerShields=s/total; p.powerEngines=e/total;
-    document.getElementById('pv-wpn').textContent=Math.round(w/total*100)+'%';
-    document.getElementById('pv-shd').textContent=Math.round(s/total*100)+'%';
-    document.getElementById('pv-eng').textContent=Math.round(e/total*100)+'%';
+  // ── HUD ──────────────────────────────────────────────────
+  _getBrokenSystems(player) {
+    const sysNames = {
+      engine:'ENGINES', shield:'SHIELDS', weapon:'WEAPONS',
+      turret:'TURRETS', jump:'JUMP DRIVE', power:'POWER CORE',
+      fuel:'FUEL SYSTEM', cargo:'CARGO HOLD', sensor:'SENSORS',
+      armor:'ARMOR', crew:'CREW', special:'SYSTEMS'
+    };
+    const systems = new Set();
+    for(const inst of Object.values(player.modules)) {
+      if(!inst.broken) continue;
+      systems.add(sysNames[inst.slotType] || inst.slotType.toUpperCase());
+    }
+    return [...systems];
   }
 
-  // ── HUD ──────────────────────────────────────────────────
   updateHUD(player, space, target) {
     const p=player, e=this.els;
     const hPct=G.pct(p.hull,p.maxHull), sPct=G.pct(p.shields,Math.max(p.maxShields,1));
-    const ePct=G.pct(p.energy,p.maxEnergy), fPct=G.pct(p.fuel,p.maxFuel);
+    const fPct=G.pct(p.fuel,p.maxFuel);
     if(e['bar-hull'])   e['bar-hull'].style.width=hPct+'%';
     if(e['bar-shield']) e['bar-shield'].style.width=sPct+'%';
-    if(e['bar-energy']) e['bar-energy'].style.width=ePct+'%';
     if(e['bar-fuel'])   e['bar-fuel'].style.width=fPct+'%';
-    if(e['val-hull'])   e['val-hull'].textContent=Math.ceil(p.hull);
-    if(e['val-shield']) e['val-shield'].textContent=Math.ceil(p.shields);
-    if(e['val-energy']) e['val-energy'].textContent=Math.ceil(p.energy);
-    if(e['val-fuel'])   e['val-fuel'].textContent=Math.ceil(p.fuel);
     if(e['credits-hud'])e['credits-hud'].textContent=G.fmtCredits(G.game.credits);
     if(e['cargo-hud']){
       const used=p.cargoCount();
       e['cargo-hud'].textContent='CARGO '+used+'/'+p.cargoSpace;
       e['cargo-hud'].style.color=used>=p.cargoSpace?'#ff4444':'';
     }
-    if(e['speed-hud']) e['speed-hud'].textContent='SPD '+(Math.sqrt(p.vx*p.vx+p.vy*p.vy)|0);
     if(e['weapon-hud']&&p.weaponSlots.length>0){
       e['weapon-hud'].innerHTML=p.weaponSlots.map((w,i)=>{
         const wDef=G.WEAPONS[w.weaponId], ready=w.cooldown<=0, active=i===p.activeWeapon;
         return `<div style="color:${active?'#00ffee':'#556677'};font-size:6px;margin-bottom:2px">${active?'▶':' '} ${wDef?.name||'?'} ${ready?'<span style="color:#44ff44">RDY</span>':'<span style="color:#ff4444">—</span>'}</div>`;
       }).join('');
     }
+    // Broken module warnings
+    const warnEl = document.getElementById('hud-warnings');
+    if(warnEl) {
+      const broken = this._getBrokenSystems(p);
+      if(broken.length) {
+        warnEl.innerHTML = broken.map(s=>`<span class="hud-warn-item">⚠ ${s} OFFLINE</span>`).join('');
+        warnEl.classList.remove('hidden');
+      } else {
+        warnEl.classList.add('hidden');
+      }
+    }
+
+    // Hostile enemy alert
+    const inSpace = G.game?.state === 'space';
+    const hostileAlertEl = e['hostile-alert'];
+    if(hostileAlertEl && space && inSpace) {
+      const hCount =
+        space.enemies.filter(en=>!en.dead&&!en.boarded).length +
+        space.npcs.filter(n=>!n.dead&&n.hostile).length +
+        (space.turrets||[]).filter(t=>!t._dead&&t.hostile).length;
+      if(hCount > 0) {
+        hostileAlertEl.textContent = '⚠ ' + hCount + ' HOSTILE' + (hCount !== 1 ? 'S' : '') + ' IN SYSTEM';
+        hostileAlertEl.classList.remove('hidden');
+      } else {
+        hostileAlertEl.classList.add('hidden');
+      }
+    } else if(hostileAlertEl) {
+      hostileAlertEl.classList.add('hidden');
+    }
+
+    // Target off-screen portrait
+    const tgtOffEl = e['target-offscreen'];
+    if(tgtOffEl && inSpace) {
+      if(target && !target.dead && G.game) {
+        const sx = target.x - G.game.camX;
+        const sy = target.y - G.game.camY;
+        const onScreen = sx >= -60 && sx <= G.CANVAS_W+60 && sy >= -60 && sy <= G.CANVAS_H+60;
+        if(onScreen) {
+          tgtOffEl.classList.add('hidden');
+        } else {
+          tgtOffEl.classList.remove('hidden');
+          // Sprite — only redraw when target shape/color changes
+          const shapeId = target.shapeId || 'shuttle';
+          const color   = target.color   || '#8899bb';
+          const tgtCanvas = e['tgt-off-canvas'];
+          if(tgtCanvas && (this._tgtPortShape !== shapeId || this._tgtPortColor !== color)) {
+            this._tgtPortShape = shapeId;
+            this._tgtPortColor = color;
+            const ctx = tgtCanvas.getContext('2d');
+            ctx.fillStyle = '#000a18';
+            ctx.fillRect(0, 0, 64, 64);
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(G.Sprites.get(shapeId, color), 0, 0, 64, 64);
+          }
+          // Direction arrow
+          const arrowEl = e['tgt-off-arrow'];
+          if(arrowEl) {
+            const rot = Math.atan2(target.x - p.x, -(target.y - p.y));
+            arrowEl.style.transform = `rotate(${rot}rad)`;
+          }
+          // Name
+          const nameEl = e['tgt-off-name'];
+          if(nameEl) nameEl.textContent = (target.name || 'TARGET').toUpperCase();
+          // Distance
+          const dist = Math.hypot(target.x - p.x, target.y - p.y) | 0;
+          const distEl = e['tgt-off-dist'];
+          if(distEl) distEl.textContent = dist + ' units';
+          // HP bars
+          const hullEl = e['tgt-off-hull'];
+          const shldEl = e['tgt-off-shld'];
+          if(hullEl) hullEl.style.width = G.pct(target.hp||target.hull, target.maxHp||target.maxHull) + '%';
+          const shldRow = e['tgt-off-shld-row'];
+          if(shldRow) shldRow.style.display = (target.maxShields||0) > 0 ? '' : 'none';
+          if(shldEl && (target.maxShields||0) > 0) shldEl.style.width = G.pct(target.shields, target.maxShields) + '%';
+        }
+      } else {
+        tgtOffEl.classList.add('hidden');
+        this._tgtPortShape = null;
+        this._tgtPortColor = null;
+      }
+    } else if(tgtOffEl) {
+      tgtOffEl.classList.add('hidden');
+    }
+
     if(target&&!target.dead){
       if(e['target-panel']) e['target-panel'].classList.remove('hidden');
       if(e['tgt-name']){
@@ -233,20 +312,24 @@ G.UI = class {
         <td class="price-bad">$ ${sell}</td>
         <td style="${avBg}">${item.available}</td>
         <td>${owned}</td>
-        <td><button class="btn btn-buy" ${item.available>0?'':'disabled style="opacity:0.3"'} onclick="G.ui.tradeBuy('${item.id}',${item.price},${item.available},1)">BUY</button></td>
+        <td><button class="btn btn-buy" ${item.available>0?'':'disabled style="opacity:0.3"'} onclick="G.ui.tradeBuy('${item.id}',${item.price},1)">BUY</button></td>
         <td><button class="btn btn-sell" style="${owned>0?'':'visibility:hidden'}" onclick="G.ui.tradeSell('${item.id}',${sell},1)">SELL</button></td>
       </tr>`;
     }
     return html+'</table>';
   }
 
-  tradeBuy(itemId,price,avail,qty){
-    if(avail<=0){this.addMsg('Out of stock!','#ff4444');return;}
+  tradeBuy(itemId,price,qty){
+    const market=G.game.economy.getMarket(this._currentSysId);
+    const mItem=market.find(m=>m.id===itemId);
+    if(!mItem||mItem.available<=0){this.addMsg('Out of stock!','#ff4444');return;}
     if(G.game.credits<price*qty){this.addMsg('Not enough credits!','#ff4444');return;}
     const item=G.ITEMS[itemId];
     if(!item) return;
     if(G.game.player.cargoFreeSpace()<(item.mass||1)*qty){this.addMsg('Cargo full!','#ff4444');return;}
-    G.game.credits-=price*qty; G.game.player.addCargo(itemId,qty);
+    G.game.credits-=price*qty;
+    G.game.player.addCargo(itemId,qty);
+    mItem.available=Math.max(0,mItem.available-qty);
     this.addMsg('Bought '+qty+'x '+item.name,'#44ff44');
     this.renderSpaceportTab('trade');
   }
@@ -583,14 +666,23 @@ G.UI = class {
 
     // Slot expansion section
     const slotCosts = { weapon:3000, shield:2500, cargo:1500, engine:4000, special:2000, fuel:1000, sensor:1800, armor:2500, crew:1200, turret:3500, power:3000, jump:5000 };
+    const expLimit = tpl?.expansionLimit || 3;
+    const boughtSlots = this._countBoughtSlots(p);
+    const expRemaining = expLimit - boughtSlots;
+    const expColor = expRemaining <= 0 ? '#ff4444' : expRemaining === 1 ? '#ff8844' : '#cc44ff';
     let slotExpHtml = `<div style="margin-top:12px;border-top:1px solid #1a4a6a;padding-top:8px">
-      <div style="font-size:7px;color:#aaa;margin-bottom:6px">EXPAND MODULE SLOTS</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-size:7px;color:#aaa">EXPAND MODULE SLOTS</div>
+        <div style="font-size:6px;color:${expColor}">${expRemaining > 0 ? expRemaining+' slots remaining' : 'EXPANSION FULL'} (${boughtSlots}/${expLimit})</div>
+      </div>
       <div style="display:flex;flex-wrap:wrap;gap:4px">`;
     for(const [slotType,cost] of Object.entries(slotCosts)){
       const count = (p.slots[slotType]||[]).length;
       const canAfford = G.game.credits >= cost;
-      slotExpHtml += `<button class="btn" style="font-size:5px;padding:3px 5px;${canAfford?'':'opacity:0.4'}"
-        ${canAfford?'':'disabled'} onclick="G.ui.buySlot('${slotType}',${cost})">
+      const canExpand = expRemaining > 0;
+      const disabled = !canAfford || !canExpand;
+      slotExpHtml += `<button class="btn" style="font-size:5px;padding:3px 5px;${disabled?'opacity:0.4':''}"
+        ${disabled?'disabled':''} onclick="G.ui.buySlot('${slotType}',${cost})">
         +${slotType.slice(0,4).toUpperCase()}(${count}) $${G.fmt(cost)}</button>`;
     }
     slotExpHtml += `</div></div>`;
@@ -615,7 +707,6 @@ G.UI = class {
     const ctx=canvas.getContext('2d');
     const p=G.game.player;
     const tpl=G.SHIPS[p.templateId];
-    const shape=G.SHAPES[tpl?.shape||'shuttle'];
     ctx.clearRect(0,0,300,260);
 
     // Dark background with grid
@@ -625,40 +716,23 @@ G.UI = class {
     for(let x=0;x<300;x+=20){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,260);ctx.stroke();}
     for(let y=0;y<260;y+=20){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(300,y);ctx.stroke();}
 
-    // Draw ship centered, scale 3×
-    if(shape&&shape.body&&shape.body.length>0){
-      ctx.save();
-      ctx.translate(150,130);
-      const sc=3;
-      ctx.scale(sc,sc);
-      ctx.beginPath();
-      ctx.moveTo(shape.body[0][0],shape.body[0][1]);
-      shape.body.slice(1).forEach(([x,y])=>ctx.lineTo(x,y));
-      ctx.closePath();
-      ctx.fillStyle=tpl?.color||'#8899bb';
-      ctx.strokeStyle='rgba(255,255,255,0.8)';
-      ctx.lineWidth=0.5;
-      ctx.fill(); ctx.stroke();
-
-      // Engine highlight
-      if(shape.enginePts){
-        for(const [ex,ey] of shape.enginePts){
-          ctx.beginPath(); ctx.arc(ex,ey,shape.engineW*0.3||1.5,0,Math.PI*2);
-          ctx.fillStyle='#ff8822'; ctx.fill();
-        }
-      }
-      ctx.restore();
-    }
+    // Draw pixel-art sprite centered at 5× scale
+    const shapeId = tpl?.shape || 'shuttle';
+    const color   = tpl?.color || '#8899bb';
+    const sprite  = G.Sprites.get(shapeId, color);
+    const SZ = G.Sprites.SZ; // 32
+    const scale = 5;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(sprite, 150-(SZ*scale/2)|0, 130-(SZ*scale/2)|0, SZ*scale, SZ*scale);
 
     // Draw connection lines from center to slot positions
     const slots=document.querySelectorAll('#outfit-slots-overlay .outfit-slot');
-    const w=300, h=260;
     ctx.strokeStyle='rgba(40,80,120,0.4)';
     ctx.lineWidth=0.5;
     ctx.setLineDash([3,3]);
     slots.forEach(slot=>{
-      const l=parseFloat(slot.style.left)/100*w;
-      const t=parseFloat(slot.style.top)/100*h;
+      const l=parseFloat(slot.style.left)/100*300;
+      const t=parseFloat(slot.style.top)/100*260;
       ctx.beginPath(); ctx.moveTo(150,130); ctx.lineTo(l+26,t+14);
       ctx.stroke();
     });
@@ -701,13 +775,31 @@ G.UI = class {
     if(ok){ G.game.credits-=mod.price; this.addMsg('Installed '+mod.name,'#44ff44'); this.renderSpaceportTab('outfitter'); }
   }
 
+  _countBoughtSlots(player) {
+    const tpl = G.SHIPS[player.templateId];
+    if(!tpl) return 0;
+    let bought = 0;
+    for(const [slotType, arr] of Object.entries(player.slots)) {
+      const templateCount = tpl.slots[slotType] || 0;
+      bought += Math.max(0, arr.length - templateCount);
+    }
+    return bought;
+  }
+
   buySlot(slotType, cost) {
     if(G.game.credits < cost) { this.addMsg('Not enough credits!','#ff4444'); return; }
     const p = G.game.player;
+    const tpl = G.SHIPS[p.templateId];
+    const expLimit = tpl?.expansionLimit || 3;
+    const bought = this._countBoughtSlots(p);
+    if(bought >= expLimit) {
+      this.addMsg('Expansion limit reached — this ship can only support +'+expLimit+' slots','#ff8844');
+      return;
+    }
     if(!p.slots[slotType]) p.slots[slotType] = [];
     p.slots[slotType].push(null);
     G.game.credits -= cost;
-    this.addMsg('Added '+slotType+' slot!','#cc44ff');
+    this.addMsg('Added '+slotType+' slot! ('+(bought+1)+'/'+expLimit+' expansions)','#cc44ff');
     this.renderSpaceportTab('outfitter');
   }
 
@@ -731,19 +823,41 @@ G.UI = class {
   _buildShipyardHTML(){
     const ships=G.game.economy.getShipyard(this._currentSysId);
     const p=G.game.player;
+    const oldShipDef=G.SHIPS[p.templateId];
+    let modRefund=0;
+    for(const inst of Object.values(p.modules)){
+      const mod=G.MODULES[inst.moduleId]||G.WEAPONS[inst.moduleId];
+      modRefund+=Math.floor((mod?.price||0)*0.4);
+    }
+    const hullRefund=Math.floor((oldShipDef?.price||0)*0.4);
+    const totalRefund=modRefund+hullRefund;
+    const modCount=Object.keys(p.modules).length;
+
     let html=`<div class="panel-title">SHIPYARD</div>
     <div class="section-title">CURRENT: ${p.name.toUpperCase()} — Hull ${Math.ceil(p.hull)}/${p.maxHull} Cargo ${p.cargoSpace}</div>
+    <div style="font-size:6px;color:#556677;margin-bottom:10px">
+      Trade-in: <span style="color:#ffcc00">${G.fmtCredits(hullRefund)}</span> hull
+      ${modCount?`+ <span style="color:#ffcc00">${G.fmtCredits(modRefund)}</span> modules (${modCount} stripped)`:''}
+      &nbsp;=&nbsp;<span style="color:#00ffee">${G.fmtCredits(totalRefund)} total credit</span>
+    </div>
     <div class="three-col">`;
     for(const ship of ships){
-      const ok=G.game.credits>=ship.price;
+      const netCost=ship.price-totalRefund;
+      const ok=G.game.credits>=netCost;
+      const netLabel=netCost<=0
+        ?`<span style="color:#44ff44">+${G.fmtCredits(-netCost)} back</span>`
+        :`<span style="color:#ffcc00">Net: ${G.fmtCredits(netCost)}</span>`;
+      const expLimit = ship.expansionLimit || 3;
       html+=`<div class="item-card">
         <div class="item-name">${ship.name}</div>
         <div style="width:100%;height:90px;background:#000a18;margin:6px 0;display:flex;align-items:center;justify-content:center">
           <canvas width="120" height="88" class="ship-preview" data-shape="${ship.shape}" data-color="${ship.color}"></canvas>
         </div>
         <div class="item-stats">${ship.stats}</div>
+        <div style="font-size:6px;color:#cc44ff;margin:2px 0">Expansion: +${expLimit} slots max</div>
         <div style="font-size:6px;color:#667;margin:3px 0">${ship.desc}</div>
         <div class="item-price">$ ${G.fmt(ship.price)}</div>
+        <div style="font-size:6px;margin-top:2px">${netLabel}</div>
         <button class="btn btn-buy" style="margin-top:4px" data-buyship="${ship.id}" ${ok?'':'disabled style="opacity:0.3"'}>BUY</button>
       </div>`;
     }
@@ -752,19 +866,15 @@ G.UI = class {
 
   _drawShipPreviews(){
     document.querySelectorAll('.ship-preview').forEach(canvas=>{
-      const shape=G.SHAPES[canvas.dataset.shape];
-      if(!shape||!shape.body||!shape.body.length) return;
       const ctx=canvas.getContext('2d');
-      ctx.clearRect(0,0,120,88);
-      ctx.fillStyle='#000a18'; ctx.fillRect(0,0,120,88);
-      ctx.save(); ctx.translate(60,44); ctx.scale(2.2,2.2);
-      ctx.beginPath();
-      ctx.moveTo(shape.body[0][0],shape.body[0][1]);
-      shape.body.slice(1).forEach(([x,y])=>ctx.lineTo(x,y));
-      ctx.closePath();
-      ctx.fillStyle=canvas.dataset.color||'#4488ff';
-      ctx.strokeStyle='#ffffff'; ctx.lineWidth=0.5; ctx.fill(); ctx.stroke();
-      ctx.restore();
+      const cw=canvas.width||120, ch=canvas.height||88;
+      ctx.clearRect(0,0,cw,ch);
+      ctx.fillStyle='#000a18'; ctx.fillRect(0,0,cw,ch);
+      const sprite=G.Sprites.get(canvas.dataset.shape, canvas.dataset.color);
+      const SZ=G.Sprites.SZ; // 32
+      const scale=2; // 64×64 centered
+      ctx.imageSmoothingEnabled=false;
+      ctx.drawImage(sprite, (cw-SZ*scale)/2|0, (ch-SZ*scale)/2|0, SZ*scale, SZ*scale);
     });
   }
 
@@ -773,15 +883,30 @@ G.UI = class {
       btn.addEventListener('click',()=>{
         const shipId=btn.dataset.buyship, ship=G.SHIPS[shipId];
         if(!ship||ship.price<=0) return;
-        if(G.game.credits<ship.price){this.addMsg('Not enough credits!','#ff4444');return;}
-        if(confirm('Buy '+ship.name+' for '+G.fmtCredits(ship.price)+'?\nYour cargo and crew will transfer.')){
-          const oldCargo={...G.game.player.cargo}, oldCrew=[...G.game.player.crew];
+        const p=G.game.player;
+        const oldShipDef=G.SHIPS[p.templateId];
+        let modRefund=0;
+        for(const inst of Object.values(p.modules)){
+          const mod=G.MODULES[inst.moduleId]||G.WEAPONS[inst.moduleId];
+          modRefund+=Math.floor((mod?.price||0)*0.4);
+        }
+        const hullRefund=Math.floor((oldShipDef?.price||0)*0.4);
+        const netCost=ship.price-modRefund-hullRefund;
+        if(G.game.credits<netCost){this.addMsg('Not enough credits!','#ff4444');return;}
+        const modCount=Object.keys(p.modules).length;
+        const confirmMsg='Buy '+ship.name+' for '+G.fmtCredits(ship.price)+'?'
+          +(modCount?'\n'+modCount+' modules stripped (+'+G.fmtCredits(modRefund)+')'  :'')
+          +'\nShip trade-in: +'+G.fmtCredits(hullRefund)
+          +'\nNet cost: '+(netCost<=0?G.fmtCredits(-netCost)+' back':G.fmtCredits(netCost))
+          +'\nCargo and crew will transfer.';
+        if(confirm(confirmMsg)){
+          const oldCargo={...p.cargo}, oldCrew=[...p.crew];
+          G.game.credits+=hullRefund+modRefund;
           G.game.credits-=ship.price;
           G.game.player=new G.Ship(shipId);
-          G.game=G.game; // keep reference
           for(const[id,qty]of Object.entries(oldCargo)) if(G.ITEMS[id]?.cat!=='mission') G.game.player.addCargo(id,qty);
           for(const c of oldCrew.slice(0,G.game.player.maxCrew)) G.game.player.crew.push(c);
-          this.addMsg('Purchased '+ship.name+'!','#00ffee');
+          this.addMsg('Purchased '+ship.name+'!'+(modCount?' All modules sold.':''),'#00ffee');
           this.renderSpaceportTab('shipyard');
         }
       });
