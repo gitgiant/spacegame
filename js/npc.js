@@ -11,52 +11,77 @@ G.NPC_NAMES = {
 
 G.COMMS_LINES = {
   earth: {
-    hail:    ["Earth Gov vessel here. Routine patrol. Stay out of trouble.",
-              "EGS checking in. Clear skies, commander.",
-              "All traffic is monitored in this sector."],
-    trade:   ["We can spare some surplus cargo. Fair market rates.",
-              "Authorized to conduct limited trade. What do you need?"],
-    threat:  ["Stand down immediately. You are threatening an Earth Government vessel.",
-              "That's a crime. Your transponder has been flagged."],
-    fuel:    ["Emergency fuel transfer authorized for {cost} credits. Dock alongside.",
-              "We can spare fuel. {cost} credits — standard emergency rate."],
-    hostile: ["Opening fire! Authority to engage hostile vessel!"],
+    hail:      ["Earth Gov vessel here. Routine patrol. Stay out of trouble.",
+                "EGS checking in. Clear skies, commander.",
+                "All traffic is monitored in this sector."],
+    trade:     ["We can spare some surplus cargo. Fair market rates.",
+                "Authorized to conduct limited trade. What do you need?"],
+    threat:    ["Stand down immediately. You are threatening an Earth Government vessel.",
+                "That's a crime. Your transponder has been flagged."],
+    fuel:      ["Emergency fuel transfer authorized for {cost} credits. Dock alongside.",
+                "We can spare fuel. {cost} credits — standard emergency rate."],
+    hostile:   ["Opening fire! Authority to engage hostile vessel!"],
+    noresponse:["...", "Static.", "No signal."],
+    forgive_accept: ["Stand down. Your fine of {cost} credits has been logged. Don't let it happen again.",
+                     "Payment received. We're watching you."],
+    forgive_deny:   ["Your credits are no good here. Weapons free.",
+                     "This isn't a negotiation. Prepare to be boarded."],
   },
   rebellion: {
-    hail:    ["Rebellion vessel. We don't want trouble unless you bring it.",
-              "Down with Earth Gov tyranny. Fly free.",
-              "The movement grows stronger every day."],
-    trade:   ["We trade in things the corps don't want available. Interested?",
-              "Sure, we deal. Fair exchange only."],
-    threat:  ["We've faced cruisers. You don't scare us.",
-              "Try it, and see what the rebellion sends after you."],
-    fuel:    ["Fuel costs credits even in a revolution. {cost} — take it.",
-              "We look after each other out here. {cost} credits."],
-    hostile: ["Open fire! For the rebellion!"],
+    hail:      ["Rebellion vessel. We don't want trouble unless you bring it.",
+                "Down with Earth Gov tyranny. Fly free.",
+                "The movement grows stronger every day."],
+    trade:     ["We trade in things the corps don't want available. Interested?",
+                "Sure, we deal. Fair exchange only."],
+    threat:    ["We've faced cruisers. You don't scare us.",
+                "Try it, and see what the rebellion sends after you."],
+    fuel:      ["Fuel costs credits even in a revolution. {cost} — take it.",
+                "We look after each other out here. {cost} credits."],
+    hostile:   ["Open fire! For the rebellion!"],
+    noresponse:["...", "Not interested.", "Save it."],
+    forgive_accept: ["Fine. {cost} credits to the cause. Now get out of our space.",
+                     "We'll take your credits. Don't push your luck."],
+    forgive_deny:   ["You can't buy your way out of this.",
+                     "The rebellion doesn't deal with traitors."],
   },
   pirate: {
-    hail:    ["What do you want, spacer? Make it quick.",
-              "I've got cargo to deliver. Beat it.",
-              "We don't do idle chat."],
-    trade:   ["Got merchandise. Don't ask provenance. Deal?",
-              "Credits change hands, cargo changes ships. Simple."],
-    threat:  ["Ha. You're threatening a pirate? Bold move.",
-              "I've been shot at by warships. Try harder."],
-    fuel:    ["Fuel's expensive this far out. {cost}. Final offer.",
-              "{cost} credits. I'm not running a charity."],
-    hostile: ["Arrgh, fire everything!"],
+    hail:      ["What do you want, spacer? Make it quick.",
+                "I've got cargo to deliver. Beat it.",
+                "We don't do idle chat."],
+    trade:     ["Got merchandise. Don't ask provenance. Deal?",
+                "Credits change hands, cargo changes ships. Simple."],
+    threat:    ["Ha. You're threatening a pirate? Bold move.",
+                "I've been shot at by warships. Try harder."],
+    fuel:      ["Fuel's expensive this far out. {cost}. Final offer.",
+                "{cost} credits. I'm not running a charity."],
+    hostile:   ["Arrgh, fire everything!"],
+    noresponse:["...", "Busy.", ""],
+    forgive_accept: ["Hah! {cost} credits? Sure, we're done here. Fly on.",
+                     "Now that's the smart play. {cost} credits — get lost."],
+    forgive_deny:   ["You think that's enough? We'll take it off your wreck.",
+                     "Not nearly enough. Open fire!"],
   },
   independent: {
-    hail:    ["Just a trader, friend. Peaceful transit.",
-              "No trouble here. Trying to make a living.",
-              "Merchant vessel. We're not armed for a fight."],
-    trade:   ["Happy to trade. Honest prices — no gouging.",
-              "We've got a few things. What are you looking for?"],
-    threat:  ["Please! I have a family! I'm just a merchant!",
-              "I have nothing worth fighting over, I swear!"],
-    fuel:    ["We all look out for each other. {cost} credits, deal?",
-              "Happy to help. {cost} for a fuel cell transfer."],
-    hostile: ["Mayday! Being attacked! All hands brace!"],
+    hail:      ["Just a trader, friend. Peaceful transit.",
+                "No trouble here. Trying to make a living.",
+                "Merchant vessel. We're not armed for a fight."],
+    trade:     ["Happy to trade. Honest prices — no gouging.",
+                "We've got a few things. What are you looking for?"],
+    threat:    ["Please! I have a family! I'm just a merchant!",
+                "I have nothing worth fighting over, I swear!"],
+    fuel:      ["We all look out for each other. {cost} credits, deal?",
+                "Happy to help. {cost} for a fuel cell transfer."],
+    hostile:   ["Mayday! Being attacked! All hands brace!"],
+    noresponse:["...", "No response.", "Channel closed."],
+    forgive_accept: ["Okay, okay! {cost} credits — just don't shoot! We're leaving!",
+                     "Deal. {cost} credits. We want no trouble."],
+    forgive_deny:   ["We can't afford that! Just leave us alone!",
+                     "Please! We have nothing!"],
+  },
+  alien: {
+    hail:      ["[UNINTELLIGIBLE]", "[STATIC BURST]", "[SIGNAL LOST]"],
+    noresponse:["[NO CARRIER]", "...", "[SIGNAL LOST]"],
+    forgive_deny: ["[UNINTELLIGIBLE]", "[HOSTILE SIGNAL]"],
   },
 };
 
@@ -295,19 +320,25 @@ G.NPCShip = class {
 
   // Returns array of comms options
   getCommsOptions(playerFuelPct) {
-    return [
+    const opts = [
       { key:'hail',    label:'Hail',           color:'#00ffee' },
       { key:'trade',   label:'Propose Trade',  color:'#ffcc00' },
       { key:'fuel',    label:'Request Fuel',   color:'#ff8844', disabled: playerFuelPct > 0.4 },
       { key:'threaten',label:'Threaten',       color:'#ff4444' },
     ];
+    if(this.hostile) {
+      const cost   = G.npcForgivenessCost(this.faction);
+      const chance = Math.round(G.npcForgivenessChance(this.faction) * 100);
+      opts.push({ key:'forgive', label:`Beg Forgiveness — ${G.fmtCredits(cost)} (${chance}% success)`, color:'#ffaa00' });
+    }
+    return opts;
   }
 
   getCommsResponse(action) {
     const bank = G.COMMS_LINES[this.faction]||G.COMMS_LINES.independent;
     const arr  = bank[action]||bank.hail;
     const base = arr[Math.floor(Math.random()*arr.length)];
-    const res  = { text:base, hostile:false, fuelAmt:0, fuelCost:0, tradeItems:[] };
+    const res  = { text:base, hostile:false, fuelAmt:0, fuelCost:0, tradeItems:[], forgiveResult:null };
 
     if(action==='fuel') {
       const fuelAmt  = 15+Math.floor(Math.random()*20);
@@ -321,6 +352,13 @@ G.NPCShip = class {
     if(action==='threaten') {
       const baseChance = this.faction==='pirate'?0.25:this.faction==='independent'?0.55:0.45;
       res.hostile = Math.random()<baseChance;
+    }
+    if(action==='forgive') {
+      const cost    = G.npcForgivenessCost(this.faction);
+      const success = Math.random() < G.npcForgivenessChance(this.faction);
+      const lines   = bank[success ? 'forgive_accept' : 'forgive_deny'] || bank.hail;
+      res.text = lines[Math.floor(Math.random()*lines.length)].replace('{cost}', G.fmtCredits(cost));
+      res.forgiveResult = { success, cost };
     }
     return res;
   }

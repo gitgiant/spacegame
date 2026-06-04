@@ -169,6 +169,13 @@
   <div id="options-overlay" class="hidden">
     <div id="options-box">
       <div class="panel-title" style="text-align:center;margin-bottom:16px">OPTIONS</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <span style="font-size:6px;color:#aabbcc;font-family:'Press Start 2P',monospace;min-width:48px">SOUND</span>
+        <input type="range" id="opt-volume" min="0" max="100" value="45" style="flex:1;accent-color:#00ffee">
+        <span id="opt-volume-val" style="font-size:6px;color:#00ffee;font-family:'Press Start 2P',monospace;min-width:28px">45%</span>
+      </div>
+      <div style="font-size:6px;color:#556677;font-family:'Press Start 2P',monospace;margin-bottom:8px;letter-spacing:1px">FACTION STANDING</div>
+      <div id="opt-factions"></div>
       <button class="btn btn-big" id="opt-save-btn">SAVE GAME</button>
       <button class="btn btn-big" id="opt-quit-btn" style="border-color:#ff6644;color:#ff6644">QUIT TO MENU</button>
       <button class="btn btn-big" id="opt-close-btn">RESUME [ESC]</button>
@@ -205,6 +212,7 @@
 <script src="js/economy.js"></script>
 <script src="js/galaxy.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/sound.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

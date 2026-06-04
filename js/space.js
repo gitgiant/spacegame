@@ -362,9 +362,9 @@ G.Space = class {
       G.ui?.addMsg('Jump cancelled — hull hit!','#ff4444');
     }
     if(particles) {
-      if(res.shieldDmg>0) particles.shield_hit(proj.x,proj.y,22);
+      if(res.shieldDmg>0) { particles.shield_hit(proj.x,proj.y,22); G.sound?.shieldHit(); }
       else if(proj.type==='emp') particles.emp_hit(player.x,player.y);
-      else particles.burst({x:proj.x,y:proj.y,minSpd:30,maxSpd:100,life:0.2,r:2,color:'#ff8844'},6);
+      else { particles.burst({x:proj.x,y:proj.y,minSpd:30,maxSpd:100,life:0.2,r:2,color:'#ff8844'},6); G.sound?.hullHit(); }
     }
 
     // Allied defense: NPCs from allied factions (rep >= 50) engage the attacker

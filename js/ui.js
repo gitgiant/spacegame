@@ -59,6 +59,15 @@ G.UI = class {
   }
 
   _bindControls() {
+    // Menu click sound for any .btn or .tab element
+    document.addEventListener('click', e=>{
+      const id = e.target.id;
+      if(id === 'start-btn' || id === 'continue-btn') return;
+      if(e.target.classList.contains('btn') || e.target.classList.contains('tab')) {
+        G.sound?.menuClick();
+      }
+    });
+
     document.getElementById('spaceport-overlay').addEventListener('click', e=>{
       if(e.target.classList.contains('tab')) {
         this._spTab=e.target.dataset.tab;
@@ -80,6 +89,11 @@ G.UI = class {
     });
     document.getElementById('opt-close-btn')?.addEventListener('click',()=>{
       document.getElementById('options-overlay')?.classList.add('hidden');
+    });
+    document.getElementById('opt-volume')?.addEventListener('input', e=>{
+      const v = parseInt(e.target.value) / 100;
+      document.getElementById('opt-volume-val').textContent = e.target.value + '%';
+      G.sound?.setVolume(v);
     });
     document.getElementById('continue-btn')?.addEventListener('click',()=>{
       const save=localStorage.getItem(G.SAVE_KEY);
@@ -1174,19 +1188,41 @@ G.UI = class {
   }
 
   // ── Comms system ─────────────────────────────────────────
-  openComms(npc, forceAction) {
-    this._commsNPC = npc;
-    const fac = G.FACTIONS[npc.faction]||G.FACTIONS.independent;
+  openComms(target, forceAction) {
+    if(!target || target.dead) return;
+
+    // No-response check (skip for forced actions like fuel requests)
+    if(!forceAction && Math.random() < G.commsNoResponseChance(target)) {
+      this._showCommsNoResponse(target);
+      return;
+    }
+
+    G.sound?.commsPing();
+    this._commsNPC = target;
+    const fac  = G.FACTIONS[target.faction]||G.FACTIONS.independent;
     const fuel = G.game.player.fuel / G.game.player.maxFuel;
+    const displayName = target.name || (fac.name.toUpperCase()+' VESSEL');
 
     if(this.els['comms-faction-tag']) {
       this.els['comms-faction-tag'].textContent = fac.name.toUpperCase();
       this.els['comms-faction-tag'].style.color  = fac.color;
     }
-    if(this.els['comms-ship-name']) this.els['comms-ship-name'].textContent = npc.name;
+    if(this.els['comms-ship-name']) this.els['comms-ship-name'].textContent = displayName;
     if(this.els['comms-response-text']) this.els['comms-response-text'].textContent = '';
 
-    const opts = npc.getCommsOptions(fuel);
+    // Build options — enemies get a stripped-down set
+    let opts;
+    if(target.type === 'enemy') {
+      opts = [{ key:'hail', label:'Hail', color:'#00ffee' }];
+      if(target.faction !== 'alien') {
+        const cost   = G.npcForgivenessCost(target.faction);
+        const chance = Math.round(G.npcForgivenessChance(target.faction) * 100);
+        opts.push({ key:'forgive', label:`Beg Forgiveness — ${G.fmtCredits(cost)} (${chance}% success)`, color:'#ffaa00' });
+      }
+    } else {
+      opts = target.getCommsOptions(fuel);
+    }
+
     const list = this.els['comms-options-list'];
     if(list) {
       list.innerHTML = opts.map(o=>
@@ -1204,16 +1240,53 @@ G.UI = class {
     if(forceAction) this._handleCommsAction(forceAction);
   }
 
+  _showCommsNoResponse(target) {
+    const bank  = G.COMMS_LINES[target.faction]||G.COMMS_LINES.independent;
+    const lines = bank.noresponse||['...'];
+    const text  = lines[Math.floor(Math.random()*lines.length)];
+    const fac   = G.FACTIONS[target.faction]||G.FACTIONS.independent;
+    const displayName = target.name || (fac.name.toUpperCase()+' VESSEL');
+
+    if(this.els['comms-faction-tag']) {
+      this.els['comms-faction-tag'].textContent = fac.name.toUpperCase();
+      this.els['comms-faction-tag'].style.color  = fac.color;
+    }
+    if(this.els['comms-ship-name'])    this.els['comms-ship-name'].textContent    = displayName;
+    if(this.els['comms-response-text']) this.els['comms-response-text'].textContent = text;
+    const list = this.els['comms-options-list'];
+    if(list) list.innerHTML = '';
+    this.els['comms-overlay']?.classList.remove('hidden');
+    // Auto-close after 2s
+    clearTimeout(this._noRespTimer);
+    this._noRespTimer = setTimeout(()=>this.closeComms(), 2000);
+  }
+
   _handleCommsAction(action) {
-    const npc = this._commsNPC;
-    if(!npc) return;
-    const res  = npc.getCommsResponse(action);
+    const target = this._commsNPC;
+    if(!target) return;
     const resp = this.els['comms-response-text'];
+
+    // For enemies, resolve comms manually (no getCommsResponse method)
+    if(target.type === 'enemy') {
+      if(action === 'hail') {
+        const bank  = G.COMMS_LINES[target.faction]||G.COMMS_LINES.independent;
+        const lines = bank.hail||['...'];
+        if(resp) resp.textContent = '"'+lines[Math.floor(Math.random()*lines.length)]+'"';
+        return;
+      }
+      if(action === 'forgive') {
+        this._resolveForgiveness(target, resp);
+        return;
+      }
+      return;
+    }
+
+    const res = target.getCommsResponse(action);
     if(resp) resp.textContent = '"'+res.text+'"';
 
     if(action==='fuel' && res.fuelAmt>0) {
       if(G.game.credits >= res.fuelCost) {
-        G.game.credits   -= res.fuelCost;
+        G.game.credits    -= res.fuelCost;
         G.game.player.fuel = Math.min(G.game.player.maxFuel, G.game.player.fuel + res.fuelAmt);
         this.addMsg('Fuel transfer: +'+res.fuelAmt+' fuel for '+G.fmtCredits(res.fuelCost),'#ff8844');
       } else {
@@ -1222,7 +1295,6 @@ G.UI = class {
     }
 
     if(action==='trade' && res.tradeItems.length>0) {
-      // Show quick trade listing
       const tradeHtml = res.tradeItems.map(it=>{
         const item = G.ITEMS[it.id];
         return `<div style="display:flex;justify-content:space-between;font-size:6px;padding:2px 0">
@@ -1235,12 +1307,54 @@ G.UI = class {
     }
 
     if(res.hostile) {
-      npc.hostile = true;
-      npc.combatTarget = null;
-      this.addMsg(npc.name+' has turned hostile!','#ff4444');
-      if(npc.faction!=='independent') G.game.setRel(npc.faction, G.game.getRel(npc.faction)-5);
+      target.hostile = true;
+      target.combatTarget = null;
+      this.addMsg(target.name+' has turned hostile!','#ff4444');
+      if(target.faction!=='independent') G.game.setRel(target.faction, G.game.getRel(target.faction)-5);
       this.closeComms();
     }
+
+    if(action==='forgive' && res.forgiveResult) {
+      this._resolveForgiveness(target, resp, res.forgiveResult);
+    }
+  }
+
+  _resolveForgiveness(target, respEl, result) {
+    // For enemies, compute result here; for NPCs it's pre-computed
+    if(!result) {
+      const cost    = G.npcForgivenessCost(target.faction);
+      const success = Math.random() < G.npcForgivenessChance(target.faction);
+      const bank    = G.COMMS_LINES[target.faction]||G.COMMS_LINES.independent;
+      const lines   = bank[success ? 'forgive_accept' : 'forgive_deny']||bank.hail;
+      const text    = lines[Math.floor(Math.random()*lines.length)].replace('{cost}', G.fmtCredits(cost));
+      if(respEl) respEl.textContent = '"'+text+'"';
+      result = { success, cost };
+    }
+
+    if(!result.success) {
+      G.sound?.forgiveness(false);
+      this.addMsg('They refused. No deal.', '#ff4444');
+      return;
+    }
+    if(G.game.credits < result.cost) {
+      G.sound?.forgiveness(false);
+      if(respEl) respEl.textContent = '"You can\'t afford it."';
+      this.addMsg('Not enough credits for forgiveness.', '#ff4444');
+      return;
+    }
+    G.sound?.forgiveness(true);
+    G.game.credits -= result.cost;
+    // Make target stand down
+    target.hostile      = false;
+    target.combatTarget = null;
+    if(target.type === 'enemy') target.aiState = 'patrol';
+    // Improve faction standing
+    if(target.faction && target.faction !== 'independent') {
+      const newRel = Math.min(100, G.game.getRel(target.faction) + 10);
+      G.game.setRel(target.faction, newRel);
+    }
+    this.addMsg('Forgiveness purchased for '+G.fmtCredits(result.cost)+'.', '#ffaa00');
+    setTimeout(()=>this.closeComms(), 1500);
   }
 
   _buyFromNPC(itemId, qty, price) {
@@ -1255,7 +1369,43 @@ G.UI = class {
   }
 
   closeComms() {
+    clearTimeout(this._noRespTimer);
     this.els['comms-overlay']?.classList.add('hidden');
     this._commsNPC = null;
+  }
+
+  updateFactionPanel() {
+    const el = document.getElementById('opt-factions');
+    if(!el || !G.game) return;
+
+    const factionIds = ['earth','rebellion','pirate','alien'];
+    const statusLabel = r => {
+      if(r >= 50)  return { text:'ALLIED',      color:'#44ff88' };
+      if(r >= 20)  return { text:'FRIENDLY',    color:'#88ff44' };
+      if(r >= -20) return { text:'NEUTRAL',     color:'#aaaaaa' };
+      if(r >= -50) return { text:'UNFRIENDLY',  color:'#ffaa00' };
+      return            { text:'HOSTILE',       color:'#ff3333' };
+    };
+
+    el.innerHTML = factionIds.map(id => {
+      const fac = G.FACTIONS[id];
+      const rel = G.game.getRel(id);
+      const pct = ((rel + 100) / 200 * 100).toFixed(1);
+      const st  = statusLabel(rel);
+      // bar colour: blend from red at 0% to green at 100% via faction colour
+      const barCol = rel >= 0 ? '#44aa66' : '#aa3322';
+      return `
+        <div style="margin-bottom:9px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+            <span style="font-size:6px;font-family:'Press Start 2P',monospace;color:${fac.color}">${fac.name.toUpperCase()}</span>
+            <span style="font-size:6px;font-family:'Press Start 2P',monospace;color:${st.color}">${st.text}</span>
+          </div>
+          <div style="position:relative;height:5px;background:#111;border:1px solid #223">
+            <div style="position:absolute;top:0;left:0;height:100%;width:${pct}%;background:${barCol};transition:width 0.3s"></div>
+            <div style="position:absolute;top:0;left:50%;width:1px;height:100%;background:#334"></div>
+          </div>
+          <div style="text-align:right;font-size:5px;font-family:'Press Start 2P',monospace;color:#445566;margin-top:2px">${rel > 0 ? '+' : ''}${rel}</div>
+        </div>`;
+    }).join('');
   }
 };

@@ -383,3 +383,23 @@ G.marketPrice = function(itemId, sysId) {
 
   return Math.max(1, Math.round(item.base * noise * factionMod));
 };
+
+// ── Comms forgiveness helpers ─────────────────────────────
+G.npcForgivenessCost = function(faction) {
+  const rel = G.game?.getRel(faction) || 0;
+  const base = { pirate:400, independent:300, rebellion:600, earth:700, alien:9999 };
+  return Math.max(200, (base[faction]||500) + Math.floor(Math.max(0,-rel)*8));
+};
+
+G.npcForgivenessChance = function(faction) {
+  return { pirate:0.55, independent:0.65, rebellion:0.30, earth:0.25, alien:0 }[faction] ?? 0.35;
+};
+
+// No-response probability when player hails a target
+G.commsNoResponseChance = function(target) {
+  if(target.type === 'enemy') {
+    return target.faction === 'alien' ? 0.95 : 0.65;
+  }
+  if(target.type === 'npc' && target.hostile) return 0.30;
+  return 0;
+};

@@ -37,6 +37,7 @@ G.Galaxy = class {
       if(route && route.length > 0) {
         this.jumpRoute = route;
         this.selected  = G.SYSTEMS.find(s => s.id === route[0]);
+        G.sound?.mapNodeSelect();
       } else {
         G.ui?.addMsg('No route found to that system.', '#ff4444');
       }

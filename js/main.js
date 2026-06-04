@@ -781,8 +781,11 @@ G.Game = class {
     this.economy   = new G.Economy();
     this.ui        = new G.UI();
 
-    G.game = this;
-    G.ui   = this.ui;
+    G.game  = this;
+    G.ui    = this.ui;
+    G.sound = new G.SoundEngine();
+
+    this._prevHostileCount = 0;
 
     this.galaxy.init();
     this._last = 0;
@@ -957,6 +960,7 @@ G.Game = class {
     this.camY = this.player.y - G.CANVAS_H/2;
     this.target = null;
     this.state = 'space';
+    G.sound.hyperspaceArrival();
 
     // Jump cooldown — player must wait before jumping again
     this._jumpCooldown = 6;
@@ -1016,6 +1020,7 @@ G.Game = class {
           }
           this._updateJumpChargeTo(nextSysId, dt);
         } else {
+          if(this._jumpChargeT > 0) G.sound.stopJumpCharge();
           this._jumpChargeT = Math.max(0, this._jumpChargeT - dt*2);
         }
       } else {
@@ -1024,6 +1029,7 @@ G.Game = class {
         this.ui.addMsg('Jump route invalidated.','#ff4444');
       }
     } else if(this._jumpChargeT > 0) {
+      G.sound.stopJumpCharge();
       this._jumpChargeT = Math.max(0, this._jumpChargeT - dt*2);
     }
 
@@ -1051,9 +1057,9 @@ G.Game = class {
       this._autoAimIntercept(dt);
     }
 
-    // C: comms with targeted NPC
+    // C: comms with any targeted entity
     if(this.input.pressed('KeyC')) {
-      if(this.target?.type==='npc') this.ui.openComms(this.target);
+      if(this.target && !this.target.dead) this.ui.openComms(this.target);
     }
 
     // F: request fuel from nearby friendly ship
@@ -1109,7 +1115,7 @@ G.Game = class {
       const wDef=p.weaponSlots[wIdx]?G.WEAPONS[p.weaponSlots[wIdx].weaponId]:null;
       if(wDef&&!wDef.turret){
         const proj=p.fireWeapon(wIdx, this.target?.x, this.target?.y);
-        if(proj) this.space.projectiles.push(proj);
+        if(proj) { this.space.projectiles.push(proj); G.sound.weapon(wDef.type); }
       }
     }
     // Tab: fire secondary weapon (next non-active, non-turret weapon slot)
@@ -1117,11 +1123,21 @@ G.Game = class {
       const secondIdx = p.weaponSlots.findIndex((w,i)=>i!==p.activeWeapon&&!G.WEAPONS[w.weaponId]?.turret);
       if(secondIdx >= 0) {
         const proj = p.fireWeapon(secondIdx, this.target?.x, this.target?.y);
-        if(proj) this.space.projectiles.push(proj);
+        if(proj) {
+          this.space.projectiles.push(proj);
+          G.sound.weapon(G.WEAPONS[p.weaponSlots[secondIdx].weaponId]?.type);
+        }
       }
     }
 
     this.space.update(dt,p,this.input,this.particles,now);
+
+    // Hostile alert sound — fire once when hostiles appear
+    const hostileCount =
+      this.space.enemies.filter(e=>!e.dead&&!e.boarded).length +
+      this.space.npcs.filter(n=>!n.dead&&n.hostile).length;
+    if(hostileCount > 0 && this._prevHostileCount === 0) G.sound.hostileAlert();
+    this._prevHostileCount = hostileCount;
 
     // Count kills + bounty check
     for(const e of this.space.enemies) {
@@ -1193,6 +1209,7 @@ G.Game = class {
     if(this.player.fuel < 10) { this.ui.addMsg('Not enough fuel!','#ff4444'); return; }
 
     this._jumpChargeT += dt;
+    G.sound.jumpCharge(this._jumpChargeT / 5.0);
     if(this._jumpChargeT >= 5.0) {
       this._jumpChargeT = 0;
       this.doHyperspace(sysId);
@@ -1213,6 +1230,7 @@ G.Game = class {
       this.player.vy = dy/d * 9000;
     }
     this.particles.warp_effect(this.player.x, this.player.y);
+    G.sound.hyperspace();
     this._jumpDeparting   = true;
     this._jumpDepartTimer = 0.45;
     this._flashFrames     = 0;
@@ -1262,17 +1280,21 @@ G.Game = class {
   _cycleTarget(dir=1) {
     const all = this.space.allTargets();
     if(!all.length){ this.target=null; return; }
-    if(!this.target){ this.target = dir>0?all[0]:all[all.length-1]; return; }
+    if(!this.target){ this.target = dir>0?all[0]:all[all.length-1]; G.sound.targetLock(); return; }
     const idx = all.indexOf(this.target);
-    this.target = all[((idx+dir)+all.length)%all.length];
+    const next = all[((idx+dir)+all.length)%all.length];
+    if(next !== this.target) { this.target = next; G.sound.targetLock(); }
   }
 
   _targetNearest() {
+    const prev = this.target;
     this.target = this.space.nearestTarget(this.player.x, this.player.y);
+    if(this.target && this.target !== prev) G.sound.targetLock();
   }
 
   land(spaceport) {
     this.state='landed';
+    G.sound.land();
     for(const c of this.player.crew) this.credits=Math.max(0,this.credits-c.wage);
     const completed=this.economy.checkMissions(this.currentSysId,this.player);
     for(const m of completed) this.ui.addMsg('Mission complete: '+m.title+' +'+G.fmtCredits(m.reward),'#ffcc00');
@@ -1281,6 +1303,7 @@ G.Game = class {
 
   launch() {
     this.state='space';
+    G.sound.launch();
     this.ui.hideSpaceport();
     this.ui.addMsg('Launching...','#00ffee');
     this._showHUD();
@@ -1289,6 +1312,7 @@ G.Game = class {
   openGalaxy() {
     if(!this.player.canJump){ this.ui.addMsg('No hyperspace drive installed!','#ff4444'); return; }
     this.state='galaxy';
+    G.sound.mapOpen();
     this.ui.els['galaxy-overlay']?.classList.remove('hidden');
     this.galaxy.selected=null; this._jumpChargeT=0;
     this.galaxy.draw(this.currentSysId);
@@ -1302,6 +1326,7 @@ G.Game = class {
 
   _playerDied() {
     this.state='dead';
+    G.sound.explosion();
     const elapsed=Math.floor((Date.now()-this.startTime)/1000);
     this.particles.explosion(this.player.x,this.player.y,this.player.vx,this.player.vy,2);
     if(this.player.escapePods>0) this.ui.addMsg(Math.min(this.player.escapePods,this.player.crew.length)+' crew escaped.','#ffaa00');
@@ -1349,6 +1374,10 @@ G.Game.prototype._loop = function(ts) {
     if(this.state==='space') this._updateSpace(dt, ts/1000);
     this.particles.update(dt);
     this.renderer.renderSpace(this);
+    if(this.player) {
+      const spd = Math.hypot(this.player.vx, this.player.vy);
+      G.sound.updateEngine(spd, this.input.thrust);
+    }
     this._drawJumpCharge();
     if(this._flashFrames > 0) {
       this._flashFrames--;
@@ -1375,7 +1404,7 @@ G.Game.prototype._loop = function(ts) {
     } else if(this.state==='space' || this.state==='dead') {
       const opts=document.getElementById('options-overlay');
       if(opts) {
-        if(opts.classList.contains('hidden')) opts.classList.remove('hidden');
+        if(opts.classList.contains('hidden')) { opts.classList.remove('hidden'); this.ui.updateFactionPanel(); }
         else opts.classList.add('hidden');
       }
     }
