@@ -692,7 +692,8 @@ G.FleetShip = class {
     }
 
     this._aiTimer += dt;
-    const attackTarget = target && !target.dead && !target.disabled && target !== player ? target : null;
+    const isTargetHostile = target && (target.type === 'enemy' || target.hostile || (target.faction && G.game?.getRel(target.faction) < -30));
+    const attackTarget = target && !target.dead && !target.disabled && target !== player && isTargetHostile ? target : null;
 
     if(attackTarget) {
       const tdx = attackTarget.x - this.x;
