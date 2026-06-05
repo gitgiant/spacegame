@@ -113,7 +113,7 @@ G.UI = class {
   _cacheEls() {
     const ids=['hud','hud-top','galaxy-overlay','spaceport-overlay','inventory-overlay',
       'gameover-overlay','main-menu','system-label','target-panel','tgt-name',
-      'tgt-hull-bar','tgt-shld-bar','tgt-dist','tgt-canvas','tgt-arrow',
+      'tgt-hull-bar','tgt-shld-bar','tgt-dist','tgt-canvas','tgt-arrow','tgt-hull-val','tgt-shld-val',
       'msgs','credits-hud','cargo-hud',
       'speed-hud','weapon-hud','bar-hull','bar-shield','bar-fuel',
       'sp-name','sp-body','sp-credits','sp-cargo','sp-ship',
@@ -407,10 +407,17 @@ G.UI = class {
       }
       if(target.disabled && (target.disabledHp !== undefined)) {
         if(e['tgt-hull-bar']) { e['tgt-hull-bar'].style.width=G.pct(Math.max(0,target.disabledHp),50)+'%'; e['tgt-hull-bar'].style.background='#ff6600'; }
+        if(e['tgt-hull-val']) e['tgt-hull-val'].textContent = Math.ceil(target.disabledHp)+'/50';
       } else {
-        if(e['tgt-hull-bar']) { e['tgt-hull-bar'].style.width=G.pct(target.hp||target.hull,target.maxHp||target.maxHull)+'%'; e['tgt-hull-bar'].style.background=''; }
+        const hullHp = target.hp||target.hull;
+        const maxHullHp = target.maxHp||target.maxHull;
+        if(e['tgt-hull-bar']) { e['tgt-hull-bar'].style.width=G.pct(hullHp,maxHullHp)+'%'; e['tgt-hull-bar'].style.background=''; }
+        if(e['tgt-hull-val']) e['tgt-hull-val'].textContent = Math.ceil(hullHp)+'/'+Math.ceil(maxHullHp);
       }
-      if(e['tgt-shld-bar']) e['tgt-shld-bar'].style.width=G.pct(target.shields,Math.max(target.maxShields,1))+'%';
+      const shields = target.shields||0;
+      const maxShields = Math.max(target.maxShields,1);
+      if(e['tgt-shld-bar']) e['tgt-shld-bar'].style.width=G.pct(shields,maxShields)+'%';
+      if(e['tgt-shld-val']) e['tgt-shld-val'].textContent = Math.ceil(shields)+'/'+Math.ceil(maxShields);
       const td=Math.sqrt((target.x-player.x)**2+(target.y-player.y)**2)|0;
       if(e['tgt-dist']) e['tgt-dist'].textContent=td+' units'+(target.disabled?' [DISABLED]':'');
     } else {

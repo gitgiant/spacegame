@@ -692,7 +692,7 @@ G.FleetShip = class {
     }
 
     this._aiTimer += dt;
-    const attackTarget = target && !target.dead && target !== player ? target : null;
+    const attackTarget = target && !target.dead && !target.disabled && target !== player ? target : null;
 
     if(attackTarget) {
       const tdx = attackTarget.x - this.x;
