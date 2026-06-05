@@ -113,7 +113,7 @@ G.UI = class {
   _cacheEls() {
     const ids=['hud','hud-top','galaxy-overlay','spaceport-overlay','inventory-overlay',
       'gameover-overlay','main-menu','system-label','target-panel','tgt-name',
-      'tgt-hull-bar','tgt-shld-bar','tgt-dist','tgt-canvas','tgt-arrow','tgt-hull-val','tgt-shld-val',
+      'tgt-hull-bar','tgt-shld-bar','tgt-dist','tgt-canvas','tgt-arrow','tgt-hull-val','tgt-shld-val','tgt-intention',
       'msgs','credits-hud','cargo-hud',
       'speed-hud','weapon-hud','bar-hull','bar-shield','bar-fuel',
       'sp-name','sp-body','sp-credits','sp-cargo','sp-ship',
@@ -420,10 +420,45 @@ G.UI = class {
       if(e['tgt-shld-val']) e['tgt-shld-val'].textContent = Math.ceil(shields)+'/'+Math.ceil(maxShields);
       const td=Math.sqrt((target.x-player.x)**2+(target.y-player.y)**2)|0;
       if(e['tgt-dist']) e['tgt-dist'].textContent=td+' units'+(target.disabled?' [DISABLED]':'');
+      const intention = this._getTargetIntention(target);
+      if(e['tgt-intention']) e['tgt-intention'].textContent = intention ? '◆ '+intention : '';
     } else {
       if(e['target-panel']) e['target-panel'].classList.add('hidden');
       this._tgtPortShape = null; this._tgtPortColor = null;
     }
+  }
+
+  _getTargetIntention(target) {
+    if(!target) return '';
+    if(target.disabled) return 'DISABLED';
+    if(target.type === 'enemy') {
+      if(target.aiState === 'patrol') return 'PATROLLING';
+      if(target.aiState === 'engage') return 'ATTACKING';
+      if(target.aiState === 'flee') return 'FLEEING';
+      return 'ENEMY';
+    }
+    if(target.type === 'npc') {
+      if(target.jumpingOut) return 'JUMPING';
+      if(target.aiState === 'entering') return 'ENTERING';
+      if(target.aiState === 'seek_asteroid') return 'SEEKING ASTEROID';
+      if(target.aiState === 'transit_to_asteroid') return 'TRANSITING';
+      if(target.aiState === 'mining_asteroid') return 'MINING';
+      if(target.aiState === 'transit_to_port') return 'LANDING';
+      if(target.aiState === 'parking') return 'PARKING';
+      if(target.aiState === 'docked') return 'DOCKED';
+      if(target.aiState === 'departing') return 'TAKING OFF';
+      if(target.aiState === 'charging_jump') return 'CHARGING JUMP';
+      if(target.aiState === 'transit_to_jump') return 'TRANSITING';
+      if(target.aiState === 'fuel_rendezvous') return 'REFUELING';
+      if(target.hostile) return 'ATTACKING';
+      return 'IDLE';
+    }
+    if(target.type === 'fleet') {
+      if(target.dead) return 'DESTROYED';
+      if(target.disabled) return 'DISABLED';
+      return 'ESCORTING';
+    }
+    return '';
   }
 
   // ── Spaceport ────────────────────────────────────────────
