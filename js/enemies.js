@@ -20,6 +20,11 @@ G.EnemyAI = class {
     this.size     = data.size || 1.0;
     this.angle    = data.angle || 0;
     this._boosting = false;
+    if (!this.captain) this.captain = { sex: Math.random() < 0.5 ? 'male' : 'female', faceIdx: Math.floor(Math.random() * 5) };
+    this._lockT = 0;
+    this._locked = false;
+    this._lockBeepT = 0;
+    this._lockedAlert = false;
   }
 
   update(dt, player, projectiles, particles, now) {
@@ -89,8 +94,9 @@ G.EnemyAI = class {
         }
         // Fight on — go berserker: close range, faster firing
         this._berserker = true;
-        this.fireRate  *= 1.6;
-        this.fleeHpPct  = 0;  // no more flee checks
+        this.fireRate *= 1.6;
+        if(this.weapons) { for(const wpn of this.weapons) wpn.fireRate *= 1.6; }
+        this.fleeHpPct = 0;  // no more flee checks
       }
 
       // Movement: close in aggressively; orbit rather than back away
@@ -107,39 +113,115 @@ G.EnemyAI = class {
         this._thrust(dt);
       }
 
+      // Missile lock-on: only if has missile weapon
+      const hasMissileWeapon = this.weapons?.some(w=>w.type==='missile') || this.weaponType==='missile';
+      if(hasMissileWeapon) {
+        this._lockT ??= 0;
+        this._locked ??= false;
+        this._lockBeepT ??= 0;
+        this._lockAlertT ??= 0;
+        this._lockT = Math.min(this._lockT + dt, 3.0);
+        if(this._lockT >= 3.0 && !this._locked) {
+          this._locked = true;
+        }
+        if(this._locked) {
+          this._lockAlertT -= dt;
+          if(this._lockAlertT <= 0) {
+            this._lockAlertT = 0.3;
+            G.sound?.playerLockAlert?.();
+          }
+        } else {
+          this._lockBeepT -= dt;
+          if(this._lockBeepT <= 0) {
+            const progress = this._lockT / 3.0;
+            this._lockBeepT = 0.8 - progress * 0.65;
+            G.sound?.playerLockBeep?.(progress);
+          }
+        }
+      } else {
+        this._lockT = 0;
+        this._locked = false;
+        this._lockBeepT = 0;
+        this._lockAlertT = 0;
+      }
+
       // Aim and fire
       const aimErr = this._berserker ? 0 : Math.sin(this.aiTimer*3)*0.22;
       const shootAngle = angleToPlayer + aimErr;
       const angleDiff = Math.abs(G.wrapAngle(this.angle - shootAngle));
 
-      if(angleDiff < 0.6 && distToPlayer < this.engageRange && now - this.lastShot > 1/this.fireRate) {
-        this.lastShot = now;
-        const spd = this.weaponType==='laser' ? 850 : 600;
-        const projVx = Math.sin(shootAngle)*spd + this.vx*0.2;
-        const projVy = -Math.cos(shootAngle)*spd + this.vy*0.2;
-        projectiles.push({
-          x: this.x+Math.sin(this.angle)*18,
-          y: this.y-Math.cos(this.angle)*18,
-          vx:projVx, vy:projVy,
-          damage:this.damage,
-          type:this.weaponType,
-          splash:this.weaponType==='explosion'?60:0,
-          empStrength:this.empStrength,
-          range:700, traveled:0,
-          ttl:0.9,
-          color:this.projColor, width:2,
-          sourceId:this.id,
-          tracking:this.weaponType==='missile',
-          trackTarget:this.weaponType==='missile'?{x:player.x,y:player.y}:null,
-        });
-        if(particles) particles.emit({
-          x:this.x+Math.sin(this.angle)*18, y:this.y-Math.cos(this.angle)*18,
-          minSpd:20, maxSpd:60, life:0.15, r:2, color:this.projColor,
-        });
-        G.sound?.enemyWeapon(this.weaponType, distToPlayer);
+      if(this.weapons && this.weapons.length > 0) {
+        // Multi-weapon fire: each weapon fires on its own cooldown
+        for(const wpn of this.weapons) {
+          const isMissileWpn = wpn.type === 'missile';
+          const inRange = distToPlayer < (wpn.range || this.engageRange);
+          const offCooldown = now - (wpn.lastShot || 0) > 1 / wpn.fireRate;
+          if(angleDiff < 0.6 && inRange && offCooldown && (!isMissileWpn || this._locked)) {
+            wpn.lastShot = now;
+            const spd = wpn.projSpeed || (wpn.type === 'laser' ? 850 : 600);
+            projectiles.push({
+              x: this.x+Math.sin(this.angle)*18,
+              y: this.y-Math.cos(this.angle)*18,
+              vx: Math.sin(shootAngle)*spd + this.vx*0.2,
+              vy: -Math.cos(shootAngle)*spd + this.vy*0.2,
+              damage: wpn.damage,
+              type: wpn.type,
+              splash: wpn.splash || 0,
+              empStrength: wpn.empStrength || 0,
+              range: wpn.range || 700, traveled: 0,
+              ttl: (wpn.range || 700) / spd,
+              color: wpn.color, width: wpn.width || 2,
+              sourceId: this.id,
+              tracking: isMissileWpn,
+              trackTarget: isMissileWpn ? {x: player.x, y: player.y} : null,
+            });
+            if(particles) particles.emit({
+              x: this.x+Math.sin(this.angle)*18, y: this.y-Math.cos(this.angle)*18,
+              minSpd:20, maxSpd:60, life:0.15, r:2, color: wpn.color,
+            });
+            G.sound?.enemyWeapon(wpn.type, distToPlayer);
+          }
+        }
+      } else {
+        // Legacy single-weapon fire
+        const canFire = angleDiff < 0.6 && distToPlayer < this.engageRange && now - this.lastShot > 1/this.fireRate;
+        const isMissile = this.weaponType === 'missile';
+        if(canFire && (!isMissile || this._locked)) {
+          this.lastShot = now;
+          const spd = this.weaponType==='laser' ? 850 : 600;
+          projectiles.push({
+            x: this.x+Math.sin(this.angle)*18,
+            y: this.y-Math.cos(this.angle)*18,
+            vx: Math.sin(shootAngle)*spd + this.vx*0.2,
+            vy: -Math.cos(shootAngle)*spd + this.vy*0.2,
+            damage:this.damage,
+            type:this.weaponType,
+            splash:this.weaponType==='explosion'?60:0,
+            empStrength:this.empStrength,
+            range:700, traveled:0,
+            ttl:0.9,
+            color:this.projColor, width:2,
+            sourceId:this.id,
+            tracking:this.weaponType==='missile',
+            trackTarget:this.weaponType==='missile'?{x:player.x,y:player.y}:null,
+          });
+          if(particles) particles.emit({
+            x:this.x+Math.sin(this.angle)*18, y:this.y-Math.cos(this.angle)*18,
+            minSpd:20, maxSpd:60, life:0.15, r:2, color:this.projColor,
+          });
+          G.sound?.enemyWeapon(this.weaponType, distToPlayer);
+        }
       }
 
-    } else if(this.aiState === 'flee') {
+    } else {
+      // Reset lock when leaving engage state
+      this._lockT = 0;
+      this._locked = false;
+      this._lockBeepT = 0;
+      this._lockAlertT = 0;
+    }
+
+    if(this.aiState === 'flee') {
       this.fleeTimer -= dt;
       this._steerTo(this.x - dx*2, this.y - dy*2, dt);
       this._thrust(dt, true);
@@ -196,8 +278,9 @@ G.EnemyAI = class {
       return;
     }
     if(this.disabled) {
-      this.hp -= amount;
-      if(this.hp <= 0) this.dead = true;
+      // Post-disable damage tracked separately; hull stays at 0
+      this._postDisableDmg = (this._postDisableDmg || 0) + amount;
+      if(this._postDisableDmg >= this.maxHp * 0.4) this.dead = true;
       return;
     }
     if(this.shields > 0) {
@@ -208,6 +291,7 @@ G.EnemyAI = class {
     }
     this.hp -= amount;
     if(this.hp <= 0) {
+      this.hp = 0;
       this.disabled = true;
       this.aiState = 'disabled';
     }

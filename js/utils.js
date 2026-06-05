@@ -129,7 +129,7 @@ G.generateLocalSystem = function(sys) {
         vx:(envRng()-0.5)*5, vy:(envRng()-0.5)*5,
         r:sz, atype,
         angle:envRng()*Math.PI*2, rotSpeed:(envRng()-0.5)*0.25,
-        maxHp:12+Math.floor(envRng()*22), hp:0,
+        maxHp:30+Math.floor(envRng()*50), hp:0,
         drops:G.ASTEROID_DROPS[atype]||G.ASTEROID_DROPS.rocky,
         color:atype==='metallic'?'#998877':atype==='icy'?'#aaccdd':atype==='alien'?'#44cc88':'#776655',
       };
@@ -174,7 +174,7 @@ G.generateLocalSystem = function(sys) {
       const solPlanets = [
         { name:'Mercury', ptype:'rocky',  r:28,  dist:380,  hasPort:false, hasRings:false },
         { name:'Venus',   ptype:'lava',   r:56,  dist:640,  hasPort:false, hasRings:false },
-        { name:'Earth',   ptype:'terran', r:72,  dist:980,  hasPort:true,  hasRings:false },
+        { name:'Earth',   ptype:'terran', r:72,  dist:980,  hasPort:true,  hasRings:false, hasMoon:true },
         { name:'Mars',    ptype:'rocky',  r:40,  dist:1520, hasPort:true,  hasRings:false },
         { name:'Jupiter', ptype:'gas',    r:208, dist:3400, hasPort:false, hasRings:false },
         { name:'Saturn',  ptype:'gas',    r:176, dist:4600, hasPort:false, hasRings:true  },
@@ -186,14 +186,29 @@ G.generateLocalSystem = function(sys) {
         const angle = rng()*Math.PI*2;
         const orbitSpeed = (0.000004 + (solPlanets.length-i)*0.00000175)*(rng()<0.5?1:-1);
         const seed = sp.name.split('').reduce((a,c)=>a*31+c.charCodeAt(0),0) % 50000;
-        bodies.push({
+        const bodyObj = {
           type:'planet', x:Math.cos(angle)*sp.dist, y:Math.sin(angle)*sp.dist,
           r:sp.r, orbitR:sp.dist, orbitAngle:angle, orbitSpeed,
           ptype:sp.ptype, color:'#888888', name:sp.name,
           hasSpaceport:sp.hasPort, spaceportName:sp.hasPort?(sp.name+' Station'):null,
           hasRings:sp.hasRings, seed,
           faction:'earth',
-        });
+        };
+        bodies.push(bodyObj);
+        if(sp.hasMoon) {
+          const moonAngle = rng()*Math.PI*2;
+          const moonDist  = sp.r * 3.2;
+          bodies.push({
+            type:'planet', ptype:'rocky', color:'#999999', name:'Moon',
+            x: bodyObj.x + Math.cos(moonAngle)*moonDist,
+            y: bodyObj.y + Math.sin(moonAngle)*moonDist,
+            r: 20, orbitR: moonDist, orbitAngle: moonAngle,
+            orbitSpeed: 0.00028 * (rng()<0.5?1:-1),
+            orbitParent: bodyObj,
+            hasSpaceport: false, hasRings: false,
+            seed: 7777, faction:'earth',
+          });
+        }
       }
     } else {
       // Planets
@@ -229,7 +244,8 @@ G.generateLocalSystem = function(sys) {
 
     // Space stations
     const nStations = rng() < 0.6 ? 1 : (rng() < 0.3 ? 2 : 0);
-    const stTypes = ['Trading Post','Military Base','Research Station','Refueling Depot','Rebel Outpost','Pirate Haven'];
+    const stTypes = ['Trading Post','Military Base','Research Station','Refueling Depot','Rebel Outpost','Pirate Haven']
+      .filter(t => !(sys.faction==='earth' && t==='Rebel Outpost'));
     for(let i=0;i<nStations;i++){
       const dist = 800+rng()*2000;
       const angle = rng()*Math.PI*2;
@@ -245,24 +261,6 @@ G.generateLocalSystem = function(sys) {
       });
     }
 
-    // Comets — occasional wide-orbit bodies around the star
-    const nComets = rng() < 0.55 ? Math.floor(rng()*2)+1 : 0;
-    for(let i=0;i<nComets;i++){
-      const orbitR = 6000 + rng()*8000;
-      const angle  = rng()*Math.PI*2;
-      const speed  = (0.00003 + rng()*0.00004) * (rng()<0.5?1:-1);
-      const maxHp  = 400 + Math.floor(rng()*400);
-      bodies.push({
-        type:'comet',
-        x: Math.cos(angle)*orbitR, y: Math.sin(angle)*orbitR,
-        r: 4 + rng()*4,
-        orbitR, orbitAngle:angle, orbitSpeed:speed,
-        color:'#aaddff',
-        maxHp, hp: maxHp,
-        tailLen: 80 + rng()*120,
-        drops: ['ore','crystals','ore'],
-      });
-    }
   }
 
   // Asteroid fields (multiple chunks + optional extra dust fields)
@@ -393,6 +391,50 @@ G.buildHyperspaceRoutes = function() {
 };
 
 // Generate enemy ships for a system
+const _SHAPE_META = {
+  pirate_fighter: { name:'Pirate Fighter',  class:'Fighter'  },
+  gunboat:        { name:'Gunboat',          class:'Gunboat'  },
+  corvette:       { name:'Corvette',         class:'Corvette' },
+  alien_fighter:  { name:'Shard Fighter',    class:'Fighter'  },
+  alien_cruiser:  { name:'Shard Cruiser',    class:'Cruiser'  },
+  fighter:        { name:'Fighter',          class:'Fighter'  },
+  rebel_fighter:  { name:'Rebel Fighter',    class:'Fighter'  },
+};
+
+function _genEnemyWeapons(faction, danger, rng) {
+  const rarityMinDanger = { c:0, u:2, r:4, e:6, l:8 };
+  const pool = Object.keys(G.WEAPONS).filter(id => {
+    const def = G.WEAPONS[id];
+    return (rarityMinDanger[def.rarity] || 0) <= danger;
+  });
+  if(!pool.length) pool.push('laser_cannon');
+  const maxWeapons = danger >= 5 ? 3 : danger >= 3 ? 2 : 1;
+  const picked = [];
+  while(picked.length < maxWeapons && pool.length > 0) {
+    const idx = Math.floor(rng() * pool.length);
+    picked.push(...pool.splice(idx, 1));
+    if(picked.length > 1 && rng() > 0.55) break; // random chance to stop adding
+  }
+  return picked.map(id => {
+    const def = G.WEAPONS[id];
+    if(!def) return null;
+    return {
+      weaponId: id,
+      damage: (def.damage || 15) * (0.8 + rng()*0.45),
+      fireRate: (def.fireRate || 1.2) * (0.7 + rng()*0.5),
+      projSpeed: def.projSpeed || 800,
+      range: def.range || 700,
+      color: def.color || '#ff4444',
+      type: def.type || 'laser',
+      splash: def.splash || 0,
+      empStrength: def.empStrength || 0,
+      tracking: def.tracking || false,
+      width: def.width || 2,
+      lastShot: 0,
+    };
+  }).filter(Boolean);
+}
+
 G.genEnemyShips = function(sys, count) {
   const danger  = sys.danger;
   const faction = sys.faction;
@@ -418,11 +460,12 @@ G.genEnemyShips = function(sys, count) {
       shapeId = rebelShips[Math.floor(rng()*rebelShips.length)];
       col='#ff6600'; shipFaction='rebellion';
     } else {
-      // Earth territory danger 3+: rare pirate raider only
-      if(rng() > 0.35) continue;
+      // Earth territory danger 3+: very rare pirate raider only
+      if(rng() > 0.08) continue;
       shapeId='pirate_fighter'; col='#cc2222'; shipFaction='pirate';
     }
 
+    const shapeMeta = _SHAPE_META[shapeId] || { name:'Unknown Ship', class:'Fighter' };
     const angle = rng()*Math.PI*2;
     const dist  = 1500+rng()*3000;
     const hp = 120+danger*30 + rng()*80;
@@ -432,6 +475,8 @@ G.genEnemyShips = function(sys, count) {
     const credits = Math.floor(50+danger*30+rng()*100);
     const cargoDrops = Math.floor(rng()*3);
 
+    const weapons = _genEnemyWeapons(shipFaction, danger, rng);
+    const primaryWpn = weapons[0];
     enemies.push({
       type:'enemy',
       x:Math.cos(angle)*dist, y:Math.sin(angle)*dist,
@@ -439,9 +484,15 @@ G.genEnemyShips = function(sys, count) {
       hp, maxHp:hp, shields, maxShields:shields,
       energy:100, maxEnergy:100,
       speed, turnSpeed:1.5+rng()*1.5,
-      damage, fireRate:1.2+rng()*1.2, lastShot:0,
+      damage: primaryWpn?.damage ?? damage,
+      fireRate: primaryWpn?.fireRate ?? (1.2+rng()*1.2),
+      lastShot:0,
+      weapons,
+      weaponType: primaryWpn?.type ?? 'laser',
+      projColor: primaryWpn?.color ?? col,
       credits, cargoDrops,
       shapeId, color:col,
+      name:shapeMeta.name, class:shapeMeta.class,
       faction:shipFaction,
       aiState:'patrol',
       patrolAngle:rng()*Math.PI*2,

@@ -103,10 +103,17 @@ G.Renderer = class {
     ctx.rotate(angle);
     ctx.scale(scale, scale * jumpStretch);
 
-    // Draw pixel-art sprite centred at origin
-    const sprite = G.Sprites.get(shapeId, color || shape.color);
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(sprite, -(SZ>>1), -(SZ>>1), SZ, SZ);
+    // Draw ship sprite — photo image if available, else pixel-art
+    const imgCanvas = G.ShipImages?.get(shapeId);
+    if (imgCanvas) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(imgCanvas, -(SZ>>1), -(SZ>>1), SZ, SZ);
+    } else {
+      const sprite = G.Sprites.get(shapeId, color || shape.color);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(sprite, -(SZ>>1), -(SZ>>1), SZ, SZ);
+    }
 
     // Engine thrust flame overlay (on top of sprite)
     if(thrusting && shape.enginePts) {
@@ -134,8 +141,8 @@ G.Renderer = class {
       const sx = strafeDir > 0 ? -10 : 10;
       const fx = strafeDir > 0 ? -18 : 18;
       const grad = ctx.createLinearGradient(sx, 0, fx, 0);
-      grad.addColorStop(0, '#ffaa22');
-      grad.addColorStop(0.4, 'rgba(255,100,0,0.5)');
+      grad.addColorStop(0, boosting ? '#44aaff' : '#ffaa22');
+      grad.addColorStop(0.4, boosting ? 'rgba(0,100,255,0.5)' : 'rgba(255,100,0,0.5)');
       grad.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.beginPath();
       ctx.moveTo(sx, -2.5); ctx.lineTo(sx, 2.5); ctx.lineTo(fx, 0);
@@ -303,10 +310,47 @@ G.Renderer = class {
       ctx.fillStyle=p.color; ctx.fill();
       ctx.strokeStyle='rgba(180,100,255,0.5)'; ctx.lineWidth=3; ctx.stroke();
     } else if(p.type==='missile') {
-      ctx.translate(p.x|0,p.y|0); ctx.rotate(Math.atan2(p.vx,p.vy));
-      ctx.fillStyle=p.color;
-      ctx.beginPath(); ctx.moveTo(0,-6); ctx.lineTo(2,5); ctx.lineTo(-2,5);
-      ctx.closePath(); ctx.fill();
+      ctx.translate(p.x|0, p.y|0);
+      ctx.rotate(Math.atan2(p.vx, -p.vy));
+      // Body
+      ctx.fillStyle = '#ccccdd';
+      ctx.beginPath();
+      ctx.moveTo(0, -10); ctx.lineTo(2.5, -3); ctx.lineTo(2.5, 5);
+      ctx.lineTo(-2.5, 5); ctx.lineTo(-2.5, -3); ctx.closePath(); ctx.fill();
+      // Warhead band
+      ctx.fillStyle = p.color || '#ff8800';
+      ctx.fillRect(-2.5, -3, 5, 3.5);
+      // Fins
+      ctx.fillStyle = '#9999bb';
+      ctx.beginPath(); ctx.moveTo(2.5, 1); ctx.lineTo(6.5, 7); ctx.lineTo(2.5, 5); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-2.5, 1); ctx.lineTo(-6.5, 7); ctx.lineTo(-2.5, 5); ctx.closePath(); ctx.fill();
+      // Engine plume (hidden during dormant drift phase)
+      if(!p.dormant) {
+        const flickLen = 9 + Math.random() * 7;
+        const plumeGrad = ctx.createLinearGradient(0, 5, 0, 5 + flickLen);
+        plumeGrad.addColorStop(0, 'rgba(160,220,255,1)');
+        plumeGrad.addColorStop(0.35, 'rgba(80,140,255,0.7)');
+        plumeGrad.addColorStop(1, 'rgba(0,40,200,0)');
+        ctx.beginPath();
+        ctx.moveTo(-2, 5); ctx.lineTo(2, 5);
+        ctx.lineTo(0.5, 5 + flickLen); ctx.lineTo(-0.5, 5 + flickLen);
+        ctx.closePath();
+        ctx.fillStyle = plumeGrad; ctx.fill();
+      }
+    } else if(p.type==='mining') {
+      // Draw beam from shooter (stored on projectile) to current position
+      const ox = p.originX ?? p.x, oy = p.originY ?? p.y;
+      const grad = ctx.createLinearGradient(ox, oy, p.x, p.y);
+      grad.addColorStop(0, 'rgba(255,220,0,0)');
+      grad.addColorStop(0.3, 'rgba(255,200,0,0.55)');
+      grad.addColorStop(0.85, '#ffee00');
+      grad.addColorStop(1, '#ffffff');
+      ctx.beginPath();
+      ctx.moveTo(ox|0, oy|0);
+      ctx.lineTo(p.x|0, p.y|0);
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = p.width || 5;
+      ctx.stroke();
     } else {
       ctx.beginPath(); ctx.arc(p.x|0,p.y|0,p.width||2,0,Math.PI*2);
       ctx.fillStyle=p.color; ctx.fill();
@@ -341,14 +385,15 @@ G.Renderer = class {
     const pulse = 0.5 + 0.5 * Math.sin(time * 6);
     const alpha = 0.25 + 0.65 * shieldRatio * (0.6 + 0.4 * pulse);
     const blur  = (5 + 9 * pulse) * Math.max(0.6, scale);
-    const sprite = G.Sprites.get(shapeId, color || '#8899bb');
+    const imgCanvas = G.ShipImages?.get(shapeId);
+    const sprite = imgCanvas || G.Sprites.get(shapeId, color || '#8899bb');
     const SZ = G.Sprites.SZ;
 
     ctx.save();
     ctx.translate(x | 0, y | 0);
     ctx.rotate(angle);
     ctx.scale(scale, scale);
-    ctx.imageSmoothingEnabled = false;
+    ctx.imageSmoothingEnabled = !!imgCanvas;
 
     // Shadow cast by the sprite's non-transparent pixels creates an exact silhouette glow
     ctx.shadowColor = `rgba(80,160,255,${Math.min(1, alpha)})`;
@@ -435,18 +480,6 @@ G.Renderer = class {
       if(inBounds(ax,ay)) ctx.fillRect(ax,ay,1,1);
     }
 
-    // Comets — cyan dot with short tail line
-    for(const b of space.bodies){
-      if(b.type!=='comet'||b.hp<=0) continue;
-      const cx2=tx(b)|0,cy2=ty(b)|0;
-      if(!inBounds(cx2,cy2)) continue;
-      const tailAngle=Math.atan2(b.y,b.x);
-      const tailPx=Math.cos(tailAngle)*8,tailPy=Math.sin(tailAngle)*8;
-      ctx.strokeStyle='rgba(150,220,255,0.6)'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.moveTo(cx2,cy2); ctx.lineTo(cx2+tailPx,cy2+tailPy); ctx.stroke();
-      ctx.fillStyle='#aaddff'; ctx.beginPath(); ctx.arc(cx2,cy2,2,0,Math.PI*2); ctx.fill();
-    }
-
     // helper: draw an oriented triangle on the minimap
     const drawShipTriangle=(x,y,angle,col,sz=4)=>{
       ctx.save(); ctx.translate(x,y); ctx.rotate(angle);
@@ -478,7 +511,10 @@ G.Renderer = class {
         ctx.beginPath(); ctx.arc(nx,ny,7,0,Math.PI*2); ctx.stroke();
       }
       const nRel=game.getRel(n.faction);
-      const nCol=n.hostile?'#ff3333':nRel>=50?'#00ee66':nRel>=-20?'#88aacc':nRel>=-50?'#ffcc00':'#ff8800';
+      const nFacCol = G.FACTIONS[n.faction]?.color;
+      // Hostile factions (pirates, aliens etc.) always show their faction color; others use relation gradient
+      const nHostileFaction = nRel < -30;
+      const nCol = n.hostile ? (nFacCol||'#ff3333') : nRel>=50 ? '#00ee66' : nRel>=-20 ? '#88aacc' : nHostileFaction ? (nFacCol||'#ff8800') : '#ffcc00';
       drawShipTriangle(nx,ny,n.angle,nCol);
       // Hostile NPC: blinking red outline ring
       if(n.hostile && blink) {
@@ -501,7 +537,8 @@ G.Renderer = class {
       }
       const rel=game.getRel(e.faction)||0;
       const isHostile=rel<-20||e.aiState==='engage';
-      drawShipTriangle(ex,ey,e.angle,rel<-50?'#ff3333':'#ff8800');
+      const eFacCol = G.FACTIONS[e.faction]?.color;
+      drawShipTriangle(ex,ey,e.angle,eFacCol||(rel<-50?'#ff3333':'#ff8800'));
       // Hostile enemy: blinking red outline ring (brighter for very hostile)
       if(isHostile && blink) {
         ctx.beginPath(); ctx.arc(ex,ey,6,0,Math.PI*2);
@@ -787,8 +824,10 @@ G.Renderer = class {
 
     const _zoom = game.camZoom || 1;
     this.clear();
-    if(space.nebula) this._drawNebulaFog(space.nebula);
-    this.drawDeepBg(space.bgDeepObjects, camX, camY, _zoom);
+    if(game._bgEnabled) {
+      if(space.nebula) this._drawNebulaFog(space.nebula);
+      this.drawDeepBg(space.bgDeepObjects, camX, camY, _zoom);
+    }
     this.drawBg(space.bgStars, camX, camY, _zoom, 1, 0);
 
     ctx.save();
@@ -820,14 +859,6 @@ G.Renderer = class {
         this.drawStation(b.x,b.y,space.time*0.2);
         ctx.fillStyle='rgba(200,200,220,0.8)'; ctx.font=(7/_zoom)+'px "Press Start 2P",monospace';
         ctx.fillText(b.name,(b.x+24)|0,(b.y+3)|0);
-      } else if(b.type==='comet') {
-        if((b.hp||1) <= 0) continue;
-        this.drawComet(b.x,b.y,b.r,b.color||'#aaddff', b.tailLen||100);
-        if(b.maxHp && b.hp < b.maxHp) {
-          const bw=30, by2=b.y-b.r-8;
-          ctx.fillStyle='#1a2233'; ctx.fillRect((b.x-bw/2)|0,by2|0,bw,3);
-          ctx.fillStyle='#88ccff'; ctx.fillRect((b.x-bw/2)|0,by2|0,(bw*(b.hp/b.maxHp))|0,3);
-        }
       }
     }
 
@@ -900,7 +931,7 @@ G.Renderer = class {
         ctx.restore();
       } else {
         const nScale = n.size||1;
-        this.drawShip(n.x,n.y,n.angle,n.shapeId||'shuttle',n.color,nScale,moving,n._boosting||false);
+        this.drawShip(n.x,n.y,n.angle,n.shapeId||'shuttle',n.color,nScale,moving,n._boosting||false,1,n._strafeDir||0);
         if(n.shields > 0)
           this.drawShieldOutline(n.x, n.y, n.angle, n.shapeId||'shuttle', n.color||'#8899bb', nScale,
             n.shields/Math.max(n.maxShields,1), space.time);
@@ -942,9 +973,9 @@ G.Renderer = class {
     // Particles stored in world-space; ctx is already translated so offset = 0
     particles.draw(ctx, 0, 0);
 
-    const thrusting = game.input.thrust;
-    const boosting  = game.input.boost && player.energy > 5 && player.boostCharge > 0;
-    const strafeDir = game.input.strafeR ? 1 : game.input.strafeL ? -1 : 0;
+    const thrusting = !player.disabled && game.input.thrust;
+    const boosting  = !player.disabled && game.input.boost && player.energy > 5 && player.boostCharge > 0;
+    const strafeDir = player.disabled ? 0 : game.input.strafeR ? 1 : game.input.strafeL ? -1 : 0;
     const shipColor = G.SHIPS[player.templateId]?.color || '#8899bb';
     const shapeId   = G.SHIPS[player.templateId]?.shape || 'shuttle';
     this.drawShip(player.x,player.y,player.angle,shapeId,shipColor,1,thrusting,boosting,1,strafeDir);
@@ -976,10 +1007,41 @@ G.Renderer = class {
       ctx.strokeStyle='rgba(160,80,255,0.5)'; ctx.lineWidth=2; ctx.stroke();
     }
     if(game.target&&!game.target.dead) {
-      const t=game.target, tr=20+(t.size||1)*8;
+      const t=game.target, tr=t.r ? t.r+10 : 20+(t.size||1)*8;
       ctx.beginPath(); ctx.arc(t.x,t.y,tr,0,Math.PI*2);
       ctx.strokeStyle='rgba(255,100,100,0.6)'; ctx.lineWidth=1;
       ctx.setLineDash([4,4]); ctx.stroke(); ctx.setLineDash([]);
+      // Show name above targeted planet/station
+      if(t.type==='planet'||t.type==='station') {
+        const facCol = G.FACTIONS[t.faction]?.color || '#aaaacc';
+        ctx.save(); ctx.font=(6/_zoom)+'px "Press Start 2P",monospace';
+        ctx.fillStyle=facCol; ctx.textAlign='center';
+        ctx.fillText(t.spaceportName||t.name||'UNKNOWN', t.x, t.y-tr-6);
+        ctx.textAlign='left'; ctx.restore();
+      }
+    }
+
+    // Missile lock diamond — shrinks toward target as lock progresses
+    if(game._lockTarget && !game._lockTarget.dead) {
+      const lt = game._lockTarget;
+      const progress = Math.min((game._lockT||0) / 3.0, 1.0);
+      const baseR = (lt.r ? lt.r + 10 : 20 + (lt.size||1)*8);
+      const diamondR = game._locked ? baseR + 16 : baseR + 16 + (1 - progress) * 55;
+      const pulse = game._locked ? 0.7 + 0.3 * Math.sin(space.time * 12) : 1;
+      ctx.save();
+      ctx.globalAlpha = (game._locked ? 0.9 : 0.45 + progress * 0.45) * pulse;
+      ctx.strokeStyle = game._locked ? '#ff3333' : `rgb(255,${Math.round(210 - progress*160)},0)`;
+      ctx.lineWidth = 1.5 / _zoom;
+      if(!game._locked) ctx.setLineDash([4/_zoom, 3/_zoom]);
+      ctx.beginPath();
+      ctx.moveTo(lt.x, lt.y - diamondR);
+      ctx.lineTo(lt.x + diamondR, lt.y);
+      ctx.lineTo(lt.x, lt.y + diamondR);
+      ctx.lineTo(lt.x - diamondR, lt.y);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
     }
 
     ctx.restore();
@@ -990,6 +1052,69 @@ G.Renderer = class {
 
   _lighten(hex,a){const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return `rgb(${Math.min(255,r+a)},${Math.min(255,g+a)},${Math.min(255,b+a)})`;}
   _darken(hex,a){const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return `rgb(${Math.max(0,r-a)},${Math.max(0,g-a)},${Math.max(0,b-a)})`;}
+
+  renderMenuBg(dt) {
+    const ctx = this.ctx;
+    const cx = G.CANVAS_W / 2, cy = G.CANVAS_H / 2;
+    const maxR = Math.hypot(cx, cy) + 20;
+
+    if (!this._menuStars) {
+      this._menuT = 0;
+      this._menuStars = [];
+      for (let i = 0; i < 350; i++) {
+        this._menuStars.push({
+          angle:    Math.random() * Math.PI * 2,
+          r:        10 + Math.random() * maxR,
+          speed:    60 + Math.random() * 220,
+          size:     1.0 + Math.random() * 2.0,
+          bright:   0.7 + Math.random() * 0.3,
+          hue:      Math.random() * 360,
+          hueSpeed: 40 + Math.random() * 80,
+        });
+      }
+    }
+
+    this._menuT += dt;
+    const warpT = Math.min(this._menuT / 4, 1);
+    const speedMult = warpT * warpT * warpT * 8 + 0.02;
+
+    ctx.fillStyle = '#000010';
+    ctx.fillRect(0, 0, G.CANVAS_W, G.CANVAS_H);
+
+    for (const s of this._menuStars) {
+      s.r   += s.speed * speedMult * dt;
+      s.hue  = (s.hue + s.hueSpeed * dt) % 360;
+      if (s.r > maxR) {
+        s.r    = 2 + Math.random() * 15;
+        s.angle = Math.random() * Math.PI * 2;
+        continue;
+      }
+
+      const trailLen = Math.max(2, s.speed * speedMult * 0.08);
+      const r0 = Math.max(0.5, s.r - trailLen);
+      const x1 = cx + Math.cos(s.angle) * r0;
+      const y1 = cy + Math.sin(s.angle) * r0;
+      const x2 = cx + Math.cos(s.angle) * s.r;
+      const y2 = cy + Math.sin(s.angle) * s.r;
+
+      const hTail = (s.hue - 30 + 360) % 360;
+      const hHead = (s.hue + 30) % 360;
+      const lTail = 55, lHead = 92;
+      const aTail = Math.min(1, speedMult * 0.4) * s.bright;
+      const aHead = s.bright;
+
+      const grad = ctx.createLinearGradient(x1, y1, x2, y2);
+      grad.addColorStop(0, `hsla(${hTail},100%,${lTail}%,${aTail})`);
+      grad.addColorStop(1, `hsla(${hHead},100%,${lHead}%,${aHead})`);
+
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = s.size * (0.5 + speedMult * 0.08);
+      ctx.stroke();
+    }
+  }
 };
 
 // ── Main Game Class ───────────────────────────────────────
@@ -1013,6 +1138,12 @@ G.Game = class {
     this._landFade=0;
     this._landPending=null;
     this._autopilot=false;
+    this._bgEnabled=true;
+
+    // FPS counter
+    this._fpsEl = document.getElementById('fps-counter');
+    this._fpsHistory = [];
+    this._fpsGraphCanvas = document.getElementById('fps-graph');
 
     // Hyperspace state
     this.hyperspaceT      = 0;
@@ -1057,6 +1188,13 @@ G.Game = class {
         const d = Math.hypot(ship.x - wx, ship.y - wy);
         if(d < bestD) { bestD = d; best = ship; }
       }
+      if(!best) {
+        for(const b of this.space.bodies) {
+          if(b.type !== 'planet' && b.type !== 'station') continue;
+          const d = Math.hypot(b.x - wx, b.y - wy);
+          if(d < Math.max(b.r + 8/zoom, CLICK_RADIUS)) { best = b; break; }
+        }
+      }
       if(best) {
         this.target = best;
         G.sound?.targetLock();
@@ -1070,8 +1208,46 @@ G.Game = class {
     this.canvas.addEventListener('wheel', e => {
       if(this.state !== 'space') return;
       e.preventDefault();
-      this._zoomManual = G.clamp((this._zoomManual || 0) - e.deltaY * 0.0008, -0.5, 0.25);
+      this._zoomManual = G.clamp((this._zoomManual || 0) - e.deltaY * 0.0008, -0.425, 3.04);
     }, { passive: false });
+
+    // Minimap click → target ship
+    document.addEventListener('click', e => {
+      if(this.state !== 'space') return;
+      const mmCanvas = document.getElementById('minimap');
+      if(!mmCanvas) return;
+      if(!mmCanvas.contains(e.target)) return;
+
+      const rect = mmCanvas.getBoundingClientRect();
+      const mmX = e.clientX - rect.left;
+      const mmY = e.clientY - rect.top;
+      const RANGE = 8000;
+      const cx = mmCanvas.width / 2;
+      const cy = mmCanvas.height / 2;
+      const scale = mmCanvas.width / (RANGE * 2);
+      const wx = this.player.x + (mmX - cx) / scale;
+      const wy = this.player.y + (mmY - cy) / scale;
+      // Find nearest targetable ship within click radius
+      const CLICK_RADIUS = 150; // world-space radius
+      let best = null, bestD = CLICK_RADIUS;
+      for(const ship of this.space.allTargets()) {
+        const d = Math.hypot(ship.x - wx, ship.y - wy);
+        if(d < bestD) { bestD = d; best = ship; }
+      }
+      if(!best) {
+        for(const b of this.space.bodies) {
+          if(b.type !== 'planet' && b.type !== 'station') continue;
+          const d = Math.hypot(b.x - wx, b.y - wy);
+          if(d < Math.max(b.r + 80, CLICK_RADIUS)) { best = b; break; }
+        }
+      }
+      if(best) {
+        this.target = best;
+        G.sound?.targetLock();
+      } else {
+        this.target = null;
+      }
+    }, true);
 
     this.galaxy.init();
     this._last = 0;
@@ -1100,6 +1276,10 @@ G.Game = class {
     const save = {
       version:      2,
       timestamp:    Date.now(),
+      playerName:      this.playerName      || 'Commander',
+      playerSex:       this.playerSex       || 'male',
+      playerFaceIdx:   this.playerFaceIdx   || 0,
+      playerFactionId: this.playerFactionId || 'neutral',
       credits:      this.credits,
       kills:        this.kills,
       currentSysId: this.currentSysId,
@@ -1116,6 +1296,9 @@ G.Game = class {
         combatWeaponType: e.combatWeaponType, combatWeaponColor: e.combatWeaponColor,
         ship: e.ship.getSaveData(),
       })),
+      options: {
+        bgEnabled: this._bgEnabled,
+      },
     };
     localStorage.setItem(G.SAVE_KEY, JSON.stringify(save));
     this.ui.addMsg('Game saved.', '#00ffee');
@@ -1126,12 +1309,19 @@ G.Game = class {
   loadGame(saveData) {
     G.sound?._ctx();
     const d = typeof saveData === 'string' ? JSON.parse(saveData) : saveData;
+    this.playerName      = d.playerName      || 'Commander';
+    this.playerSex       = d.playerSex       || 'male';
+    this.playerFaceIdx   = d.playerFaceIdx   || 0;
+    this.playerFactionId = d.playerFactionId || 'neutral';
     this.credits   = d.credits   || 0;
     this.kills     = d.kills     || 0;
     this.relations = d.relations || { earth:50, rebellion:0, pirate:-50, alien:-100 };
     this.activeMissions    = d.activeMissions    || [];
     this.completedMissions = d.completedMissions || [];
     this.currentSysId      = d.currentSysId || 'sol';
+    this._bgEnabled = (d.options?.bgEnabled ?? true);
+    const bgCheckbox = document.getElementById('opt-bg-enabled');
+    if(bgCheckbox) bgCheckbox.checked = this._bgEnabled;
 
     // Restore galaxy visited and rebuild known (visited + their neighbors)
     this.galaxy.visited = new Set(d.galaxyVisited || ['sol']);
@@ -1203,11 +1393,21 @@ G.Game = class {
     document.getElementById('main-menu').classList.add('hidden');
     document.getElementById('gameover-overlay').classList.add('hidden');
     this._showHUD();
-    this.ui.addMsg('Welcome back, Commander.', '#00ffee');
+    this.ui.addMsg(`Welcome back, ${this.playerName}.`, '#00ffee');
   }
 
   start() {
-    G.sound?._ctx();  // init AudioContext eagerly on user gesture so sound works immediately
+    G.sound?._ctx();
+    document.getElementById('gameover-overlay').classList.add('hidden');
+    this.ui.showCharCreate(charData => this._doStart(charData));
+  }
+
+  _doStart(charData) {
+    this.playerName      = charData.name;
+    this.playerSex       = charData.sex;
+    this.playerFaceIdx   = charData.faceIdx;
+    this.playerFactionId = charData.factionId;
+
     this.state    = 'space';
     this.credits  = 1000;
     this.kills    = 0;
@@ -1220,7 +1420,7 @@ G.Game = class {
     this.hyperspaceT=0; this.hyperspaceTarget=null; this._jumpChargeT=0; this._jumpCooldown=0;
 
     this.economy._marketCache = {};
-    this.player = new G.Ship('shuttle');
+    this.player = new G.Ship(charData.shipId || 'shuttle');
     this.player.x=800; this.player.y=300;
     this.space = new G.Space();
     this.space.loadSystem('sol');
@@ -1230,6 +1430,8 @@ G.Game = class {
     this.galaxy.revealAround('sol');
     this.galaxy.clearRoute();
     this.player.ammo.kinetic_rounds = 200;
+    const sa = G.SHIPS[charData.shipId]?.startAmmo;
+    if (sa) for (const [id, qty] of Object.entries(sa)) this.player.ammo[id] = (this.player.ammo[id]||0) + qty;
 
     this.camX=this.player.x-G.CANVAS_W/2;
     this.camY=this.player.y-G.CANVAS_H/2;
@@ -1237,13 +1439,15 @@ G.Game = class {
     this.camZoom=1.0; this._landFade=0; this._landPending=null;
     this._autopilot=false;
     this._zoomManual=0;
+    this._playerDyingStarted=false; this._playerDyingTimer=0;
+    this._arrivalBraking=false;
 
     document.getElementById('main-menu').classList.add('hidden');
     document.getElementById('gameover-overlay').classList.add('hidden');
     this._showHUD();
     const sys=G.SYSTEMS.find(s=>s.id==='sol');
     if(this.ui.els['system-label']) this.ui.els['system-label'].textContent=sys?.name||'Sol';
-    this.ui.addMsg('Welcome, Commander. Earn your way to the stars.','#00ffee');
+    this.ui.addMsg(`Welcome, ${charData.name}. Earn your way to the stars.`,'#00ffee');
     this.ui.addMsg('WASD:fly  SHIFT:boost(energy)  SPACE:fire  M:map  M+hold J:jump','#556677');
   }
 
@@ -1261,19 +1465,14 @@ G.Game = class {
     if(fill) fill.style.width = (frac*100) + '%';
   }
 
-  // Hyperspace departure: ship accelerates off-screen, then system switches
+  // Hyperspace departure: camera stays, ship flies off screen
   _updateJumpDeparture(dt) {
     this._jumpDepartTimer -= dt;
-    // Apply huge velocity — camera lags so ship flies off-screen
     this.player.x += this.player.vx * dt;
     this.player.y += this.player.vy * dt;
-    // Slow camera lerp so ship visually streaks away
-    this.camX = G.lerp(this.camX, this.player.x - G.CANVAS_W/2, dt * 1.2);
-    this.camY = G.lerp(this.camY, this.player.y - G.CANVAS_H/2, dt * 1.2);
-
     if(this._jumpDepartTimer <= 0) {
       this._jumpDeparting = false;
-      this._flashFrames   = 6; // brief white flash
+      this._flashFrames   = 6;
       this._doSystemTransition();
     }
   }
@@ -1289,13 +1488,16 @@ G.Game = class {
     this.space.loadSystem(sysId);
     this._spawnFleetShips();
 
-    // Arrive from edge, ship enters with moderate velocity
-    this.player.x  = nx * -2200 + G.CANVAS_W/2;
-    this.player.y  = ny * -2200 + G.CANVAS_H/2;
-    this.player.vx = nx * 500;
-    this.player.vy = ny * 500;
+    // Arrive from edge: ship screams in at high speed then hard-brakes
+    this.player.x  = nx * -3200 + G.CANVAS_W/2;
+    this.player.y  = ny * -3200 + G.CANVAS_H/2;
+    this.player.vx = nx * 8000;
+    this.player.vy = ny * 8000;
     this.camX = this.player.x - G.CANVAS_W/2;
     this.camY = this.player.y - G.CANVAS_H/2;
+    this.camZoom = 1.26;       // starts zoomed in, lerps back to normal
+    this._arrivalZoomT = 1.0;  // extra boost decays over ~1s
+    this._arrivalBraking = true;
     this.target = null;
     this.state = 'space';
     G.sound.hyperspaceArrival();
@@ -1339,22 +1541,49 @@ G.Game = class {
     // Jump departure update (ship streaking off screen)
     if(this._jumpDeparting) { this._updateJumpDeparture(dt); return; }
 
+    // Hyperspace arrival: hard-brake from very high speed then shockwave
+    if(this._arrivalBraking) {
+      const spd = Math.hypot(p.vx, p.vy);
+      if(spd < 60) {
+        p.vx = 0; p.vy = 0;
+        this._arrivalBraking = false;
+        this.particles.shockwave(p.x, p.y);
+      } else {
+        const decel = spd * 6 * dt;
+        p.vx -= (p.vx / spd) * decel;
+        p.vy -= (p.vy / spd) * decel;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        this.camX = G.lerp(this.camX, p.x - G.CANVAS_W/2, Math.min(dt*8,1));
+        this.camY = G.lerp(this.camY, p.y - G.CANVAS_H/2, Math.min(dt*8,1));
+      }
+      return;
+    }
+
     // Jump cooldown countdown
     if(this._jumpCooldown > 0) this._jumpCooldown -= dt;
 
     // J: hold to jump to next system in route (when in space)
-    if(p.canJump && this.galaxy.jumpRoute.length > 0) {
+    if(!p.disabled && p.canJump && this.galaxy.jumpRoute.length > 0) {
       const nextSysId = this.galaxy.jumpRoute[0];
       if(this.galaxy.canJumpTo(nextSysId)) {
         if(this.input.is('KeyJ')) {
           // Steer ship toward the jump destination while charging
           const curSys  = G.SYSTEMS.find(s=>s.id===this.currentSysId);
           const nextSys = G.SYSTEMS.find(s=>s.id===nextSysId);
+          let jumpAngle = 0;
           if(curSys && nextSys) {
             const dx = nextSys.pos[0]-curSys.pos[0], dy = nextSys.pos[1]-curSys.pos[1];
-            const jumpAngle = Math.atan2(dx, -dy);
+            jumpAngle = Math.atan2(dx, -dy);
             const diff = G.wrapAngle(jumpAngle - p.angle);
             p.angle += G.clamp(diff, -p.turnSpeed*dt, p.turnSpeed*dt);
+          }
+          // Fleet ships also charge for jump — steer toward jump direction
+          for(const fs of this.space.fleetShips||[]) {
+            if(fs.dead || fs.disabled || fs._released) continue;
+            const fsDiff = G.wrapAngle(jumpAngle - fs.angle);
+            fs.angle += G.clamp(fsDiff * 5, -fs.turnSpeed, fs.turnSpeed) * dt;
+            fs._chargingJump = true;
           }
           this._updateJumpChargeTo(nextSysId, dt);
         } else {
@@ -1385,6 +1614,13 @@ G.Game = class {
       else this.ui.hideMissionLog();
     }
 
+    // C: character screen
+    if(this.input.pressed('KeyC')) {
+      const cs=document.getElementById('char-screen-overlay');
+      if(cs?.classList.contains('hidden')) this.ui.showCharScreen();
+      else this.ui.hideCharScreen();
+    }
+
     // T: next target  Y: prev target  R: nearest target
     if(this.input.pressed('KeyT')) this._cycleTarget(1);
     if(this.input.pressed('KeyY')) this._cycleTarget(-1);
@@ -1395,22 +1631,46 @@ G.Game = class {
       this._autopilot = !this._autopilot;
       this.ui.addMsg(this._autopilot ? 'Autopilot ON — pointing toward target.' : 'Autopilot OFF.', '#00ffee');
     }
-    if(this._autopilot && this.target && !this.target.dead) {
+    if(this._autopilot && !p.disabled && this.target && !this.target.dead) {
       this._autoAimIntercept(dt);
     } else if(this._autopilot && !this.target) {
       this._autopilot = false;
     }
 
-    // C: comms with any targeted entity
-    if(this.input.pressed('KeyC')) {
-      if(this.target && !this.target.dead) this.ui.openComms(this.target);
+    // V: comms with any targeted entity (ships or planets)
+    if(this.input.pressed('KeyV')) {
+      if(this.target && (!this.target.dead || this.target.type==='planet' || this.target.type==='station')) {
+        this.ui.openComms(this.target);
+      }
     }
 
-    // F: request fuel from nearby friendly ship
-    if(this.input.pressed('KeyF') && this.player.fuel < this.player.maxFuel*0.4) {
-      const nearby = this.space.nearestFriendlyNPC(this.player.x, this.player.y, 350);
-      if(nearby) this.ui.openComms(nearby, 'fuel');
-      else this.ui.addMsg('No friendly ship nearby for fuel transfer.','#ff8844');
+    // Lock-on tracking: hold target for 3s to acquire missile lock
+    this._lockT ??= 0; this._locked ??= false; this._lockBeepT ??= 0;
+    const _hasMissile = p.weaponSlots.some(s => s && G.WEAPONS[s.weaponId]?.type === 'missile');
+    const _lockedTarget = _hasMissile && this.target && !this.target.dead ? this.target : null;
+    if(_lockedTarget !== this._lockTarget) {
+      if(this._locked) G.sound?.missileLockOff?.();
+      this._lockTarget = _lockedTarget;
+      this._lockT = 0;
+      this._locked = false;
+      this._lockBeepT = 0;
+    }
+    if(_lockedTarget && !this._locked) {
+      this._lockT = Math.min(this._lockT + dt, 3.0);
+      if(this._lockT >= 3.0) {
+        this._locked = true;
+        G.sound?.missileLockOn?.();
+      }
+      this._lockBeepT -= dt;
+      if(this._lockBeepT <= 0) {
+        const progress = this._lockT / 3.0;
+        this._lockBeepT = 0.8 - progress * 0.65;
+        G.sound?.missileBeep?.();
+      }
+    }
+    if(!_lockedTarget) {
+      if(this._locked) G.sound?.missileLockOff?.();
+      this._lockT = 0; this._locked = false; this._lockBeepT = 0;
     }
 
     p.update(dt, this.input);
@@ -1420,7 +1680,7 @@ G.Game = class {
       this.particles.engine_trail(p.x,p.y,p.angle,p.vx,p.vy,1);
     }
     // Boost trail — blue streaks that linger
-    if(this.input.boost && p.energy>5 && p.boostCharge>0) {
+    if(!p.disabled && this.input.boost && p.energy>5 && p.boostCharge>0) {
       if(Math.random()<0.7) this.particles.boost_trail(p.x,p.y,p.angle,1.2);
     }
     // Retrograde braking exhaust — particles shoot forward/sideways (RCS effect)
@@ -1441,7 +1701,7 @@ G.Game = class {
       }
     }
 
-    // Auto turrets
+    // Auto turrets (including missile turrets)
     for(let i=0;i<p.weaponSlots.length;i++){
       const w=p.weaponSlots[i];
       const wDef=G.WEAPONS[w.weaponId];
@@ -1449,21 +1709,69 @@ G.Game = class {
       const nearest=this.space.nearestTarget(p.x,p.y);
       if(nearest&&G.v2.dist(p,nearest)<(wDef.range||280)){
         const projs=p.fireWeapon(i,nearest.x,nearest.y);
-        if(projs){ const arr=Array.isArray(projs)?projs:[projs]; arr.forEach(pr=>this.space.projectiles.push(pr)); }
+        if(projs){
+          const arr=Array.isArray(projs)?projs:[projs];
+          arr.forEach(pr=>{
+            if(wDef.type==='missile'){
+              pr.tracking=true;
+              pr.trackTarget=nearest;
+              pr.dormant=true;
+              pr.dormantT=0.35;
+              pr.ttl+=0.35;
+            }
+            this.space.projectiles.push(pr);
+          });
+          if(wDef.type==='missile') G.sound?.weapon?.('missile');
+        }
       }
     }
 
-    // Space: fire ALL non-turret weapons
-    if(this.input.fire) {
+    // Space: fire all non-turret, non-missile weapons
+    if(this.input.fire && !p.disabled) {
       const aim = this.target ? this._interceptPoint(this.target, p) : null;
       const tx = aim?.x ?? this.target?.x, ty = aim?.y ?? this.target?.y;
       for(let wIdx = 0; wIdx < p.weaponSlots.length; wIdx++) {
         const wDef = p.weaponSlots[wIdx] ? G.WEAPONS[p.weaponSlots[wIdx].weaponId] : null;
-        if(!wDef || wDef.turret) continue;
+        if(!wDef || wDef.turret || wDef.type === 'missile' || wDef.type === 'mining') continue;
         const projs = p.fireWeapon(wIdx, tx, ty);
         if(projs) {
           const arr = Array.isArray(projs) ? projs : [projs];
           arr.forEach(pr => this.space.projectiles.push(pr));
+          G.sound.weapon(wDef.type);
+        }
+      }
+    }
+
+    // C (alt fire): missiles (dormant launch) + mining laser (continuous beam)
+    if(this.input.altFire && !p.disabled) {
+      const isLocked = this._locked && this._lockTarget && !this._lockTarget.dead;
+      const aim = this.target ? this._interceptPoint(this.target, p) : null;
+      const tx = aim?.x ?? this.target?.x, ty = aim?.y ?? this.target?.y;
+      for(let wIdx = 0; wIdx < p.weaponSlots.length; wIdx++) {
+        const wDef = p.weaponSlots[wIdx] ? G.WEAPONS[p.weaponSlots[wIdx].weaponId] : null;
+        if(!wDef || (wDef.type !== 'missile' && wDef.type !== 'mining')) continue;
+        if(wDef.type === 'mining') {
+          const projs = p.fireWeapon(wIdx, tx, ty);
+          if(projs) {
+            const arr = Array.isArray(projs) ? projs : [projs];
+            arr.forEach(pr => this.space.projectiles.push(pr));
+            G.sound?.weapon?.(wDef.type);
+          }
+          continue;
+        }
+        const projs = p.fireWeapon(wIdx, tx, ty);
+        if(projs) {
+          const arr = Array.isArray(projs) ? projs : [projs];
+          arr.forEach(pr => {
+            pr.dormant = true;
+            pr.dormantT = 2.0;
+            pr.ttl += 2.0;
+            pr.tracking = isLocked;
+            pr.angle = p.angle;
+            pr.vx = p.vx;
+            pr.vy = p.vy;
+            this.space.projectiles.push(pr);
+          });
           G.sound.weapon(wDef.type);
         }
       }
@@ -1504,14 +1812,25 @@ G.Game = class {
     this.camX=G.lerp(this.camX, p.x-G.CANVAS_W/2+this._camLeadX, Math.min(dt*6,1));
     this.camY=G.lerp(this.camY, p.y-G.CANVAS_H/2+this._camLeadY, Math.min(dt*6,1));
     // Mouse-wheel manual zoom offset
-    const _zoomTarget = G.clamp(1.0 + (this._zoomManual || 0), 0.22, 1.2);
-    this.camZoom = G.lerp(this.camZoom, _zoomTarget, Math.min(dt * 3.2, 1));
+    const _zoomTarget = G.clamp(1.0 + (this._zoomManual || 0), 0.575, 4.04);
+    // Arrival zoom: briefly over-zoomed so camera zooms in after a jump
+    const _arrivalBoost = (this._arrivalZoomT || 0) * 0.9;
+    this._arrivalZoomT = Math.max(0, (this._arrivalZoomT || 0) - dt * 0.9);
+    this.camZoom = G.lerp(this.camZoom, _zoomTarget + _arrivalBoost, Math.min(dt * 3.2, 1));
+    G.sound?.setZoomFactor(this.camZoom);
 
     // Interact prompts
     const nearPort=this.space.nearestSpaceport(p.x,p.y,80);
     if(nearPort) {
-      this.ui.setInteractPrompt('[L] Land at '+nearPort.name);
-      if(this.input.pressed('KeyL')) { G.sound.land(); this.land(nearPort); return; }
+      const _pFac = nearPort.faction;
+      const _landHostile = _pFac && _pFac !== 'neutral' && _pFac !== 'contested' && this.getRel(_pFac) < -30;
+      if(_landHostile) {
+        const _facName = G.FACTIONS[_pFac]?.name || _pFac;
+        this.ui.setInteractPrompt('HOSTILE TO '+_facName.toUpperCase()+' — LANDING DENIED');
+      } else {
+        this.ui.setInteractPrompt('[L] Land at '+nearPort.name);
+        if(this.input.pressed('KeyL')) { G.sound.land(); this.land(nearPort); return; }
+      }
     } else {
       const nearDis=this.space.enemies.find(e=>e.disabled&&!e.boarded&&G.v2.dist(p,e)<80);
       if(nearDis) {
@@ -1547,8 +1866,8 @@ G.Game = class {
       this._playerDisabledMsgShown = true;
       this.ui.addMsg('Ship disabled! Hull integrity lost.', '#ff6644');
     }
-    if(!p.disabled) { this._playerDisabledMsgShown = false; p._disabledSoundPlayed = false; }
-    if(p.disabled && p.hull <= -p.disabledHp) this._playerDied();
+    if(!p.disabled) { this._playerDisabledMsgShown = false; p._disabledSoundPlayed = false; p._postDisableDmg = 0; }
+    if(p.disabled && (p._postDisableDmg||0) >= p.disabledHp) this._playerDied();
     if(this.target&&(this.target.dead||this.target.boarded)) this.target=null;
   }
 
@@ -1588,8 +1907,18 @@ G.Game = class {
     }
     this.particles.warp_effect(this.player.x, this.player.y);
     G.sound.hyperspace();
+    // Fleet ships jump out in formation
+    for(const fs of this.space.fleetShips||[]) {
+      if(fs.dead || fs.disabled || fs._released) continue;
+      fs._chargingJump = false;
+      fs.jumpingOut = true;
+      fs.jumpOutTimer = 0.55 + Math.random()*0.2;
+      fs.vx = Math.sin(fs.angle)*6000;
+      fs.vy = -Math.cos(fs.angle)*6000;
+      this.particles.warp_effect(fs.x, fs.y);
+    }
     this._jumpDeparting   = true;
-    this._jumpDepartTimer = 0.45;
+    this._jumpDepartTimer = 0.7;
     this._flashFrames     = 0;
     this._jumpChargeT     = 0;
     this.ui.els['galaxy-overlay']?.classList.add('hidden');
@@ -1653,13 +1982,14 @@ G.Game = class {
     const targetAngle = Math.atan2(ix, -iy);
     const angleDiff   = G.wrapAngle(targetAngle - p.angle);
 
-    // Rotate toward intercept at double turn speed
-    const rotRate = p.turnSpeed * 2.5;
-    p.angle += G.clamp(angleDiff, -rotRate*dt, rotRate*dt);
+    p.angle += G.clamp(angleDiff, -p.turnSpeed*dt, p.turnSpeed*dt);
   }
 
   _cycleTarget(dir=1) {
-    const all = this.space.allTargets();
+    const all = this.space.allTargets().filter(t => {
+      if(this.space.turrets.includes(t)) return t.hostile;
+      return true;
+    });
     if(!all.length){ this.target=null; return; }
     if(!this.target){ this.target = dir>0?all[0]:all[all.length-1]; G.sound.targetLock(); return; }
     const idx = all.indexOf(this.target);
@@ -1711,6 +2041,8 @@ G.Game = class {
   _playerDied() {
     if(this._playerDyingStarted) return;
     this._playerDyingStarted = true;
+    G.sound?.missileLockOff?.();
+    this._locked = false; this._lockTarget = null; this._lockT = 0;
     this.state = 'dead';
     this.addCombatLog('YOUR SHIP DESTROYED', '#ff4444');
     this._playerDyingTimer     = 2.5;
@@ -1739,11 +2071,11 @@ G.Game = class {
 
     if(this._playerDyingTimer <= 0) {
       this.particles.explosion(p.x, p.y, p.vx, p.vy, 2.5);
-      G.sound.explosion();
+      G.sound.playerDeathExplosion();
       if(p.escapePods>0) this.ui.addMsg(Math.min(p.escapePods,p.crew.length)+' crew escaped.','#ffaa00');
       const elapsed = Math.floor((Date.now()-this.startTime)/1000);
-      this._playerDyingTimer    = 0;
-      this._playerDyingStarted  = false;
+      this._playerDyingTimer = 0;
+      // _playerDyingStarted stays true to prevent re-triggering while state='dead'
       this.ui.showGameOver({ credits:this.credits, visited:this.galaxy.visited.size, kills:this.kills, time:elapsed });
     }
   }
@@ -1768,7 +2100,9 @@ G.Game = class {
     const playerSize = G.SHIPS[this.player.templateId]?.size || 1.0;
     const enemyHpScale = (enemy.maxHp || 120) / 120;
     const enemySize = (enemy.size || 1.0) * enemyHpScale;
-    const chance = G.clamp(0.65 * playerSize / enemySize, 0.06, 0.78);
+    // Disabled ships have weakened crew — much easier to commandeer
+    const baseChance = enemy.disabled ? 0.90 : 0.65;
+    const chance = G.clamp(baseChance * playerSize / enemySize, 0.10, 0.95);
 
     if(Math.random() < chance) {
       if(this.fleet.length >= 5) {
@@ -1776,7 +2110,7 @@ G.Game = class {
       }
       const templateId = Object.keys(G.SHIPS).find(k=>G.SHIPS[k].shape===enemy.shapeId) || 'pirate_skiff';
       const capturedShip = new G.Ship(templateId);
-      capturedShip.hull = Math.max(10, enemy.hp || 50);
+      capturedShip.hull = Math.max(10, enemy.hp || 10);
       capturedShip._recompute();
       const facName = (enemy.faction||'enemy').toUpperCase();
       const shipName = templateId.replace(/_/g,' ').toUpperCase();
@@ -1799,14 +2133,53 @@ G.Game = class {
       this.setRel(enemy.faction, this.getRel(enemy.faction)-5, 'captured ship');
       return { success: true, entry, chance };
     } else {
-      enemy.dead = true;
-      return { success: false, reason: 'Crew resisted — ship self-destructed', chance };
+      // Failed attempt — ship stays intact (disabled or otherwise)
+      return { success: false, reason: 'Crew resisted — boarding repelled', chance };
     }
   }
 
   removeFleetShip(id) {
     const idx = this.fleet.findIndex(e=>e.id===id);
     if(idx>=0) this.fleet.splice(idx,1);
+  }
+
+  // Total cargo capacity: player + all fleet ships
+  fleetCargoSpace() {
+    let total = this.player.cargoSpace;
+    for(const e of (this.fleet||[])) total += (e.ship?.cargoSpace||0);
+    return total;
+  }
+
+  // Free space across the whole fleet (cargo stored on player)
+  fleetCargoFreeSpace() {
+    let used = 0;
+    for(const [id,qty] of Object.entries(this.player.cargo||{})) {
+      const item = G.ITEMS[id];
+      used += qty * (item ? item.mass||1 : 1);
+    }
+    return this.fleetCargoSpace() - used;
+  }
+
+  // Used cargo mass
+  fleetCargoUsed() {
+    let used = 0;
+    for(const [id,qty] of Object.entries(this.player.cargo||{})) {
+      const item = G.ITEMS[id];
+      used += qty * (item ? item.mass||1 : 1);
+    }
+    return used;
+  }
+
+  releaseFleetShip(id) {
+    const idx = this.fleet.findIndex(e=>e.id===id);
+    if(idx>=0) this.fleet.splice(idx,1);
+    // Mark the live fleet ship to fly away as a neutral
+    const fs = this.space?.fleetShips?.find(f=>f.fleetDataId===id);
+    if(fs) {
+      fs.isFleetShip = false;
+      fs._released = true;
+      fs._releasedTimer = 0;
+    }
   }
 
   getRel(faction){return this.relations[faction]||0;}
@@ -1823,12 +2196,15 @@ G.Game = class {
 
   quitToMenu() {
     ['spaceport-overlay','galaxy-overlay','inventory-overlay','mission-log-overlay',
-     'comms-overlay','gameover-overlay','options-overlay'].forEach(id=>{
+     'comms-overlay','gameover-overlay','options-overlay','char-screen-overlay'].forEach(id=>{
       document.getElementById(id)?.classList.add('hidden');
     });
     this.ui.els['galaxy-overlay']?.classList.add('hidden');
+    G.sound?.missileLockOff?.();
+    this._locked = false; this._lockTarget = null; this._lockT = 0;
     this._hideHUD();
     this.state = 'menu';
+    this.renderer._menuStars = null;
     document.getElementById('main-menu')?.classList.remove('hidden');
     this._updateContinueBtn();
   }
@@ -1866,7 +2242,25 @@ G.Game.prototype._loop = function(ts) {
     if(!this._fpsTime) { this._fpsTime=ts; this._fpsFrames=0; }
     this._fpsFrames++;
     if(ts-this._fpsTime >= 500) {
-      this._fpsEl.textContent=Math.round(this._fpsFrames*1000/(ts-this._fpsTime))+' FPS';
+      const fps = Math.round(this._fpsFrames*1000/(ts-this._fpsTime));
+      document.getElementById('fps-counter-text').textContent = fps + ' FPS';
+      this._fpsHistory.push(fps);
+      if(this._fpsHistory.length > 80) this._fpsHistory.shift();
+      if(this._fpsGraphCanvas) {
+        const ctx = this._fpsGraphCanvas.getContext('2d');
+        const W = this._fpsGraphCanvas.width, H = this._fpsGraphCanvas.height;
+        ctx.clearRect(0, 0, W, H);
+        ctx.strokeStyle = '#00ffee';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for(let i = 0; i < this._fpsHistory.length; i++) {
+          const y = H - (this._fpsHistory[i] / 120) * H;
+          const x = (i / Math.max(1, this._fpsHistory.length - 1)) * W;
+          if(i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
       this._fpsTime=ts; this._fpsFrames=0;
     }
   }
@@ -1879,7 +2273,10 @@ G.Game.prototype._loop = function(ts) {
     this.renderer.renderSpace(this);
     if(this.player && !this.paused) {
       const spd = Math.hypot(this.player.vx, this.player.vy);
-      G.sound.updateEngine(spd, this.input.thrust);
+      const _anyThrust = !this.player.disabled && (this.input.thrust || this.input.strafeL || this.input.strafeR || this.input.reverse);
+      G.sound.updateEngine(spd, _anyThrust);
+      const _hpFrac = this.player.hull / Math.max(this.player.maxHull, 1);
+      G.sound.updatePlayerState(_hpFrac, this.player.disabled);
     }
     this._drawJumpCharge();
     if(this._flashFrames > 0) {
@@ -1899,6 +2296,7 @@ G.Game.prototype._loop = function(ts) {
         for(const c of this.player.crew) this.credits=Math.max(0,this.credits-c.wage);
         const completed=this.economy.checkMissions(this.currentSysId,this.player);
         for(const m of completed) this.ui.addMsg('Mission complete: '+m.title+' +'+G.fmtCredits(m.reward),'#ffcc00');
+        if(completed.length > 0) G.sound?.missionComplete();
         this.ui.showSpaceport(port.name, this.currentSysId);
         this.state='landed'; this.camZoom=1.0; this._landFade=0;
       }
@@ -1923,6 +2321,10 @@ G.Game.prototype._loop = function(ts) {
     }
   } else if(this.state==='galaxy') {
     if(this.input.pressed('KeyM')) this.closeGalaxy();
+    // Hold J with a route selected: close map and begin jump charge immediately
+    if(this.input.is('KeyJ') && this.galaxy.jumpRoute.length > 0) {
+      this.closeGalaxy();
+    }
     this.particles.update(dt);
     this.renderer.renderSpace(this);
     this.galaxy.draw(this.currentSysId);
@@ -1935,6 +2337,8 @@ G.Game.prototype._loop = function(ts) {
       this.camZoom = 1.0;
     }
     this.renderer.renderSpace(this);
+  } else if (this.state === 'menu') {
+    this.renderer.renderMenuBg(dt);
   } else {
     this.renderer.clear();
   }

@@ -13,7 +13,7 @@
   <canvas id="gameCanvas"></canvas>
 
   <!-- FPS counter -->
-  <div id="fps-counter" class="hidden"></div>
+  <div id="fps-counter" style="position:absolute;top:8px;left:8px;z-index:200;font-family:'Press Start 2P',monospace;font-size:6px;color:#00ffee;white-space:nowrap"><span id="fps-counter-text">-- FPS</span><canvas id="fps-graph" width="80" height="30" style="display:block;margin-top:2px;image-rendering:pixelated"></canvas></div>
 
   <!-- Floating top overlays (transparent, minimal) -->
   <div id="hud-top" class="hidden">
@@ -43,6 +43,7 @@
 
   <!-- Autopilot indicator -->
   <div id="autopilot-hud" class="hidden"></div>
+  <div id="dodge-cooldown-hud" class="hidden" style="position:fixed;bottom:120px;left:20px;font-family:'Press Start 2P',monospace;font-size:8px;color:#ff6600;letter-spacing:1px;text-shadow:0 0 8px #ff6600">DODGE RDY</div>
 
   <!-- Broken module warnings (above HUD) -->
   <div id="hud-warnings" class="hidden"></div>
@@ -171,6 +172,7 @@
       <div id="gameover-title">SHIP DESTROYED</div>
       <div id="gameover-stats"></div>
       <button id="restart-btn" class="btn">PLAY AGAIN</button>
+      <button id="gameover-load-btn" class="btn" style="border-color:#00ffee;color:#00ffee;margin-top:6px">LOAD GAME</button>
     </div>
   </div>
 
@@ -197,27 +199,47 @@
         <span id="opt-music-vol-val" style="font-size:6px;color:#bb88ff;font-family:'Press Start 2P',monospace;min-width:28px">30%</span>
       </div>
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <span style="font-size:6px;color:#aabbcc;font-family:'Press Start 2P',monospace;min-width:48px">VOICE</span>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="opt-voice-enabled" checked style="accent-color:#ffaa44;width:13px;height:13px">
+          <span id="opt-voice-label" style="font-size:6px;color:#ffaa44;font-family:'Press Start 2P',monospace">ON</span>
+        </label>
+        <input type="range" id="opt-voice-volume" min="0" max="100" value="25" style="flex:1;accent-color:#ffaa44">
+        <span id="opt-voice-vol-val" style="font-size:6px;color:#ffaa44;font-family:'Press Start 2P',monospace;min-width:28px">25%</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
         <span style="font-size:6px;color:#aabbcc;font-family:'Press Start 2P',monospace;min-width:48px">FPS</span>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="opt-fps-enabled" style="accent-color:#ffdd44;width:13px;height:13px">
-          <span id="opt-fps-label" style="font-size:6px;color:#ffdd44;font-family:'Press Start 2P',monospace">OFF</span>
+          <input type="checkbox" id="opt-fps-enabled" checked style="accent-color:#ffdd44;width:13px;height:13px">
+          <span id="opt-fps-label" style="font-size:6px;color:#ffdd44;font-family:'Press Start 2P',monospace">ON</span>
         </label>
       </div>
-      <div style="font-size:6px;color:#556677;font-family:'Press Start 2P',monospace;margin:12px 0 6px;letter-spacing:1px">CONTROLS</div>
-      <div style="font-size:5px;color:#667788;font-family:'Press Start 2P',monospace;line-height:2.2;margin-bottom:12px">
-        W/S · THRUST/BRAKE &nbsp; A/D · TURN &nbsp; Q/E · STRAFE<br>
-        SHIFT · BOOST &nbsp; S (hold 1s) · REVERSE THRUST<br>
-        SPACE · FIRE ALL WEAPONS &nbsp; T/Y · CYCLE TARGET<br>
-        R · NEAREST TARGET &nbsp; P · AUTOPILOT<br>
-        M · GALAXY MAP &nbsp; HOLD J · HYPERSPACE JUMP<br>
-        L · LAND/BOARD &nbsp; I · INVENTORY &nbsp; N · MISSION LOG<br>
-        C · COMMS &nbsp; F · REQUEST FUEL &nbsp; ESC · OPTIONS
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <span style="font-size:6px;color:#aabbcc;font-family:'Press Start 2P',monospace;min-width:48px">BG</span>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="opt-bg-enabled" checked style="accent-color:#88ccff;width:13px;height:13px">
+          <span id="opt-bg-label" style="font-size:6px;color:#88ccff;font-family:'Press Start 2P',monospace">ON</span>
+        </label>
       </div>
+      <button class="btn btn-big" id="opt-controls-btn" style="border-color:#ffaa44;color:#ffaa44">CONTROLS</button>
       <button class="btn btn-big" id="opt-save-btn">SAVE GAME</button>
+      <button class="btn btn-big" id="opt-load-btn" style="border-color:#00ffee;color:#00ffee">LOAD GAME</button>
       <button class="btn btn-big" id="opt-fleet-btn" style="border-color:#44ff88;color:#44ff88">FLEET</button>
+      <button class="btn btn-big" id="opt-ship-btn" style="border-color:#ffcc44;color:#ffcc44">SHIP</button>
       <button class="btn btn-big" id="opt-log-btn" style="border-color:#aabbcc;color:#aabbcc">LOG</button>
       <button class="btn btn-big" id="opt-quit-btn" style="border-color:#ff6644;color:#ff6644">QUIT TO MENU</button>
       <button class="btn btn-big" id="opt-close-btn">RESUME [ESC]</button>
+    </div>
+  </div>
+
+  <!-- Controls overlay -->
+  <div id="controls-overlay" class="hidden">
+    <div id="controls-box" style="background:#050e1a;border:2px solid #ffaa44;padding:20px;max-width:600px;max-height:85vh;overflow-y:auto;font-family:'Press Start 2P',monospace">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div class="panel-title" style="margin:0;color:#ffaa44">CONTROLS</div>
+        <button id="ctrl-close-btn" class="btn" style="font-size:6px">CLOSE</button>
+      </div>
+      <div id="controls-list" style="font-size:6px;color:#aabbcc;line-height:2.4"></div>
     </div>
   </div>
 
@@ -247,6 +269,17 @@
     </div>
   </div>
 
+  <!-- Ship overlay -->
+  <div id="ship-overlay" class="hidden" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.85);z-index:200">
+    <div id="ship-window" style="background:#050e1a;border:2px solid #ffcc44;padding:20px;width:520px;display:flex;flex-direction:column;font-family:'Press Start 2P',monospace">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div class="panel-title" style="margin:0;color:#ffcc44">SHIP STATUS</div>
+        <button id="ship-close-btn" class="btn" style="font-size:6px">CLOSE</button>
+      </div>
+      <div id="ship-body" style="overflow-y:auto;flex:1;font-size:7px;color:#667788;line-height:1.8"></div>
+    </div>
+  </div>
+
   <!-- Combat log overlay -->
   <div id="combat-log-overlay" class="hidden" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.75);z-index:120">
     <div id="combat-log-box" style="background:#050e1a;border:1px solid #1a4a6a;padding:16px;width:560px;max-height:70vh;display:flex;flex-direction:column;font-family:'Press Start 2P',monospace">
@@ -263,20 +296,54 @@
     <div id="mission-result-body" style="background:#050e1a;border:2px solid #44ff88;padding:12px 20px;font-family:'Press Start 2P',monospace;text-align:center;min-width:220px"></div>
   </div>
 
+  <!-- Character sheet -->
+  <div id="char-screen-overlay" class="hidden">
+    <div id="char-screen-box">
+      <div class="panel-title" style="margin-bottom:18px;letter-spacing:3px">CHARACTER</div>
+      <img id="char-screen-avatar" class="char-screen-avatar" src="" alt="">
+      <div id="char-screen-name" class="char-screen-field char-screen-name"></div>
+      <div id="char-screen-sex"  class="char-screen-field"></div>
+      <div id="char-screen-faction" class="char-screen-field"></div>
+      <button id="char-screen-close" class="btn" style="margin-top:20px;font-size:6px">CLOSE [C]</button>
+    </div>
+  </div>
+
+  <!-- Character creation -->
+  <div id="char-create-overlay" class="hidden">
+    <div id="char-create-box">
+      <div id="char-create-title">NEW COMMANDER</div>
+      <div class="char-row">
+        <div class="char-label">NAME</div>
+        <input id="char-name-input" class="char-input" type="text" maxlength="20" placeholder="Commander" spellcheck="false" autocomplete="off" />
+      </div>
+      <div class="char-row">
+        <div class="char-label">SEX</div>
+        <div class="char-toggle">
+          <button id="sex-male" class="btn char-sex-btn">MALE</button>
+          <button id="sex-female" class="btn char-sex-btn active">FEMALE</button>
+        </div>
+      </div>
+      <div class="char-row">
+        <div class="char-label">FACTION</div>
+        <div id="char-faction-btns" class="char-faction-row"></div>
+      </div>
+      <div class="char-section-lbl">SELECT STARTING SHIP</div>
+      <div id="char-ship-grid" class="char-ship-grid"></div>
+      <div class="char-section-lbl">AVATAR</div>
+      <div id="char-face-grid" class="char-face-grid"></div>
+      <button id="char-confirm-btn" class="btn btn-big">BEGIN JOURNEY</button>
+    </div>
+  </div>
+
   <!-- Main menu -->
   <div id="main-menu">
-    <div id="menu-box">
+    <div id="menu-title-area">
       <div id="menu-title">STARFARER</div>
-      <div id="menu-sub">SPACE ROGUELIKE</div>
+    </div>
+    <div id="menu-box">
       <button id="start-btn" class="btn btn-big">NEW GAME</button>
       <button id="continue-btn" class="btn btn-big hidden" style="border-color:#44ff44;color:#44ff44">CONTINUE</button>
       <div id="save-info" style="font-size:6px;color:#334455;margin-top:4px;text-align:center"></div>
-      <div id="menu-controls">
-        WASD · MOVE &nbsp; Q/E · STRAFE &nbsp; SHIFT · BOOST &nbsp; SPACE · PRIMARY FIRE &nbsp; TAB · SECONDARY FIRE<br>
-        T/Y · CYCLE TARGET &nbsp; R · NEAREST &nbsp; HOLD X · AUTO-AIM &nbsp; P · AUTOPILOT<br>
-        M · GALAXY MAP (plan route) &nbsp; HOLD J · JUMP (when route set)<br>
-        L · LAND/BOARD &nbsp; I · INVENTORY &nbsp; F · REQUEST FUEL &nbsp; C · COMMS
-      </div>
     </div>
   </div>
 
@@ -296,5 +363,32 @@
 <script src="js/ui.js?v=5"></script>
 <script src="js/sound.js?v=5"></script>
 <script src="js/main.js?v=5"></script>
+<script>
+(function() {
+  function fitMenuTitle() {
+    const el = document.getElementById('menu-title');
+    if (!el) return;
+    el.style.fontSize = '100px';
+    const ratio = (window.innerWidth * 0.45) / el.scrollWidth;
+    el.style.fontSize = Math.floor(100 * ratio) + 'px';
+  }
+  fitMenuTitle();
+  window.addEventListener('resize', fitMenuTitle);
+
+  const title = document.getElementById('menu-title');
+  const box   = document.getElementById('menu-box');
+  let animTimeout;
+  const skipAnimation = () => {
+    clearTimeout(animTimeout);
+    title.classList.remove('animating');
+    title.style.transform = '';
+    box.classList.add('visible');
+    document.removeEventListener('keydown', skipAnimation);
+  };
+  title.classList.add('animating');
+  document.addEventListener('keydown', skipAnimation);
+  animTimeout = setTimeout(skipAnimation, 5000);
+})();
+</script>
 </body>
 </html>

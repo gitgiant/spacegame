@@ -162,9 +162,29 @@ G.UI = class {
     document.getElementById('launch-btn').addEventListener('click',()=>G.game.launch());
     document.getElementById('close-inv-btn')?.addEventListener('click',()=>this.hideInventory());
     document.getElementById('restart-btn').addEventListener('click',()=>G.game.restart());
+    document.getElementById('gameover-load-btn')?.addEventListener('click',()=>{
+      const save=localStorage.getItem(G.SAVE_KEY);
+      if(save) G.game.loadGame(save);
+    });
+    this._updateLoadBtns();
     document.getElementById('start-btn').addEventListener('click',()=>G.game.start());
     document.getElementById('opt-save-btn')?.addEventListener('click',()=>{
       G.game.saveGame();
+      this._updateLoadBtns();
+    });
+    document.getElementById('opt-load-btn')?.addEventListener('click',()=>{
+      const save=localStorage.getItem(G.SAVE_KEY);
+      if(save) {
+        document.getElementById('options-overlay')?.classList.add('hidden');
+        G.game.paused=false;
+        G.game.loadGame(save);
+      }
+    });
+    document.getElementById('opt-controls-btn')?.addEventListener('click',()=>{
+      this.showControlsMenu();
+    });
+    document.getElementById('ctrl-close-btn')?.addEventListener('click',()=>{
+      document.getElementById('controls-overlay')?.classList.add('hidden');
     });
     document.getElementById('opt-fleet-btn')?.addEventListener('click',()=>{
       document.getElementById('options-overlay')?.classList.add('hidden');
@@ -173,6 +193,15 @@ G.UI = class {
     });
     document.getElementById('fleet-close-btn')?.addEventListener('click',()=>{
       document.getElementById('fleet-overlay')?.classList.add('hidden');
+      G.game.paused = false;
+    });
+    document.getElementById('opt-ship-btn')?.addEventListener('click',()=>{
+      document.getElementById('options-overlay')?.classList.add('hidden');
+      G.game.paused = true;
+      this.showShipMenu();
+    });
+    document.getElementById('ship-close-btn')?.addEventListener('click',()=>{
+      document.getElementById('ship-overlay')?.classList.add('hidden');
       G.game.paused = false;
     });
     // Boarding popup
@@ -234,11 +263,27 @@ G.UI = class {
       document.getElementById('opt-music-vol-val').textContent = e.target.value + '%';
       G.sound?.setMusicVolume(v);
     });
+    this._voiceEnabled = true;
+    this._voiceVolume  = 0.25;
+    document.getElementById('opt-voice-enabled')?.addEventListener('change', e=>{
+      this._voiceEnabled = e.target.checked;
+      document.getElementById('opt-voice-label').textContent = this._voiceEnabled ? 'ON' : 'OFF';
+      if(!this._voiceEnabled && window.speechSynthesis) speechSynthesis.cancel();
+    });
+    document.getElementById('opt-voice-volume')?.addEventListener('input', e=>{
+      this._voiceVolume = parseInt(e.target.value) / 100;
+      document.getElementById('opt-voice-vol-val').textContent = e.target.value + '%';
+    });
     document.getElementById('opt-fps-enabled')?.addEventListener('change', e=>{
       const on = e.target.checked;
       document.getElementById('opt-fps-label').textContent = on ? 'ON' : 'OFF';
       const el = document.getElementById('fps-counter');
       if(el) { el.classList.toggle('hidden', !on); G.game._fpsEl = on ? el : null; }
+    });
+    document.getElementById('opt-bg-enabled')?.addEventListener('change', e=>{
+      const on = e.target.checked;
+      document.getElementById('opt-bg-label').textContent = on ? 'ON' : 'OFF';
+      if(G.game) G.game._bgEnabled = on;
     });
     document.getElementById('continue-btn')?.addEventListener('click',()=>{
       const save=localStorage.getItem(G.SAVE_KEY);
@@ -314,9 +359,10 @@ G.UI = class {
     }
     if(e['credits-hud'])e['credits-hud'].textContent=G.fmtCredits(G.game.credits);
     if(e['cargo-hud']){
-      const used=p.cargoCount();
-      e['cargo-hud'].textContent='CARGO '+used+'/'+p.cargoSpace;
-      e['cargo-hud'].style.color=used>=p.cargoSpace?'#ff4444':'';
+      const used=G.game.fleetCargoUsed();
+      const cap=G.game.fleetCargoSpace();
+      e['cargo-hud'].textContent='CARGO '+used+'/'+cap+(G.game.fleet?.length?' [FLEET]':'');
+      e['cargo-hud'].style.color=used>=cap?'#ff4444':'';
     }
     if(e['weapon-hud']&&p.weaponSlots.length>0){
       e['weapon-hud'].innerHTML=p.weaponSlots.map((w,i)=>{
@@ -362,6 +408,18 @@ G.UI = class {
       hostileAlertEl.classList.add('hidden');
     }
 
+    // Dodge cooldown indicator
+    const dodgeEl = document.getElementById('dodge-cooldown-hud');
+    if(dodgeEl && inSpace) {
+      const cooldown = p._strafeCooldown || 0;
+      if(cooldown > 0) {
+        dodgeEl.textContent = 'DODGE ' + Math.ceil(cooldown * 10) / 10 + 's';
+        dodgeEl.classList.remove('hidden');
+      } else {
+        dodgeEl.classList.add('hidden');
+      }
+    }
+
     // Target panel: always show sprite + bars when a target is locked
     if(target && !target.dead) {
       if(e['target-panel']) e['target-panel'].classList.remove('hidden');
@@ -376,8 +434,9 @@ G.UI = class {
         const ctx = tgtCanvas.getContext('2d');
         ctx.fillStyle = '#000a18';
         ctx.fillRect(0, 0, 48, 48);
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(G.Sprites.get(shapeId, color), 0, 0, 48, 48);
+        const _tgtImg = G.ShipImages?.get(shapeId);
+        ctx.imageSmoothingEnabled = !!_tgtImg;
+        ctx.drawImage(_tgtImg || G.Sprites.get(shapeId, color), 0, 0, 48, 48);
       }
 
       // Off-screen direction arrow — only visible when target is off-screen
@@ -398,21 +457,29 @@ G.UI = class {
       if(e['tgt-name']){
         const tplId  = target.templateId || target.shapeId;
         const tpl    = G.SHIPS[tplId];
-        const tShip  = target.name || tpl?.name || 'SHIP';
+        const tShip  = target.type === 'turret' ? 'TURRET' : (target.name || tpl?.name || 'SHIP');
         const tFac   = target.faction||'?';
         const facColor = G.FACTIONS[tFac]?.color || '#888888';
+        const _cls = tpl?.class || target.class;
+        const tClass = _cls ? ` <span style="color:#445566;font-size:5px">[${_cls.toUpperCase()}]</span>` : '';
         let statusTag = '';
-        if(target.disabled) {
+        if(target.isFleetShip) {
+          statusTag = ' <span style="color:#00ffee">■ ESCORT</span>';
+        } else if(target.disabled || target._dead) {
           statusTag = ' <span style="color:#ff6600">■ DISABLED</span>';
         } else {
           const isHostile = target.hostile || (target.faction && (G.game?.getRel(target.faction)||0) < -30 && target !== G.game?.player);
           statusTag = isHostile ? ' <span style="color:#ff3333">■ HOSTILE</span>' : ' <span style="color:#44ff88">■ NEUTRAL</span>';
         }
-        e['tgt-name'].innerHTML = tShip.toUpperCase() + ' <span style="color:' + facColor + '">■ ' + tFac.toUpperCase() + '</span>' + statusTag;
+        e['tgt-name'].innerHTML = tShip.toUpperCase() + tClass + ' <span style="color:' + facColor + '">■ ' + tFac.toUpperCase() + '</span>' + statusTag;
       }
-      if(target.disabled && (target.disabledHp !== undefined)) {
-        if(e['tgt-hull-bar']) { e['tgt-hull-bar'].style.width=G.pct(Math.max(0,target.disabledHp),50)+'%'; e['tgt-hull-bar'].style.background='#ff6600'; }
-        if(e['tgt-hull-val']) e['tgt-hull-val'].textContent = Math.ceil(target.disabledHp)+'/50';
+      if(target.disabled) {
+        // Show post-disable damage as a shrinking orange bar
+        const maxPostDmg = target.disabledHp || (target.maxHp||target.maxHull) * 0.4;
+        const postDmg = target._postDisableDmg || 0;
+        const remaining = Math.max(0, maxPostDmg - postDmg);
+        if(e['tgt-hull-bar']) { e['tgt-hull-bar'].style.width=G.pct(remaining,maxPostDmg)+'%'; e['tgt-hull-bar'].style.background='#ff6600'; }
+        if(e['tgt-hull-val']) e['tgt-hull-val'].textContent = Math.ceil(remaining)+'/'+Math.ceil(maxPostDmg);
       } else {
         const hullHp = target.hp||target.hull;
         const maxHullHp = target.maxHp||target.maxHull;
@@ -490,7 +557,7 @@ G.UI = class {
   _updateSpStatusBar(){
     const p=G.game.player;
     if(this.els['sp-credits']) this.els['sp-credits'].textContent='Credits: '+G.fmtCredits(G.game.credits);
-    if(this.els['sp-cargo'])   this.els['sp-cargo'].textContent='Cargo: '+p.cargoCount()+'/'+p.cargoSpace;
+    if(this.els['sp-cargo'])   this.els['sp-cargo'].textContent='Cargo: '+G.game.fleetCargoUsed()+'/'+G.game.fleetCargoSpace()+(G.game.fleet?.length?' [fleet]':'');
     if(this.els['sp-ship'])    this.els['sp-ship'].textContent='Ship: '+p.name;
   }
 
@@ -512,23 +579,52 @@ G.UI = class {
     this._updateSpStatusBar();
   }
 
+  _tradeSortBy(col) {
+    if(!this._tradeSort) this._tradeSort = { col: null, dir: 1 };
+    if(this._tradeSort.col === col) this._tradeSort.dir *= -1;
+    else { this._tradeSort.col = col; this._tradeSort.dir = 1; }
+    this.renderSpaceportTab('trade');
+  }
+
   // ── Trade ────────────────────────────────────────────────
   _buildTradeHTML(){
     const market=G.game.economy.getMarket(this._currentSysId);
     const p=G.game.player;
     const hasCargo = Object.values(p.cargo || {}).some(qty => qty > 0);
-    let html=`<div class="panel-title">MARKETPLACE</div>
+    const isSaleDay = market.length > 0 && market[0].isSaleDay;
+    let html=`<div class="panel-title">MARKETPLACE${isSaleDay?' <span style="color:#ff4488;font-size:8px;margin-left:8px">★ MARKET DAY — SALES ACTIVE</span>':''}</div>
     <div style="font-size:6px;color:#556677;margin-bottom:6px;display:flex;align-items:center;gap:12px">
-      <span>▲ above avg &nbsp; ▼ below avg &nbsp; Sell = 82% of buy price</span>
+      <span>▲ above avg &nbsp; ▼ below avg</span>
       <button class="btn btn-sell" onclick="G.ui.tradeSellAll()" style="font-size:6px;padding:3px 8px;${!hasCargo?'opacity:0.4':'cursor:pointer'}" ${!hasCargo?'disabled':''}>SELL ALL CARGO</button>
     </div>
-    <table class="trade-table">
-    <tr><th>ITEM</th><th>RARITY</th><th>BUY</th><th>TREND</th><th>SELL</th><th>AVAIL</th><th>OWN</th><th style="min-width:80px">BUY</th><th style="min-width:80px">SELL</th></tr>`;
-    for(const item of market){
+    <table class="trade-table">`;
+    const RARITY_ORDER = {c:0,u:1,r:2,e:3,l:4};
+    const TREND_ORDER  = {'▲ HIGH':2,'↑ RISING':1,'— AVG':0,'↓ FALLING':-1,'▼ LOW':-2};
+    const sortBtn=(col)=>{
+      const s=this._tradeSort;
+      const active=s&&s.col===col;
+      const arrow=active?(s.dir>0?'▲':'▼'):'⇅';
+      const style=`font-size:5px;background:none;border:none;color:${active?'#00ffee':'#556677'};cursor:pointer;padding:0 2px`;
+      return `<button style="${style}" onclick="G.ui._tradeSortBy('${col}')">${arrow}</button>`;
+    };
+    html+=`<tr>
+      <th>ITEM ${sortBtn('name')}</th>
+      <th>RARITY ${sortBtn('rarity')}</th>
+      <th>BUY ${sortBtn('buy')}</th>
+      <th>TREND ${sortBtn('trend')}</th>
+      <th>SELL ${sortBtn('sell')}</th>
+      <th>AVAIL ${sortBtn('avail')}</th>
+      <th>OWN ${sortBtn('own')}</th>
+      <th style="min-width:80px">BUY</th>
+      <th style="min-width:80px">SELL</th>
+    </tr>`;
+
+    // Compute display rows first so we can sort them
+    const rows = market.map(item => {
       const baseItem = G.ITEMS[item.id];
       const isAmmo   = baseItem?.cat==='ammo';
-      const owned    = isAmmo ? (p.ammo[item.id]||0)+' rds' : (p.cargo[item.id]||0);
-      // Apply price multiplier from player purchases
+      const ownedNum = isAmmo ? (p.ammo[item.id]||0) : (p.cargo[item.id]||0);
+      const owned    = isAmmo ? ownedNum+' rds' : ownedNum;
       const key=this._currentSysId+'_'+item.id;
       const mult=G.game.priceMultipliers[key]||1.0;
       const adjustedPrice=Math.floor(item.price*mult);
@@ -541,10 +637,32 @@ G.UI = class {
       else if(mult > 1.05)  { trend='↑ RISING'; trendCol='#ff9944'; }
       else if(mult < 0.98)  { trend='↓ FALLING'; trendCol='#66dd44'; }
       else                  { trend='— AVG';   trendCol='#888888'; }
+      return { item, baseItem, isAmmo, owned, ownedNum, adjustedPrice, sell, trend, trendCol };
+    });
 
+    if(this._tradeSort?.col) {
+      const { col, dir } = this._tradeSort;
+      rows.sort((a,b) => {
+        let av, bv;
+        if(col==='name')   { av=a.item.name; bv=b.item.name; return dir*(av<bv?-1:av>bv?1:0); }
+        if(col==='rarity') { av=RARITY_ORDER[a.item.rarity]||0; bv=RARITY_ORDER[b.item.rarity]||0; }
+        else if(col==='buy')   { av=a.adjustedPrice; bv=b.adjustedPrice; }
+        else if(col==='sell')  { av=a.sell; bv=b.sell; }
+        else if(col==='trend') { av=TREND_ORDER[a.trend]||0; bv=TREND_ORDER[b.trend]||0; }
+        else if(col==='avail') { av=a.item.available; bv=b.item.available; }
+        else if(col==='own')   { av=a.ownedNum; bv=b.ownedNum; }
+        else return 0;
+        return dir*(av-bv);
+      });
+    }
+
+    for(const { item, baseItem, isAmmo, owned, adjustedPrice, sell, trend, trendCol } of rows){
       const avBg = item.available === 0 ? 'color:#ff4444' : '';
+      const saleTag = item.saleDiscount > 0
+        ? ` <span style="color:#ff4488;font-size:5px;font-weight:bold">-${Math.round(item.saleDiscount*100)}%</span>`
+        : '';
       html+=`<tr>
-        <td title="${baseItem?.desc||''}">${item.name}</td>
+        <td title="${baseItem?.desc||''}">${item.name}${saleTag}</td>
         <td class="rarity-${item.rarity}">${G.RARITY[item.rarity]?.label||item.rarity}</td>
         <td class="price-good">$ ${adjustedPrice}</td>
         <td style="font-size:6px;color:${trendCol}">${trend}</td>
@@ -575,22 +693,22 @@ G.UI = class {
       G.game.player.ammo[itemId]=(G.game.player.ammo[itemId]||0)+rounds;
       mItem.available=Math.max(0,mItem.available-qty);
       this.addMsg('Loaded '+rounds+' '+item.name,'#44ff44');
-      // Increase price multiplier exponentially when buying
+      // Increase price multiplier when buying
       const key=this._currentSysId+'_'+itemId;
       if(!G.game.priceMultipliers[key]) G.game.priceMultipliers[key]=1.0;
-      G.game.priceMultipliers[key]*=Math.pow(1.08,qty);
+      G.game.priceMultipliers[key]*=Math.pow(1.03,qty);
       this.renderSpaceportTab('trade');
       return;
     }
-    if(G.game.player.cargoFreeSpace()<(item.mass||1)*qty){this.addMsg('Cargo full!','#ff4444');return;}
+    if(G.game.fleetCargoFreeSpace()<(item.mass||1)*qty){this.addMsg('Cargo full!','#ff4444');return;}
     G.game.credits-=price*qty;
     G.game.player.addCargo(itemId,qty);
     mItem.available=Math.max(0,mItem.available-qty);
     this.addMsg('Bought '+qty+'x '+item.name,'#44ff44');
-    // Increase price multiplier exponentially when buying
+    // Increase price multiplier when buying
     const key=this._currentSysId+'_'+itemId;
     if(!G.game.priceMultipliers[key]) G.game.priceMultipliers[key]=1.0;
-    G.game.priceMultipliers[key]*=Math.pow(1.08,qty);
+    G.game.priceMultipliers[key]*=Math.pow(1.03,qty);
     this.renderSpaceportTab('trade');
   }
 
@@ -598,6 +716,10 @@ G.UI = class {
     if(!G.game.player.removeCargo(itemId,qty)){this.addMsg('Not enough cargo!','#ff4444');return;}
     G.game.credits+=price*qty;
     this.addMsg('Sold '+qty+'x '+(G.ITEMS[itemId]?.name||itemId)+' +'+G.fmtCredits(price*qty),'#ffcc00');
+    // Decrease price multiplier when selling (symmetric with buy)
+    const key=this._currentSysId+'_'+itemId;
+    if(!G.game.priceMultipliers[key]) G.game.priceMultipliers[key]=1.0;
+    G.game.priceMultipliers[key]=Math.max(0.5,G.game.priceMultipliers[key]/Math.pow(1.03,qty));
     this.renderSpaceportTab('trade');
   }
 
@@ -611,6 +733,10 @@ G.UI = class {
     p.ammo[itemId] = 0;
     G.game.credits += total;
     this.addMsg('Sold '+rounds+' '+item?.name+' +'+G.fmtCredits(total),'#ffcc00');
+    // Decrease price multiplier when selling (symmetric with buy)
+    const key=this._currentSysId+'_'+itemId;
+    if(!G.game.priceMultipliers[key]) G.game.priceMultipliers[key]=1.0;
+    G.game.priceMultipliers[key]=Math.max(0.5,G.game.priceMultipliers[key]/Math.pow(1.03,packsEquiv));
     this.renderSpaceportTab('trade');
   }
 
@@ -627,6 +753,10 @@ G.UI = class {
       G.game.player.removeCargo(itemId,qty);
       G.game.credits+=price*qty;
       total+=price*qty; count+=qty;
+      // Decrease price multiplier when selling
+      const key=this._currentSysId+'_'+itemId;
+      if(!G.game.priceMultipliers[key]) G.game.priceMultipliers[key]=1.0;
+      G.game.priceMultipliers[key]=Math.max(0.5,G.game.priceMultipliers[key]/Math.pow(1.03,qty));
     }
     if(count>0) this.addMsg('Sold '+count+' items for '+G.fmtCredits(total),'#ffcc00');
     else this.addMsg('No cargo to sell.','#888888');
@@ -660,6 +790,7 @@ G.UI = class {
         // Pan towards/away from mouse position
         canvas._mapPanX += mouseX * (1 / oldZoom - 1 / canvas._mapZoom);
         canvas._mapPanY += mouseY * (1 / oldZoom - 1 / canvas._mapZoom);
+        this._drawMiniGalaxy(canvas, canvas._lastDestId || null);
       }, { passive: false });
 
       // Mouse drag
@@ -692,6 +823,7 @@ G.UI = class {
 
   _drawMiniGalaxy(canvasEl, destSysId) {
     if(!canvasEl) return;
+    canvasEl._lastDestId = destSysId;
     const ctx = canvasEl.getContext('2d');
     const w = canvasEl.width, h = canvasEl.height;
     ctx.fillStyle = '#000810'; ctx.fillRect(0,0,w,h);
@@ -868,6 +1000,26 @@ G.UI = class {
     }).join('');
   }
 
+  showCharScreen() {
+    const g = G.game;
+    const FACTION_FILE = { earth:'earth', rebellion:'rebel', pirate:'pirate', alien:'alien', neutral:'independent' };
+    const FACTION_NAMES = { earth:'EARTH GOV', rebellion:'REBELLION', pirate:'PIRATES', alien:'THE SHARD', neutral:'INDEPENDENT' };
+    const FACTION_COLORS = { earth:'#4488ff', rebellion:'#ff6600', pirate:'#ff1111', alien:'#00ff88', neutral:'#888888' };
+    const fid = g.playerFactionId || 'neutral';
+    document.getElementById('char-screen-avatar').src = `avatars/${FACTION_FILE[fid]}_${g.playerSex || 'male'}.png`;
+    document.getElementById('char-screen-name').textContent = g.playerName || 'Commander';
+    document.getElementById('char-screen-sex').textContent = (g.playerSex || 'male').toUpperCase();
+    const factionEl = document.getElementById('char-screen-faction');
+    factionEl.textContent = FACTION_NAMES[fid] || fid.toUpperCase();
+    factionEl.style.color = FACTION_COLORS[fid] || 'var(--col-text)';
+    document.getElementById('char-screen-overlay').classList.remove('hidden');
+    document.getElementById('char-screen-close').onclick = () => this.hideCharScreen();
+  }
+
+  hideCharScreen() {
+    document.getElementById('char-screen-overlay')?.classList.add('hidden');
+  }
+
   showMissionLog(){
     const overlay=document.getElementById('mission-log-overlay');
     if(!overlay) return;
@@ -992,7 +1144,7 @@ G.UI = class {
       Enrg ${Math.ceil(p.energy)}/${p.maxEnergy}<br>
       Fuel ${Math.ceil(p.fuel)}/${p.maxFuel} &nbsp;
       Mass ${p.mass|0} &nbsp;
-      Cargo ${p.cargoCount()}/${p.cargoSpace}<br>
+      Cargo ${G.game.fleetCargoUsed()}/${G.game.fleetCargoSpace()}${G.game.fleet?.length?' [fleet]':''}<br>
       Thrust ${p.thrustPower|0} &nbsp; Turn ${p.turnSpeed.toFixed(1)} &nbsp; Jump ${p.canJump?'YES':'NO'}
     </div>`;
 
@@ -1209,7 +1361,7 @@ G.UI = class {
 
     // Cargo section
     html += `<div style="margin-bottom:15px">
-      <div style="font-size:6px;color:#aaa;margin-bottom:5px">CARGO (${p.cargoCount()}/${p.cargoSpace})</div>`;
+      <div style="font-size:6px;color:#aaa;margin-bottom:5px">CARGO (${G.game.fleetCargoUsed()}/${G.game.fleetCargoSpace()}${G.game.fleet?.length?' [fleet]':''})</div>`;
     const cargoItems = Object.entries(p.cargo || {});
     if (!cargoItems.length) {
       html += `<div style="color:#556677;font-size:6px">No cargo items.</div>`;
@@ -1293,12 +1445,38 @@ G.UI = class {
     const totalRefund = modRefund + hullRefund;
     const modCount    = Object.keys(p.modules).length;
 
+    const tpl = oldShipDef || {};
+    const shapeId = tpl.shape || 'shuttle';
+    const shipColor = tpl.color || '#8899bb';
+    const liveStats = `HULL:${Math.ceil(p.maxHull)}  SHIELD:${Math.ceil(p.maxShields)}  CARGO:${p.cargoSpace}  FUEL:${Math.ceil(p.maxFuel)}  ENERGY:${Math.ceil(p.maxEnergy)}  THRUST:${Math.round(p.thrustPower/1000)}k  TURN:${p.turnSpeed.toFixed(1)}  SLOTS:${p.slots}${p.jumpRange>0?'  JUMP:'+p.jumpRange:''}`;
+    const installedMods = Object.values(p.modules).map(inst=>{
+      const m = G.MODULES[inst.moduleId]||G.WEAPONS[inst.moduleId];
+      if(!m) return `<span style="color:#aabbcc">${inst.moduleId}</span>`;
+      const isWeapon = m.slot==='weapon'||m.slot==='turret';
+      return `<span style="color:${isWeapon?'#ffaa44':'#aabbcc'}">${m.name}</span>`;
+    });
+    const installedHTML = installedMods.length
+      ? `<div style="font-size:6px;color:#556677;margin-top:3px">Modules: ${installedMods.join(', ')}</div>`
+      : '';
     let html = `<div class="panel-title">SHIPYARD</div>
-    <div class="section-title">CURRENT: ${p.name.toUpperCase()} — Hull ${Math.ceil(p.hull)}/${p.maxHull} Cargo ${p.cargoSpace}</div>
-    <div style="font-size:6px;color:#556677;margin-bottom:10px">
-      Trade-in: <span style="color:#ffcc00">${G.fmtCredits(hullRefund)}</span> hull
-      ${modCount?`+ <span style="color:#ffcc00">${G.fmtCredits(modRefund)}</span> modules`:''}
-      = <span style="color:#00ffee">${G.fmtCredits(totalRefund)} total credit</span>
+    <div class="section-title">YOUR SHIP</div>
+    <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:10px;background:rgba(0,255,238,0.04);border:1px solid rgba(0,200,255,0.2);padding:8px">
+      <div style="background:#000a18;flex-shrink:0;display:flex;align-items:center;justify-content:center;width:90px;height:72px">
+        <canvas width="88" height="70" class="ship-preview" data-shape="${shapeId}" data-color="${shipColor}"></canvas>
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:8px;color:#00ffee;font-weight:bold;margin-bottom:4px">${p.name.toUpperCase()} <span style="color:#667;font-size:6px">${tpl.name||''}</span></div>
+        <div class="item-stats">${liveStats}</div>
+        <div style="font-size:6px;color:#556677;margin-top:4px">
+          Hull ${Math.ceil(p.hull)}/${Math.ceil(p.maxHull)} &nbsp; Cargo ${G.game.fleetCargoSpace()}${G.game.fleet?.length?' [fleet]':''}
+        </div>
+        ${installedHTML}
+        <div style="font-size:6px;color:#556677;margin-top:2px">
+          Trade-in: <span style="color:#ffcc00">${G.fmtCredits(hullRefund)}</span> hull
+          ${modCount?`+ <span style="color:#ffcc00">${G.fmtCredits(modRefund)}</span> modules`:''}
+          = <span style="color:#00ffee">${G.fmtCredits(totalRefund)}</span>
+        </div>
+      </div>
     </div>`;
 
     // Group available ships by class, in defined order
@@ -1323,19 +1501,33 @@ G.UI = class {
         const repOk     = playerRep >= repReq;
         const facDef    = G.FACTIONS[shipFac];
         const facColor  = facDef?.color || '#888888';
+        const playerFac = G.game.playerFactionId;
+        const factionOk = isNeutral || shipFac === playerFac;
 
         const netCost = ship.price - totalRefund;
         const canAfford = G.game.credits >= netCost;
-        const canBuy    = repOk && !isCurrent;
+        const canBuy    = repOk && factionOk && !isCurrent;
         const netLabel  = netCost <= 0
           ? `<span style="color:#44ff44">+${G.fmtCredits(-netCost)} back</span>`
           : `<span style="color:#ffcc00">Net: ${G.fmtCredits(netCost)}</span>`;
 
-        const lockBadge = !repOk
-          ? `<div style="font-size:5px;color:#ff6644;margin:2px 0">LOCKED — Need ${repReq} rep with ${facDef?.name||shipFac}</div>`
-          : '';
+        let lockBadge = '';
+        if(!factionOk) {
+          lockBadge = `<div style="font-size:5px;color:#ff6644;margin:2px 0">FACTION LOCKED — ${facDef?.name||shipFac} only</div>`;
+        } else if(!repOk) {
+          lockBadge = `<div style="font-size:5px;color:#ff6644;margin:2px 0">LOCKED — Need ${repReq} rep with ${facDef?.name||shipFac}</div>`;
+        }
         const facBadge  = isNeutral ? '' : `<span style="color:${facColor};font-size:5px">${(facDef?.name||shipFac).toUpperCase()}</span>`;
         const expLimit  = ship.expansionLimit || 3;
+        const fullStats = `HULL:${ship.baseHull}  CARGO:${ship.baseCargoSpace}  FUEL:${ship.baseFuel}  ENERGY:${ship.baseEnergy}  THRUST:${Math.round(ship.baseThrust/1000)}k  TURN:${ship.baseTurn.toFixed(1)}  SLOTS:${ship.slots}`;
+        const startModNames = (ship.startModules||[]).map(id=>{
+          const m=G.MODULES[id]; return m?`<span style="color:#aabbcc">${m.name}</span>`:id;
+        });
+        const startWepNames = (ship.startWeapons||[]).map(id=>{
+          const w=G.WEAPONS[id]; return w?`<span style="color:#ffaa44">${w.name}</span>`:id;
+        });
+        const allStart=[...startWepNames,...startModNames];
+        const startHTML=allStart.length?`<div style="font-size:5px;color:#556677;margin:3px 0;line-height:1.5">Comes with: ${allStart.join(', ')}</div>`:'';
 
         html += `<div class="item-card" style="${!repOk?'opacity:0.5':''}">
           <div class="item-name">${ship.name}</div>
@@ -1343,8 +1535,9 @@ G.UI = class {
           <div style="width:100%;height:90px;background:#000a18;margin:4px 0;display:flex;align-items:center;justify-content:center">
             <canvas width="120" height="88" class="ship-preview" data-shape="${ship.shape}" data-color="${ship.color}"></canvas>
           </div>
-          <div class="item-stats">${ship.stats}</div>
+          <div class="item-stats">${fullStats}</div>
           <div style="font-size:6px;color:#cc44ff;margin:2px 0">+${expLimit} expansion slots</div>
+          ${startHTML}
           <div style="font-size:6px;color:#667;margin:2px 0">${ship.desc}</div>
           ${lockBadge}
           <div class="item-price">$ ${G.fmt(ship.price)}</div>
@@ -1365,10 +1558,11 @@ G.UI = class {
       const cw=canvas.width||120, ch=canvas.height||88;
       ctx.clearRect(0,0,cw,ch);
       ctx.fillStyle='#000a18'; ctx.fillRect(0,0,cw,ch);
-      const sprite=G.Sprites.get(canvas.dataset.shape, canvas.dataset.color);
+      const _sImg = G.ShipImages?.get(canvas.dataset.shape);
+      const sprite = _sImg || G.Sprites.get(canvas.dataset.shape, canvas.dataset.color);
       const SZ=G.Sprites.SZ; // 32
       const scale=2; // 64×64 centered
-      ctx.imageSmoothingEnabled=false;
+      ctx.imageSmoothingEnabled = !!_sImg;
       ctx.drawImage(sprite, (cw-SZ*scale)/2|0, (ch-SZ*scale)/2|0, SZ*scale, SZ*scale);
     });
   }
@@ -1666,7 +1860,7 @@ G.UI = class {
         ${!isMission?`<button data-jettison="${id}" style="margin-top:3px;font-size:5px;padding:1px 3px;background:#331111;border:1px solid #663333;color:#ff6644;cursor:pointer">JETTISON</button>`:''}
       </div>`;
     }
-    html+=`</div><div style="margin-top:6px;font-size:7px;color:#556677;margin-bottom:12px">Free space: ${Math.ceil(p.cargoFreeSpace())} units</div>`;
+    html+=`</div><div style="margin-top:6px;font-size:7px;color:#556677;margin-bottom:12px">Free space: ${Math.ceil(G.game.fleetCargoFreeSpace())} units${G.game.fleet?.length?' (fleet combined)':''}</div>`;
 
     // ── Stored modules section ──
     const modInv = p.moduleInventory || [];
@@ -1715,11 +1909,15 @@ G.UI = class {
         p.removeCargo(itemId, qty);
         const space=G.game.space;
         if(space) {
+          const bx = -Math.sin(p.angle), by = Math.cos(p.angle); // behind vector
           space.floatingLoot.push({
-            x:p.x+(Math.random()-0.5)*60, y:p.y+(Math.random()-0.5)*60,
-            vx:(Math.random()-0.5)*60, vy:(Math.random()-0.5)*60,
+            x: p.x + bx*55 + (Math.random()-0.5)*20,
+            y: p.y + by*55 + (Math.random()-0.5)*20,
+            vx: bx*120 + (Math.random()-0.5)*40,
+            vy: by*120 + (Math.random()-0.5)*40,
             type:'item', itemId, qty, rarity:G.ITEMS[itemId]?.rarity||'c', ttl:60,
             color:G.rarityColor(G.ITEMS[itemId]?.rarity||'c'),
+            pickupDelay: 2.5,
           });
         }
         this.addMsg('Jettisoned '+qty+'x '+(G.ITEMS[itemId]?.name||itemId),'#ff8844');
@@ -1739,11 +1937,15 @@ G.UI = class {
         const mod=G.MODULES[modId]||G.WEAPONS[modId];
         const space=G.game.space;
         if(space) {
+          const bx = -Math.sin(p.angle), by = Math.cos(p.angle);
           space.floatingLoot.push({
-            x:p.x+(Math.random()-0.5)*60, y:p.y+(Math.random()-0.5)*60,
-            vx:(Math.random()-0.5)*60, vy:(Math.random()-0.5)*60,
+            x: p.x + bx*55 + (Math.random()-0.5)*20,
+            y: p.y + by*55 + (Math.random()-0.5)*20,
+            vx: bx*120 + (Math.random()-0.5)*40,
+            vy: by*120 + (Math.random()-0.5)*40,
             type:'module', moduleId:modId, rarity:mod?.rarity||'u', ttl:60,
             color:G.rarityColor(mod?.rarity||'u'),
+            pickupDelay: 2.5,
           });
         }
         this.addMsg('Jettisoned '+(mod?.name||modId),'#ff8844');
@@ -1776,6 +1978,30 @@ G.UI = class {
     el.textContent=text;
     msgs.prepend(el);
     setTimeout(()=>{try{msgs.removeChild(el);}catch(e){}},4000);
+
+    // TTS for ship messages: [Name]: "speech"
+    const shipMatch = text.match(/^\[(.+?)\]: "(.*)"$/s);
+    if(shipMatch && this._voiceEnabled && window.speechSynthesis) {
+      const prefix  = '['+shipMatch[1]+']: "';
+      const speech  = shipMatch[2];
+      if(!speech) return;
+      speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(speech);
+      utter.volume = this._voiceVolume ?? 0.25;
+      const npcCtx = this._commsNPC || { name: shipMatch[1], faction: 'independent' };
+      const vp = this._voiceParamsForNPC(npcCtx);
+      utter.pitch = vp.pitch;
+      utter.rate  = vp.rate;
+      el.textContent = prefix;
+      utter.onboundary = (e) => {
+        if(e.name !== 'word') return;
+        el.textContent = prefix + speech.substring(0, e.charIndex + e.charLength);
+      };
+      utter.onend = utter.onerror = () => { el.textContent = text; };
+      const estDuration = speech.split(/\s+/).length * 0.42 / (utter.rate || 0.95);
+      G.sound?.voiceChannelOpen(estDuration);
+      speechSynthesis.speak(utter);
+    }
   }
 
   showLootNotif(name, qty, rarity){
@@ -1790,6 +2016,17 @@ G.UI = class {
     const ip=this.els['interact-prompt']; if(!ip) return;
     if(text){ip.textContent=text;ip.classList.remove('hidden');}
     else ip.classList.add('hidden');
+  }
+
+  _updateLoadBtns() {
+    const hasSave = !!localStorage.getItem(G.SAVE_KEY);
+    ['gameover-load-btn','opt-load-btn'].forEach(id=>{
+      const btn=document.getElementById(id);
+      if(!btn) return;
+      btn.disabled=!hasSave;
+      btn.style.opacity=hasSave?'1':'0.35';
+      btn.style.cursor=hasSave?'pointer':'not-allowed';
+    });
   }
 
   showSaveConfirm() {
@@ -1837,11 +2074,17 @@ G.UI = class {
     this.els['hud']?.classList.add('hidden');
     if(this.els['gameover-stats'])
       this.els['gameover-stats'].innerHTML=`<div>Credits: ${G.fmtCredits(stats.credits)}</div><div>Systems: ${stats.visited}</div><div>Kills: ${stats.kills}</div><div>Time: ${Math.floor(stats.time/60)}m ${stats.time%60|0}s</div>`;
+    this._updateLoadBtns();
   }
 
   // ── Comms system ─────────────────────────────────────────
   openComms(target, forceAction) {
-    if(!target || target.dead) return;
+    if(!target) return;
+    if(target.type === 'planet' || target.type === 'station') {
+      this._openPlanetComms(target);
+      return;
+    }
+    if(target.dead) return;
 
     // No-response check (skip for forced actions like fuel requests)
     if(!forceAction && Math.random() < G.commsNoResponseChance(target)) {
@@ -1851,8 +2094,8 @@ G.UI = class {
 
     G.sound?.commsPing();
     this._commsNPC = target;
+    this._drawCommsPortrait(target);
     const fac  = G.FACTIONS[target.faction]||G.FACTIONS.independent;
-    const fuel = G.game.player.fuel / G.game.player.maxFuel;
     const displayName = target.name || (fac.name.toUpperCase()+' VESSEL');
 
     if(this.els['comms-faction-tag']) {
@@ -1862,9 +2105,14 @@ G.UI = class {
     if(this.els['comms-ship-name']) this.els['comms-ship-name'].textContent = displayName;
     if(this.els['comms-response-text']) this.els['comms-response-text'].textContent = '';
 
-    // Build options — enemies get a stripped-down set
+    // Build options — enemies and fleet ships get special sets
     let opts;
-    if(target.type === 'enemy') {
+    if(target.isFleetShip) {
+      opts = [
+        { key:'fleet_hail',    label:'Hail',                color:'#00ffee' },
+        { key:'fleet_release', label:'Release from Fleet',  color:'#ffaa44' },
+      ];
+    } else if(target.type === 'enemy') {
       opts = [{ key:'hail', label:'Hail', color:'#00ffee' }];
       if(target.faction !== 'alien') {
         const cost   = G.npcForgivenessCost(target.faction);
@@ -1872,7 +2120,7 @@ G.UI = class {
         opts.push({ key:'forgive', label:`Beg Forgiveness — ${G.fmtCredits(cost)} (${chance}% success)`, color:'#ffaa00' });
       }
     } else {
-      opts = target.getCommsOptions(fuel);
+      opts = target.getCommsOptions();
     }
 
     const list = this.els['comms-options-list'];
@@ -1892,19 +2140,58 @@ G.UI = class {
     if(forceAction) this._handleCommsAction(forceAction);
   }
 
+  _openPlanetComms(body) {
+    if(!body.hasSpaceport) {
+      // No inhabited port — no response
+      this._showCommsNoResponse({ faction: body.faction || 'neutral', name: body.name });
+      return;
+    }
+    G.sound?.commsPing();
+    this._commsNPC = body;
+    this._drawCommsPortrait(body);
+    const fac = G.FACTIONS[body.faction] || G.FACTIONS.neutral;
+    const rel = G.game.getRel(body.faction || 'neutral');
+    const hostile = body.faction && body.faction !== 'neutral' && body.faction !== 'contested' && rel < -30;
+
+    if(this.els['comms-faction-tag']) {
+      this.els['comms-faction-tag'].textContent = fac.name.toUpperCase();
+      this.els['comms-faction-tag'].style.color = fac.color;
+    }
+    if(this.els['comms-ship-name']) this.els['comms-ship-name'].textContent = body.spaceportName || body.name || 'PLANETARY CONTROL';
+    if(this.els['comms-response-text']) this.els['comms-response-text'].textContent = '';
+
+    const opts = [{ key:'planet_hail', label:'Hail', color:'#00ffee' }];
+    if(body.hasSpaceport) {
+      opts.push({ key:'planet_landing', label:'Request Landing', color: hostile ? '#ff4444' : '#44ff88' });
+    }
+
+    const list = this.els['comms-options-list'];
+    if(list) {
+      list.innerHTML = opts.map(o =>
+        `<button class="btn comms-opt" data-key="${o.key}" style="color:${o.color};border-color:${o.color};margin:3px 0;width:100%;">${o.label}</button>`
+      ).join('');
+      list.querySelectorAll('.comms-opt').forEach(btn => {
+        btn.addEventListener('click', () => this._handleCommsAction(btn.dataset.key));
+      });
+    }
+    this.els['comms-overlay']?.classList.remove('hidden');
+  }
+
   _showCommsNoResponse(target) {
+    this._commsNPC = target;
+    this._drawCommsPortrait(target);
     const bank  = G.COMMS_LINES[target.faction]||G.COMMS_LINES.independent;
     const lines = bank.noresponse||['...'];
-    const text  = lines[Math.floor(Math.random()*lines.length)];
     const fac   = G.FACTIONS[target.faction]||G.FACTIONS.independent;
     const displayName = target.name || (fac.name.toUpperCase()+' VESSEL');
+    const text  = lines[Math.floor(Math.random()*lines.length)].replace(/{name}/g, displayName);
 
     if(this.els['comms-faction-tag']) {
       this.els['comms-faction-tag'].textContent = fac.name.toUpperCase();
       this.els['comms-faction-tag'].style.color  = fac.color;
     }
     if(this.els['comms-ship-name'])    this.els['comms-ship-name'].textContent    = displayName;
-    if(this.els['comms-response-text']) this.els['comms-response-text'].textContent = text;
+    this._speakComms(text);
     const list = this.els['comms-options-list'];
     if(list) list.innerHTML = '';
     this.els['comms-overlay']?.classList.remove('hidden');
@@ -1918,12 +2205,100 @@ G.UI = class {
     if(!target) return;
     const resp = this.els['comms-response-text'];
 
+    // Planet / station comms
+    if(target.type === 'planet' || target.type === 'station') {
+      if(action === 'planet_hail') {
+        const portName = target.spaceportName || target.name || 'this location';
+        const lines = [
+          'This is planetary control. State your business.',
+          'Approach vector acknowledged. Welcome to '+portName+'.',
+          'Planetary control online. How can we assist you?',
+          'Traffic control active. Please maintain holding pattern.',
+          'Incoming vessel identified. You are cleared for approach.',
+          portName+' Control here. Transmit your manifest and we will process clearance.',
+          'This is '+portName+' Orbital. Channel Alpha-Seven is yours. Go ahead.',
+          'Docking authority online. Identify yourself and state your purpose.',
+          portName+' approach control. You are squawking on our grid — what is your request?',
+          'Welcome to the '+portName+' system. Standard docking fees apply. State your business.',
+          'Control to incoming vessel — you are on final approach corridor. Confirm heading.',
+          portName+' traffic control. Lima Charlie on your transponder. What do you need?',
+          'This is '+portName+'. We show you at grid reference Foxtrot-Nine. Proceed.',
+          'Orbital station '+portName+'. Berth available. Standard rates apply, no questions asked.',
+        ];
+        this._speakComms('"'+lines[Math.floor(Math.random()*lines.length)]+'"');
+        return;
+      }
+      if(action === 'planet_landing') {
+        const pFac = target.faction;
+        const rel = G.game.getRel(pFac || 'neutral');
+        const hostile = pFac && pFac !== 'neutral' && pFac !== 'contested' && rel < -30;
+        if(hostile) {
+          const denied = [
+            'You are not welcome here. Turn back immediately.',
+            'Landing denied. Your record with us makes you unwelcome.',
+            'Hostile vessel detected. Do not approach or you will be fired upon.',
+            'Access denied. Code Tango on your transponder — break off approach now.',
+            'Negative clearance. Your vessel is flagged. Withdraw or be fired upon.',
+            'This is orbital defense. You are denied entry. One warning.',
+          ];
+          this._speakComms('"'+denied[Math.floor(Math.random()*denied.length)]+'"');
+          setTimeout(() => this.closeComms(), 2200);
+          return;
+        }
+        const p = G.game.player;
+        const dist = Math.hypot(p.x - target.x, p.y - target.y);
+        if(dist > target.r + 80) {
+          const farLines = [
+            'Clearance granted. Approach to docking range to initiate landing sequence.',
+            'You are cleared for approach. Reduce speed and close to docking range.',
+            'Approach approved. Proceed on heading and reduce velocity before final.',
+            'Docking clearance issued. Close to docking range — we will take it from there.',
+          ];
+          this._speakComms('"'+farLines[Math.floor(Math.random()*farLines.length)]+'"');
+          return;
+        }
+        const dockLines = [
+          'Landing clearance granted. Reduce speed and prepare for docking.',
+          'You are on approach. Docking clamps standing by. Welcome aboard.',
+          'Final approach authorized. Autopilot handoff in three, two, one.',
+          'Cleared to land. Bay Bravo-Four is yours. Stand by for docking.',
+        ];
+        this._speakComms('"'+dockLines[Math.floor(Math.random()*dockLines.length)]+'"');
+        setTimeout(() => { this.closeComms(); G.sound.land(); G.game.land(target); }, 1400);
+        return;
+      }
+      return;
+    }
+
+    // Fleet ships get their own comms handling
+    if(target.isFleetShip) {
+      if(action === 'fleet_hail') {
+        const lines = ['Ready and standing by, Captain.','All systems nominal. Awaiting orders.',
+                       'In formation. Target acquired when ready.','Escort standing by.'];
+        this._speakComms('"'+lines[Math.floor(Math.random()*lines.length)]+'"');
+        return;
+      }
+      if(action === 'fleet_release') {
+        const farewells = ['It\'s been an honor, Captain. Safe travels.',
+                           'Understood. Going our own way. Good luck out there.',
+                           'Copy that. We\'ll find our own path. Fly safe.',
+                           'Roger. Breaking formation. It was a pleasure serving with you.'];
+        this._speakComms('"'+farewells[Math.floor(Math.random()*farewells.length)]+'"');
+        G.game.releaseFleetShip(target.fleetDataId);
+        setTimeout(()=>this.closeComms(), 2200);
+        return;
+      }
+      return;
+    }
+
     // For enemies, resolve comms manually (no getCommsResponse method)
     if(target.type === 'enemy') {
       if(action === 'hail') {
         const bank  = G.COMMS_LINES[target.faction]||G.COMMS_LINES.independent;
         const lines = bank.hail||['...'];
-        if(resp) resp.textContent = '"'+lines[Math.floor(Math.random()*lines.length)]+'"';
+        const eName = target.name || 'vessel';
+        const eLine = lines[Math.floor(Math.random()*lines.length)].replace(/{name}/g, eName);
+        this._speakComms('"'+eLine+'"');
         return;
       }
       if(action === 'forgive') {
@@ -1934,7 +2309,7 @@ G.UI = class {
     }
 
     const res = target.getCommsResponse(action);
-    if(resp) resp.textContent = '"'+res.text+'"';
+    this._speakComms('"'+res.text+'"');
 
     if(action==='fuel' && res.fuelRendezvous) {
       this.addMsg(target.name+' is en route — fuel transfer on arrival.', '#ff8844');
@@ -1964,6 +2339,14 @@ G.UI = class {
       this.closeComms();
     }
 
+    if(action==='tribute' && !res.hostile && res.tributeAmount) {
+      G.game.credits += res.tributeAmount;
+      this.addMsg('Tribute collected: +'+G.fmtCredits(res.tributeAmount), '#ffcc00');
+      if(target.faction && target.faction!=='independent')
+        G.game.setRel(target.faction, G.game.getRel(target.faction)-3, 'extortion');
+      setTimeout(()=>this.closeComms(), 2000);
+    }
+
     if(action==='forgive' && res.forgiveResult) {
       this._resolveForgiveness(target, resp, res.forgiveResult);
     }
@@ -1977,7 +2360,7 @@ G.UI = class {
       const bank    = G.COMMS_LINES[target.faction]||G.COMMS_LINES.independent;
       const lines   = bank[success ? 'forgive_accept' : 'forgive_deny']||bank.hail;
       const text    = lines[Math.floor(Math.random()*lines.length)].replace('{cost}', G.fmtCredits(cost));
-      if(respEl) respEl.textContent = '"'+text+'"';
+      this._speakComms('"'+text+'"');
       result = { success, cost };
     }
 
@@ -1988,7 +2371,7 @@ G.UI = class {
     }
     if(G.game.credits < result.cost) {
       G.sound?.forgiveness(false);
-      if(respEl) respEl.textContent = '"You can\'t afford it."';
+      this._speakComms('"You can\'t afford it."');
       this.addMsg('Not enough credits for forgiveness.', '#ff4444');
       return;
     }
@@ -2015,15 +2398,186 @@ G.UI = class {
     const item = G.ITEMS[itemId];
     if(!item) return;
     if(G.game.credits<price) { this.addMsg('Not enough credits!','#ff4444'); return; }
-    if(G.game.player.cargoFreeSpace()<(item.mass||1)*qty) { this.addMsg('Cargo full!','#ff4444'); return; }
+    if(G.game.fleetCargoFreeSpace()<(item.mass||1)*qty) { this.addMsg('Cargo full!','#ff4444'); return; }
     G.game.credits -= price;
     G.game.player.addCargo(itemId, qty);
     this.addMsg('Bought '+qty+'x '+item.name+' for '+G.fmtCredits(price),'#44ff44');
     this.closeComms();
   }
 
+  showControlsMenu() {
+    const overlay = document.getElementById('controls-overlay');
+    const list = document.getElementById('controls-list');
+    if(!overlay || !list) return;
+
+    const controls = [
+      { name: 'THRUST', keys: 'W / ↑' },
+      { name: 'BRAKE', keys: 'S / ↓' },
+      { name: 'TURN LEFT', keys: 'A / ←' },
+      { name: 'TURN RIGHT', keys: 'D / →' },
+      { name: 'DODGE LEFT', keys: 'Q' },
+      { name: 'DODGE RIGHT', keys: 'E' },
+      { name: 'BOOST', keys: 'SHIFT' },
+      { name: 'REVERSE THRUST', keys: 'S (hold 1s)' },
+      { name: 'FIRE WEAPONS', keys: 'SPACE' },
+      { name: 'FIRE MISSILE', keys: 'X' },
+      { name: 'CHARACTER', keys: 'C' },
+      { name: 'CYCLE TARGET', keys: 'T / Y' },
+      { name: 'NEAREST TARGET', keys: 'R' },
+      { name: 'AUTOPILOT', keys: 'P' },
+      { name: 'GALAXY MAP', keys: 'M' },
+      { name: 'HYPERSPACE JUMP', keys: 'J (hold)' },
+      { name: 'LAND/BOARD', keys: 'L' },
+      { name: 'INVENTORY', keys: 'I' },
+      { name: 'MISSION LOG', keys: 'N' },
+      { name: 'COMMS', keys: 'V' },
+      { name: 'REQUEST FUEL', keys: 'F' },
+      { name: 'OPTIONS', keys: 'ESC' },
+    ];
+
+    let html = '';
+    for(const ctrl of controls) {
+      html += `<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>${ctrl.name}</span><span style="color:#ffaa44">${ctrl.keys}</span></div>`;
+    }
+    html += '<div style="margin-top:12px;font-size:5px;color:#667788">Remapping coming soon!</div>';
+    list.innerHTML = html;
+    overlay.classList.remove('hidden');
+  }
+
+  showShipMenu() {
+    const overlay = document.getElementById('ship-overlay');
+    const body = document.getElementById('ship-body');
+    if(!overlay || !body) return;
+    const p = G.game?.player;
+    if(!p) return;
+
+    const shipTpl = G.SHIPS[p.templateId];
+    const maxHull = Math.max(p.maxHull, 1);
+    const hullPct = Math.round(p.hull / maxHull * 100);
+    const maxEnergy = Math.max(p.maxEnergy, 1);
+    const energyPct = Math.round(p.energy / maxEnergy * 100);
+
+    const modules = p.modules || {};
+    let weaponsHtml = '';
+    let modulesHtml = '';
+    for(const [instId, inst] of Object.entries(modules)) {
+      const def = G.WEAPONS[inst.moduleId] || G.MODULES[inst.moduleId];
+      if(!def) continue;
+      const isWpn = !!(G.WEAPONS[inst.moduleId]);
+      const broken = inst.broken ? ' <span style="color:#ff4444">[BROKEN]</span>' : '';
+      const hpBar = `<span style="color:#44ff88">${Math.ceil(inst.hp||0)}</span>hp`;
+      const row = `<div style="font-size:6px;margin-bottom:1px;display:flex;justify-content:space-between"><span style="color:#aabbcc">${def.name}</span><span>${hpBar}${broken}</span></div>`;
+      if(isWpn) weaponsHtml += row; else modulesHtml += row;
+    }
+    if(weaponsHtml) weaponsHtml = `<div style="margin-top:8px"><div style="color:#ff8844;margin-bottom:3px">WEAPONS</div>${weaponsHtml}</div>`;
+    if(modulesHtml) modulesHtml = `<div style="margin-top:8px"><div style="color:#556677;margin-bottom:3px">MODULES</div>${modulesHtml}</div>`;
+
+    // Ammo counts
+    let ammoHtml = '';
+    const ammo = p.ammo || {};
+    for(const [id, qty] of Object.entries(ammo)) {
+      if(qty > 0) ammoHtml += `<div style="font-size:6px;margin-bottom:1px"><span style="color:#ffcc44">${G.ITEMS[id]?.name || id}</span>: ${qty}</div>`;
+    }
+    if(ammoHtml) ammoHtml = `<div style="margin-top:8px"><div style="color:#556677;margin-bottom:3px">AMMO</div>${ammoHtml}</div>`;
+
+    let html = `
+      <div style="margin-bottom:12px">
+        <div style="color:#ffcc44;margin-bottom:6px">PLAYER SHIP</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
+          <span style="color:#556677;font-size:6px">NAME:</span>
+          <input id="ship-name-input" type="text" value="${p.name || 'Unnamed'}" style="background:transparent;border:1px solid #556677;color:#aaaaaa;padding:2px 4px;font-family:'Press Start 2P',monospace;font-size:6px;flex:1" maxlength="30">
+          <button class="btn" id="ship-rename-btn" style="font-size:5px;padding:2px 8px">RENAME</button>
+        </div>
+      </div>
+      <div style="color:#667788;line-height:1.6;font-size:6px">
+        <div style="color:#556677;margin-bottom:3px">SHIP CLASS: <span style="color:#aabbcc">${shipTpl?.name || '?'}</span></div>
+        <div>HULL: <span style="color:#44ff88">${Math.ceil(p.hull)} / ${p.maxHull}</span> (${hullPct}%)</div>
+        <div>SHIELDS: <span style="color:#4488ff">${Math.ceil(p.shields)} / ${p.maxShields}</span></div>
+        <div>ENERGY: <span style="color:#ffcc44">${Math.ceil(p.energy)} / ${p.maxEnergy}</span> (${energyPct}%)</div>
+        <div>FUEL: <span style="color:#ffaa44">${Math.ceil(p.fuel)} / ${p.maxFuel}</span></div>
+        <div style="margin-top:6px;color:#556677">STATS</div>
+        <div>MASS: ${Math.round(p.mass)} t &nbsp; THRUST: ${Math.round(p.thrustPower)} N &nbsp; TURN: ${Math.round(p.turnSpeed*100)/100} rad/s</div>
+        <div>CARGO: ${G.game.fleetCargoUsed()} / ${G.game.fleetCargoSpace()} &nbsp; SENSOR: ${p.sensorRange}</div>
+        ${weaponsHtml}${ammoHtml}${modulesHtml}
+      </div>
+    `;
+
+    body.innerHTML = html;
+    document.getElementById('ship-rename-btn')?.addEventListener('click', () => {
+      const newName = document.getElementById('ship-name-input')?.value.trim();
+      if(newName) {
+        p.name = newName;
+        this.addMsg('Ship renamed to: ' + newName, '#ffcc44');
+      }
+      overlay.classList.add('hidden');
+      G.game.paused = false;
+    });
+    overlay.classList.remove('hidden');
+    G.game.paused = true;
+  }
+
+  _voiceParamsForNPC(npc) {
+    let hash = 0;
+    const key = (npc.name || npc.id || 'unknown') + (npc.faction || '');
+    for (let i = 0; i < key.length; i++) hash = ((hash * 31) + key.charCodeAt(i)) >>> 0;
+    const rng = (n) => ((hash * (n + 1) * 1664525 + 1013904223) >>> 0) / 0xFFFFFFFF;
+    // Very low pitch for robot effect; minor per-NPC variation
+    let pitch = Math.max(0.01, Math.min(0.25, 0.05 + rng(1) * 0.18));
+    // Female captains: +0.12 pitch (about +1 octave)
+    if(npc.captain && npc.captain.sex === 'female') pitch += 0.12;
+    pitch = Math.max(0.01, Math.min(0.35, pitch));
+    // Rate: 1.5× faster than base, small per-NPC variation
+    const rate  = Math.max(0.8,  Math.min(2.0,  1.35 + rng(2) * 0.30));
+    return { pitch, rate };
+  }
+
+  _speakComms(text) {
+    const resp = this.els['comms-response-text'];
+    if(window.speechSynthesis) speechSynthesis.cancel();
+    if(!this._voiceEnabled || !window.speechSynthesis) {
+      if(resp) resp.textContent = text;
+      return;
+    }
+    if(resp) resp.textContent = '';
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.volume = this._voiceVolume ?? 0.25;
+    const npc = this._commsNPC;
+    if(npc) { const vp = this._voiceParamsForNPC(npc); utter.pitch = vp.pitch; utter.rate = vp.rate; }
+    else { utter.pitch = 0.1; utter.rate = 1.45; }
+    const estDuration = text.split(/\s+/).length * 0.42 / (utter.rate || 0.95);
+    G.sound?.voiceChannelOpen(estDuration);
+    utter.onboundary = (e) => {
+      if(e.name !== 'word' || !resp) return;
+      resp.textContent = text.substring(0, e.charIndex + e.charLength);
+    };
+    utter.onend = utter.onerror = () => { if(resp) resp.textContent = text; };
+    window.speechSynthesis.speak(utter);
+  }
+
+  openCommsHostile(npc, line) {
+    const overlay = this.els['comms-overlay'];
+    if (!overlay || !overlay.classList.contains('hidden')) return;
+    this._commsNPC = npc;
+    this._drawCommsPortrait(npc);
+    const fac = G.FACTIONS[npc.faction] || G.FACTIONS.independent;
+    const displayName = npc.name || (fac.name.toUpperCase() + ' VESSEL');
+    if (this.els['comms-faction-tag']) {
+      this.els['comms-faction-tag'].textContent = fac.name.toUpperCase();
+      this.els['comms-faction-tag'].style.color = fac.color;
+    }
+    if (this.els['comms-ship-name']) this.els['comms-ship-name'].textContent = displayName;
+    const list = this.els['comms-options-list'];
+    if (list) list.innerHTML = '';
+    G.sound?.commsPing();
+    this._speakComms('"' + line + '"');
+    overlay.classList.remove('hidden');
+    clearTimeout(this._noRespTimer);
+    this._noRespTimer = setTimeout(() => this.closeComms(), 3500);
+  }
+
   closeComms() {
     clearTimeout(this._noRespTimer);
+    if(window.speechSynthesis) speechSynthesis.cancel();
     this.els['comms-overlay']?.classList.add('hidden');
     this._commsNPC = null;
   }
@@ -2037,15 +2591,16 @@ G.UI = class {
     const playerSize = G.SHIPS[player.templateId]?.size || 1.0;
     const enemyHpScale = (enemy.maxHp||120)/120;
     const enemyEff = (enemy.size||1.0) * enemyHpScale;
-    const chance = G.clamp(0.65*playerSize/enemyEff, 0.06, 0.78);
+    const baseChance = enemy.disabled ? 0.90 : 0.65;
+    const chance = G.clamp(baseChance*playerSize/enemyEff, 0.10, 0.95);
     const fleetFull = G.game.fleet.length >= 5;
     const fac = (enemy.faction||'unknown').toUpperCase();
     const shape = (enemy.shapeId||'ship').replace(/_/g,' ').toUpperCase();
-    const hpPct = Math.round((enemy.hp||0)/Math.max(enemy.maxHp||1,1)*100);
+    const statusStr = enemy.disabled ? '<span style="color:#ff6600">DISABLED</span>' : `Hull: ${Math.round((enemy.hp||0)/Math.max(enemy.maxHp||1,1)*100)}%`;
     const el = document.getElementById('boarding-ship-info');
     if(el) el.innerHTML = `
       <div>${fac} ${shape}</div>
-      <div>Hull: ${hpPct}% integrity</div>
+      <div>${statusStr}</div>
       <div style="color:#ffcc44">Commandeer chance: ${Math.round(chance*100)}%</div>
       <div style="color:#${fleetFull?'ff4444':'556677'}">Fleet: ${G.game.fleet.length}/5 ships</div>`;
     const resultEl = document.getElementById('boarding-result');
@@ -2109,13 +2664,14 @@ G.UI = class {
   }
 
   dismissFleetShip(id) {
-    const idx = G.game.fleet.findIndex(e=>e.id===id);
-    if(idx<0) return;
-    const entry = G.game.fleet[idx];
-    const fs = G.game.space?.fleetShips?.find(f=>f.fleetDataId===id);
-    if(fs) fs._deathDone = true;
-    G.game.fleet.splice(idx,1);
-    this.addMsg(entry.fleetName+' dismissed from fleet.','#ffaa44');
+    const farewells = ['It\'s been an honor, Captain. Safe travels.',
+                       'Understood. Going our own way. Good luck out there.',
+                       'Copy that. We\'ll find our own path. Fly safe.',
+                       'Roger. Breaking formation. It was a pleasure serving with you.'];
+    const msg = farewells[Math.floor(Math.random()*farewells.length)];
+    const entry = G.game.fleet.find(e=>e.id===id);
+    if(entry) this.addMsg(entry.fleetName+': "'+msg+'"','#00ffee');
+    G.game.releaseFleetShip(id);
     this._renderFleetMenu();
   }
 
@@ -2357,6 +2913,406 @@ G.UI = class {
           <div style="text-align:right;font-size:5px;font-family:'Press Start 2P',monospace;color:#445566;margin-top:2px">${rel > 0 ? '+' : ''}${rel}</div>
         </div>`;
     }).join('');
+  }
+
+  _drawCommsPortrait(target) {
+    const el = document.getElementById('comms-portrait');
+    if (!el) return;
+
+    let canvas = el.querySelector('canvas');
+    if (!canvas) {
+      canvas = document.createElement('canvas');
+      canvas.width = 128; canvas.height = 128;
+      el.innerHTML = '';
+      el.appendChild(canvas);
+    }
+
+    const ctx = canvas.getContext('2d');
+    const W = 128, H = 128;
+    const fac = G.FACTIONS[target?.faction] || G.FACTIONS.independent;
+
+    ctx.fillStyle = '#020a14';
+    ctx.fillRect(0, 0, W, H);
+
+    // Bottom gradient in faction color for atmosphere
+    const grad = ctx.createLinearGradient(0, H * 0.55, 0, H);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, fac.color + '28');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    const isPlanet = target?.type === 'planet' || target?.type === 'station';
+    const shapeId = target?.shapeId || null;
+
+    if (target?.captain && !isPlanet) {
+      const FACTION_FILE = { earth:'earth', rebellion:'rebel', pirate:'pirate', alien:'alien', neutral:'independent' };
+      const fid = target.faction || 'neutral';
+      const sex = target.captain.sex || 'male';
+      const avatarUrl = `avatars/${FACTION_FILE[fid]}_${sex}.png`;
+      const avatarImg = new Image();
+      avatarImg.onload = () => {
+        const scale = Math.min(W / 72, H / 90);
+        const dw = (72 * scale) | 0, dh = (90 * scale) | 0;
+        const dx = ((W - dw) / 2) | 0, dy = ((H - dh) / 2) | 0;
+        ctx.globalCompositeOperation = 'lighten';
+        ctx.drawImage(avatarImg, dx, dy, dw, dh);
+        ctx.globalCompositeOperation = 'source-over';
+
+        // Draw captain's name below avatar
+        ctx.fillStyle = fac.color;
+        ctx.font = 'bold 10px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        const captainName = target.captain.name || 'UNKNOWN';
+        ctx.fillText(captainName, W / 2, H - 14);
+      };
+      avatarImg.src = avatarUrl;
+      if(avatarImg.complete) {
+        avatarImg.onload();
+      }
+    } else if (isPlanet || !shapeId) {
+      // Faction emblem: concentric rings + initial
+      const cx = W / 2, cy = H / 2;
+      ctx.strokeStyle = fac.color + '55';
+      ctx.lineWidth = 1;
+      for (const r of [44, 34, 24]) {
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.strokeStyle = fac.color;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(cx, cy, 20, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = fac.color;
+      ctx.font = 'bold 22px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText((fac.name || '?')[0], cx, cy);
+    } else {
+      const sprite = G.Sprites.get(shapeId, target.color || '#8899bb');
+      const SZ = G.Sprites.SZ;  // 32
+      const SCALE = 3;
+      const sx = ((W - SZ * SCALE) / 2) | 0;
+      const sy = ((H - SZ * SCALE) / 2) | 0;
+
+      // Glow pass
+      ctx.save();
+      ctx.shadowColor = fac.color;
+      ctx.shadowBlur = 18;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(sprite, sx, sy, SZ * SCALE, SZ * SCALE);
+      ctx.restore();
+
+      // Crisp sprite on top
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(sprite, sx, sy, SZ * SCALE, SZ * SCALE);
+    }
+
+    // Scanline overlay for CRT feel
+    ctx.fillStyle = 'rgba(0,0,0,0.10)';
+    for (let y = 0; y < H; y += 2) ctx.fillRect(0, y, W, 1);
+
+    // Corner bracket decorations
+    const bl = 10;
+    ctx.strokeStyle = fac.color + 'aa';
+    ctx.lineWidth = 1.5;
+    for (const [bx, by, dx, dy] of [[0,0,1,1],[W,0,-1,1],[0,H,1,-1],[W,H,-1,-1]]) {
+      ctx.beginPath();
+      ctx.moveTo(bx + dx*bl, by); ctx.lineTo(bx, by); ctx.lineTo(bx, by + dy*bl);
+      ctx.stroke();
+    }
+  }
+
+  showCharCreate(onConfirm) {
+    const overlay = document.getElementById('char-create-overlay');
+    overlay.classList.remove('hidden');
+    document.getElementById('main-menu').classList.add('hidden');
+
+    const FACTIONS = [
+      { id:'earth',     name:'EARTH GOV',  color:'#4488ff' },
+      { id:'rebellion', name:'REBELLION',   color:'#ff6600' },
+      { id:'pirate',    name:'PIRATES',     color:'#ff1111' },
+      { id:'alien',     name:'THE SHARD',   color:'#00ff88' },
+      { id:'neutral',   name:'INDEPENDENT', color:'#888888' },
+    ];
+
+    let sex = 'female', factionId = 'earth', faceIdx = 0, shipId = 'shuttle';
+
+    // Starting ship selection
+    const STARTING_SHIPS = [
+      { id: 'shuttle',    label: 'SHUTTLE',  desc: 'Shields, medium cargo' },
+      { id: 'fighter',    label: 'FIGHTER',  desc: 'Missiles, no shields'  },
+      { id: 'miner_ship', label: 'MINER',    desc: 'Tough hull, mining'    },
+    ];
+    const shipGrid = document.getElementById('char-ship-grid');
+    shipGrid.innerHTML = '';
+    STARTING_SHIPS.forEach((s, si) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'char-ship-wrap' + (si === 0 ? ' selected' : '');
+      const tpl = G.SHIPS[s.id];
+      const shapeId = tpl?.shape || s.id;
+      const color   = tpl?.color || '#8899bb';
+      const c = document.createElement('canvas');
+      c.width = 80; c.height = 64;
+      const ctx2 = c.getContext('2d');
+      ctx2.fillStyle = '#000a18';
+      ctx2.fillRect(0, 0, 80, 64);
+      const imgC = G.ShipImages?.get(shapeId);
+      const SZ = G.Sprites.SZ;
+      const sc = 2;
+      ctx2.imageSmoothingEnabled = !!imgC;
+      ctx2.drawImage(imgC || G.Sprites.get(shapeId, color), (80 - SZ*sc)/2|0, (64 - SZ*sc)/2|0, SZ*sc, SZ*sc);
+      wrap.appendChild(c);
+      wrap.insertAdjacentHTML('beforeend', `<div class="char-ship-name">${s.label}</div><div class="char-ship-desc">${s.desc}</div>`);
+      wrap.addEventListener('click', () => {
+        shipId = s.id;
+        shipGrid.querySelectorAll('.char-ship-wrap').forEach((w, j) => w.classList.toggle('selected', j === si));
+      });
+      shipGrid.appendChild(wrap);
+    });
+
+    // Faction buttons
+    const factionRow = document.getElementById('char-faction-btns');
+    factionRow.innerHTML = FACTIONS.map(f =>
+      `<button class="btn char-faction-btn${f.id==='earth'?' active':''}" data-faction="${f.id}" style="border-color:${f.color};color:${f.color}">${f.name}</button>`
+    ).join('');
+
+    // Single faction+sex avatar image
+    const FACTION_FILE = { earth:'earth', rebellion:'rebel', pirate:'pirate', alien:'alien', neutral:'independent' };
+    const faceGrid = document.getElementById('char-face-grid');
+    faceGrid.innerHTML = '';
+    const avatarImg = document.createElement('img');
+    avatarImg.className = 'char-avatar-img';
+    faceGrid.appendChild(avatarImg);
+
+    const redraw = () => {
+      avatarImg.src = `avatars/${FACTION_FILE[factionId]}_${sex}.png`;
+    };
+
+    // Reset form state
+    const nameInput = document.getElementById('char-name-input');
+    nameInput.value = '';
+    document.getElementById('sex-male').classList.remove('active');
+    document.getElementById('sex-female').classList.add('active');
+    faceIdx = 0;
+
+    document.getElementById('sex-male').onclick = () => {
+      sex = 'male';
+      document.getElementById('sex-male').classList.add('active');
+      document.getElementById('sex-female').classList.remove('active');
+      redraw();
+    };
+    document.getElementById('sex-female').onclick = () => {
+      sex = 'female';
+      document.getElementById('sex-female').classList.add('active');
+      document.getElementById('sex-male').classList.remove('active');
+      redraw();
+    };
+
+    factionRow.onclick = e => {
+      const btn = e.target.closest('[data-faction]');
+      if (!btn) return;
+      factionId = btn.dataset.faction;
+      factionRow.querySelectorAll('[data-faction]').forEach(b => b.classList.toggle('active', b === btn));
+      redraw();
+    };
+
+    document.getElementById('char-confirm-btn').onclick = () => {
+      const name = nameInput.value.trim() || 'Commander';
+      overlay.classList.add('hidden');
+      onConfirm({ name, sex, faceIdx, factionId, shipId });
+    };
+
+    redraw();
+  }
+
+  _drawFaceAvatar(canvas, faceIdx, sex, factionColor) {
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+
+    ctx.fillStyle = '#040810';
+    ctx.fillRect(0, 0, W, H);
+
+    const cx = 36, hcy = 30, hr = 16;
+
+    const skins  = ['#f5d5b0','#d4956a','#7a4a2a','#c9a882','#eea880'];
+    const eyeCol = ['#5599ee','#44bb66','#cc8820','#9988cc','#bb5522'];
+    const skin   = skins[faceIdx];
+
+    const mHair = [
+      ['#3a1e0a','buzz'],
+      ['#111111','spiky'],
+      ['#c8a020','wavy'],
+      ['#888888','receding'],
+      ['#6b2c0c','medium'],
+    ];
+    const fHair = [
+      ['#ddc020','long_straight'],
+      ['#1a1a1a','pixie'],
+      ['#aa2200','bun'],
+      ['#cccccc','bob'],
+      ['#5c3018','curly'],
+    ];
+    const [hairCol, hairStyle] = sex === 'male' ? mHair[faceIdx] : fHair[faceIdx];
+
+    // Hair (behind head)
+    ctx.fillStyle = hairCol;
+    this._drawCharHair(ctx, cx, hcy, hr, hairStyle);
+
+    // Ears
+    ctx.fillStyle = skin;
+    ctx.beginPath(); ctx.ellipse(cx - hr, hcy + 2, 3, 4.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx + hr, hcy + 2, 3, 4.5, 0, 0, Math.PI * 2); ctx.fill();
+
+    // Head
+    ctx.beginPath();
+    ctx.ellipse(cx, hcy, hr - 1, hr, 0, 0, Math.PI * 2);
+    ctx.fillStyle = skin;
+    ctx.fill();
+
+    // Eye whites
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.ellipse(cx - 5, hcy - 2, 3.5, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx + 5, hcy - 2, 3.5, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+
+    // Irises
+    ctx.fillStyle = eyeCol[faceIdx];
+    ctx.beginPath(); ctx.arc(cx - 5, hcy - 2, 2.0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + 5, hcy - 2, 2.0, 0, Math.PI * 2); ctx.fill();
+
+    // Pupils
+    ctx.fillStyle = '#000000';
+    ctx.beginPath(); ctx.arc(cx - 5, hcy - 2, 1.0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + 5, hcy - 2, 1.0, 0, Math.PI * 2); ctx.fill();
+
+    // Eyebrows
+    ctx.strokeStyle = hairCol;
+    ctx.lineWidth = 1.5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx - 8, hcy - 7); ctx.lineTo(cx - 2.5, hcy - 8); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx + 8, hcy - 7); ctx.lineTo(cx + 2.5, hcy - 8); ctx.stroke();
+
+    // Nose
+    const skinD = this._shadeColor(skin, -25);
+    ctx.strokeStyle = skinD; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx - 2, hcy + 4); ctx.lineTo(cx, hcy + 6); ctx.lineTo(cx + 2, hcy + 4); ctx.stroke();
+
+    // Mouth + optional beard
+    ctx.strokeStyle = skinD; ctx.lineWidth = 1.5;
+    if (sex === 'male' && faceIdx === 3) {
+      ctx.beginPath(); ctx.moveTo(cx - 4, hcy + 10); ctx.lineTo(cx + 4, hcy + 10); ctx.stroke();
+      ctx.fillStyle = 'rgba(136,136,136,0.55)';
+      ctx.beginPath(); ctx.ellipse(cx, hcy + 13, 10, 5, 0, 0, Math.PI); ctx.fill();
+    } else if (sex === 'male' && faceIdx === 4) {
+      ctx.beginPath(); ctx.arc(cx, hcy + 11, 4, 0.2, Math.PI - 0.2); ctx.stroke();
+      ctx.fillStyle = hairCol + 'bb';
+      ctx.beginPath(); ctx.ellipse(cx, hcy + 13, 9, 4, 0, 0, Math.PI); ctx.fill();
+    } else {
+      ctx.beginPath(); ctx.arc(cx, hcy + 10, 4, 0.2, Math.PI - 0.2); ctx.stroke();
+    }
+
+    // Neck
+    ctx.fillStyle = skin;
+    ctx.fillRect(cx - 5, hcy + hr - 2, 10, 8);
+
+    // Body / faction clothing
+    const bodyY = hcy + hr + 5;
+    ctx.fillStyle = factionColor;
+    ctx.beginPath();
+    ctx.moveTo(cx - 20, H);
+    ctx.lineTo(cx - 14, bodyY);
+    ctx.lineTo(cx + 14, bodyY);
+    ctx.lineTo(cx + 20, H);
+    ctx.closePath(); ctx.fill();
+
+    // Collar lapels
+    ctx.fillStyle = this._shadeColor(factionColor, 50);
+    ctx.beginPath(); ctx.moveTo(cx - 8, bodyY); ctx.lineTo(cx, bodyY + 8); ctx.lineTo(cx - 3, bodyY); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cx + 8, bodyY); ctx.lineTo(cx, bodyY + 8); ctx.lineTo(cx + 3, bodyY); ctx.closePath(); ctx.fill();
+
+    // Face highlight
+    const hl = ctx.createRadialGradient(cx - 4, hcy - 5, 2, cx, hcy, hr);
+    hl.addColorStop(0, 'rgba(255,255,255,0.15)');
+    hl.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = hl;
+    ctx.beginPath(); ctx.ellipse(cx, hcy, hr - 1, hr, 0, 0, Math.PI * 2); ctx.fill();
+  }
+
+  _drawCharHair(ctx, cx, hcy, hr, style) {
+    switch (style) {
+      case 'buzz':
+        ctx.beginPath(); ctx.arc(cx, hcy, hr + 1, Math.PI, Math.PI * 2); ctx.fill();
+        ctx.fillRect(cx - hr - 1, hcy - 2, (hr + 1) * 2, 3);
+        break;
+      case 'spiky': {
+        ctx.beginPath(); ctx.arc(cx, hcy, hr + 1, Math.PI, Math.PI * 2); ctx.fill();
+        const xs = [-hr, -hr + 5, 0, hr - 5, hr];
+        const hs = [14, 18, 20, 16, 12];
+        for (let i = 0; i < 5; i++) {
+          const bx = cx + xs[i];
+          ctx.beginPath();
+          ctx.moveTo(bx - 3, hcy - hr + 1);
+          ctx.lineTo(bx, hcy - hr - hs[i]);
+          ctx.lineTo(bx + 3, hcy - hr + 1);
+          ctx.closePath(); ctx.fill();
+        }
+        break;
+      }
+      case 'wavy':
+        ctx.beginPath(); ctx.arc(cx, hcy - 3, hr + 4, Math.PI * 0.65, Math.PI * 2.35); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(cx - hr - 2, hcy + 5, 5, 9, 0.1, 0, Math.PI); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(cx + hr + 2, hcy + 5, 5, 9, -0.1, 0, Math.PI); ctx.fill();
+        break;
+      case 'receding':
+        ctx.beginPath(); ctx.arc(cx, hcy, hr + 1, Math.PI * 1.15, Math.PI * 1.85); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(cx - hr + 1, hcy + 3, 4, 8, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(cx + hr - 1, hcy + 3, 4, 8, 0, 0, Math.PI * 2); ctx.fill();
+        break;
+      case 'medium':
+        ctx.beginPath(); ctx.arc(cx, hcy - 2, hr + 2, Math.PI * 0.8, Math.PI * 2.2); ctx.fill();
+        ctx.fillRect(cx - hr - 3, hcy - 6, 5, 20);
+        ctx.fillRect(cx + hr - 2, hcy - 6, 5, 20);
+        break;
+      case 'long_straight':
+        ctx.beginPath(); ctx.arc(cx, hcy - 2, hr + 3, Math.PI * 0.75, Math.PI * 2.25); ctx.fill();
+        ctx.fillRect(cx - hr - 4, hcy - 5, 7, 36);
+        ctx.fillRect(cx + hr - 3, hcy - 5, 7, 36);
+        break;
+      case 'pixie':
+        ctx.beginPath(); ctx.arc(cx, hcy - 4, hr + 2, Math.PI * 0.65, Math.PI * 2.35); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(cx + 9, hcy - hr, 5, 4, -0.5, 0, Math.PI * 2); ctx.fill();
+        break;
+      case 'bun':
+        ctx.beginPath(); ctx.arc(cx, hcy - 1, hr + 1, Math.PI * 0.85, Math.PI * 2.15); ctx.fill();
+        ctx.beginPath(); ctx.arc(cx, hcy - hr - 8, 8, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.beginPath(); ctx.arc(cx, hcy - hr - 1, 3.5, 0, Math.PI * 2); ctx.fill();
+        break;
+      case 'bob':
+        ctx.beginPath(); ctx.arc(cx, hcy - 1, hr + 4, Math.PI * 0.7, Math.PI * 2.3); ctx.fill();
+        ctx.fillRect(cx - hr - 5, hcy - 3, 7, 22);
+        ctx.fillRect(cx + hr - 2, hcy - 3, 7, 22);
+        ctx.fillRect(cx - hr - 4, hcy + 18, hr * 2 + 8, 5);
+        break;
+      case 'curly': {
+        const pts = [
+          Math.PI * 1.0, Math.PI * 1.15, Math.PI * 1.3,
+          Math.PI * 1.5, Math.PI * 1.7, Math.PI * 1.85, Math.PI * 2.0,
+        ];
+        for (const a of pts) {
+          ctx.beginPath();
+          ctx.arc(cx + Math.cos(a) * (hr + 3), hcy + Math.sin(a) * (hr + 3), 6.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+    }
+  }
+
+  _shadeColor(hex, amount) {
+    const h = hex.replace('#','').slice(0, 6).padEnd(6, '0');
+    const n = parseInt(h, 16);
+    const r = Math.max(0, Math.min(255, (n >> 16) + amount));
+    const g = Math.max(0, Math.min(255, ((n >> 8) & 0xff) + amount));
+    const b = Math.max(0, Math.min(255, (n & 0xff) + amount));
+    return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
   }
 
   _setupMenuNav() {

@@ -152,28 +152,14 @@ G.Space = class {
     this.time += dt;
     if(this._cargoFullTimer > 0) this._cargoFullTimer -= dt;
 
-    // Orbit bodies
+    // Orbit bodies (parent bodies must appear before children in the array)
     for(const b of this.bodies) {
-      if(b.orbitR) { b.orbitAngle+=(b.orbitSpeed||0); b.x=Math.cos(b.orbitAngle)*b.orbitR; b.y=Math.sin(b.orbitAngle)*b.orbitR; }
-    }
-
-    // Comet tail damage: ships inside the ice tail take minor damage
-    for(const b of this.bodies) {
-      if(b.type !== 'comet' || b.hp <= 0) continue;
-      // Tail direction: away from star (origin)
-      const tailAngle = Math.atan2(b.y, b.x);
-      const tailLen   = (b.tailLen || 100) * 4;
-      // Check player
-      const tx = b.x + Math.cos(tailAngle) * tailLen * 0.5;
-      const ty = b.y + Math.sin(tailAngle) * tailLen * 0.5;
-      const pd = Math.hypot(player.x - tx, player.y - ty);
-      if(pd < tailLen * 0.55) {
-        player.takeDamage(2 * dt, 'projectile');
-        G.sound?.cometHit?.(pd);
-        if(particles && Math.random() < 0.3) particles.emit({
-          x:player.x, y:player.y, minSpd:20, maxSpd:50,
-          life:0.25, r:2, color:'#88ccff', drag:0.9,
-        });
+      if(b.orbitR) {
+        b.orbitAngle += (b.orbitSpeed || 0);
+        const cx = b.orbitParent ? b.orbitParent.x : 0;
+        const cy = b.orbitParent ? b.orbitParent.y : 0;
+        b.x = cx + Math.cos(b.orbitAngle) * b.orbitR;
+        b.y = cy + Math.sin(b.orbitAngle) * b.orbitR;
       }
     }
 
@@ -221,6 +207,11 @@ G.Space = class {
       if(e.dead){this._updateDying(e,dt,particles,true);continue;}
       e.update(dt,player,this.projectiles,particles,now);
       if(e.arriving) e.arriving -= dt;
+      if(e._boosting && !e._prevBoosting) {
+        const bd = Math.hypot(e.x - player.x, e.y - player.y);
+        if(bd < 1400) G.sound?.boost();
+      }
+      e._prevBoosting = e._boosting;
       if(!e.disabled&&particles) {
         const eRate = e._boosting ? 0.7 : 0.3;
         if(!e.disabled && Math.random()<eRate) {
@@ -237,6 +228,11 @@ G.Space = class {
       if(n.dead){this._updateDying(n,dt,particles,false);continue;}
       n.update(dt, this.bodies, this.npcs, this.enemies, this.projectiles, particles, now);
       if(n.arriving) n.arriving -= dt;
+      if(n._boosting && !n._prevBoosting) {
+        const bd = Math.hypot(n.x - player.x, n.y - player.y);
+        if(bd < 1400) G.sound?.boost();
+      }
+      n._prevBoosting = n._boosting;
       if(n.aiState!=='docked'&&!n.disabled&&particles) {
         const nRate = n._boosting ? 0.6 : 0.2;
         if(Math.random()<nRate) {
@@ -271,17 +267,36 @@ G.Space = class {
       p.ttl-=dt;
       if(p.ttl<=0){this.projectiles.splice(i,1);continue;}
 
-      // Missile tracking
-      if(p.tracking && p.sourceId==='player') {
-        const tgt = G.game?.target;
-        if(tgt && !tgt.dead) {
+      // Missile dormant phase: coast for 2s before engine ignites
+      if(p.type === 'missile' && p.dormant) {
+        p.dormantT -= dt;
+        if(p.dormantT <= 0) {
+          p.dormant = false;
+          const spd2 = Math.sqrt(p.vx*p.vx+p.vy*p.vy)||1;
+          const targetSpd = G.WEAPONS[p.weaponId]?.projSpeed || 480;
+          p.vx = (p.vx/spd2)*targetSpd;
+          p.vy = (p.vy/spd2)*targetSpd;
+        }
+      }
+      // Missile tracking (only when engine active)
+      if(p.tracking && !p.dormant) {
+        let tgt = null;
+        if(p.sourceId==='player') {
+          tgt = G.game?.target;
+        } else if(p.trackTarget) {
+          tgt = p.trackTarget;
+        }
+        if(tgt && (p.sourceId==='player' ? !tgt.dead : true)) {
           const ta=Math.atan2(tgt.x-p.x,-(tgt.y-p.y));
           const da=G.wrapAngle(ta-Math.atan2(p.vx,-p.vy));
           const spd=Math.sqrt(p.vx*p.vx+p.vy*p.vy);
-          const na=Math.atan2(p.vx,-p.vy)+G.clamp(da,-2*dt,2*dt);
+          const na=Math.atan2(p.vx,-p.vy)+G.clamp(da,-3.5*dt,3.5*dt);
           p.vx=Math.sin(na)*spd; p.vy=-Math.cos(na)*spd;
         }
       }
+      // Missile engine trail particles (only when engine active)
+      if(p.type==='missile' && !p.dormant && particles && Math.random()<0.8)
+        particles.emit({x:p.x,y:p.y,minSpd:15,maxSpd:50,life:0.25,r:2,color:'rgba(120,190,255,0.8)'});
 
       p.x+=p.vx*dt; p.y+=p.vy*dt;
 
@@ -325,8 +340,8 @@ G.Space = class {
           for(let j=this.asteroids.length-1;j>=0;j--) {
             const a = this.asteroids[j];
             if(!G.circleHit(p.x,p.y,4,a.x,a.y,a.r)) continue;
-            // ~12% of normal weapon damage as mining effectiveness
-            const chipDmg = Math.max(0.5, p.damage * 0.12);
+            // ~2% of normal weapon damage as mining effectiveness — use the mining laser
+            const chipDmg = Math.max(0.05, p.damage * 0.02);
             a.hp -= chipDmg;
             if(particles) particles.mine_spark(a.x, a.y);
             if(a.hp <= 0) {
@@ -425,36 +440,6 @@ G.Space = class {
             }
           }
         }
-        // vs comets
-        if(this.projectiles[i]===p) {
-          for(const b of this.bodies) {
-            if(b.type !== 'comet' || b.hp <= 0) continue;
-            if(G.circleHit(p.x,p.y,4,b.x,b.y,b.r*2)) {
-              b.hp -= p.damage * (p.type === 'mining' ? 1.5 : 0.5);
-              if(particles) particles.emit({x:p.x,y:p.y,minSpd:20,maxSpd:60,life:0.2,r:2,color:'#aaddff',drag:0.9});
-              if(b.hp <= 0) {
-                const dropCount = 3 + Math.floor(Math.random()*4);
-                for(let di=0;di<dropCount;di++) {
-                  const dropId = b.drops[Math.floor(Math.random()*b.drops.length)]||'ore';
-                  const qty = 1 + Math.floor(Math.random()*2);
-                  this.floatingLoot.push({
-                    x:b.x+(Math.random()-0.5)*80, y:b.y+(Math.random()-0.5)*80,
-                    vx:(Math.random()-0.5)*60, vy:(Math.random()-0.5)*60,
-                    type:'item', itemId:dropId, qty,
-                    rarity:G.ITEMS[dropId]?.rarity||'c', ttl:60,
-                    color:G.rarityColor(G.ITEMS[dropId]?.rarity||'c'),
-                  });
-                }
-                if(particles) particles.explosion(b.x,b.y,0,0,1.5);
-                G.sound?.explosion(Math.hypot(b.x-player.x,b.y-player.y));
-                G.ui?.addMsg('Comet destroyed! Ice resources scattered.','#aaddff');
-                b.hp = 0; // mark done
-              }
-              if(!p.pierce){this.projectiles.splice(i,1);break;}
-            }
-          }
-        }
-
         // Splash damage
         if(this.projectiles[i]===p && p.splash>0) {
           this._splashDamage(p,[...this.enemies,...this.npcs],particles);
@@ -467,7 +452,9 @@ G.Space = class {
             const e=this.enemies[j];
             if(e.dead||e._deathDone||e.boarded) continue;
             if(G.circleHit(p.x,p.y,4,e.x,e.y,(e.size||1)*16+4)){
-              this._onHitEnemy(e,p,particles); if(!p.pierce){this.projectiles.splice(i,1);break;}
+              this._onHitEnemy(e,p,particles);
+              if(p.type==='missile' && particles) this._missileExplosion(p,particles);
+              if(!p.pierce){this.projectiles.splice(i,1);break;}
             }
           }
           if(this.projectiles[i]===p){
@@ -477,6 +464,7 @@ G.Space = class {
               if(G.circleHit(p.x,p.y,4,n.x,n.y,(n.size||1)*16+4)){
                 n.takeDamage(p.damage,p.type);
                 if(particles)particles.burst({x:p.x,y:p.y,minSpd:20,maxSpd:80,life:0.15,r:2,color:p.color},4);
+                if(p.type==='missile' && particles) this._missileExplosion(p,particles);
                 if(!p.pierce){this.projectiles.splice(i,1);break;}
               }
             }
@@ -485,6 +473,7 @@ G.Space = class {
           // Enemy/NPC/turret projectile: hits player and fleet ships
           if(G.circleHit(p.x,p.y,4,player.x,player.y,18)){
             this._onHitPlayer(player,p,particles);
+            if(p.type==='missile' && particles) this._missileExplosion(p,particles);
             this.projectiles.splice(i,1);
           } else if(this.projectiles[i]===p) {
             for(const fs of this.fleetShips){
@@ -492,6 +481,7 @@ G.Space = class {
               if(G.circleHit(p.x,p.y,4,fs.x,fs.y,(fs.size||1)*16+4)){
                 fs.takeDamage(p.damage,p.type);
                 if(particles)particles.burst({x:p.x,y:p.y,minSpd:20,maxSpd:80,life:0.15,r:2,color:p.color},4);
+                if(p.type==='missile' && particles) this._missileExplosion(p,particles);
                 if(!p.pierce){this.projectiles.splice(i,1);break;}
               }
             }
@@ -509,6 +499,7 @@ G.Space = class {
           fs._dyingInitialized=true; fs._dyingTimer=1.5; fs._dyingNextBang=0.15;
           G.game?.removeFleetShip(fs.fleetDataId);
           G.ui?.addMsg(fs.name+' DESTROYED','#ff6644');
+          this._dropLoot(fs);
         }
         fs._dyingTimer-=dt; fs._dyingNextBang-=dt;
         if(fs._dyingNextBang<=0&&particles){
@@ -523,6 +514,12 @@ G.Space = class {
           fs._deathDone=true;
         }
         continue;
+      }
+      // Drop loot the first time a fleet ship becomes disabled
+      if(fs.disabled && !fs._disabledLootDropped) {
+        fs._disabledLootDropped = true;
+        this._dropLoot(fs);
+        G.ui?.addMsg(fs.name+' DISABLED — cargo ejected','#ff8844');
       }
       fs.update(dt, player, G.game?.target, this.projectiles, particles, now);
       if(!fs.disabled&&particles&&Math.random()<0.25) particles.engine_trail(fs.x,fs.y,fs.angle,fs.vx,fs.vy,fs.size||1);
@@ -543,6 +540,7 @@ G.Space = class {
         l.vy += (dy/d)*strength*dt;
       }
       l.x+=l.vx*dt; l.y+=l.vy*dt; l.vx*=0.96; l.vy*=0.96;
+      if(l.pickupDelay > 0) { l.pickupDelay -= dt; continue; }
       const cr=player.tractorRange>0?player.tractorRange+40:50;
       if(d<cr) {
         const collected = this._collectLoot(l,player);
@@ -567,8 +565,7 @@ G.Space = class {
       npc.dockTimer = 0; // break out of docked state immediately
       const bank = G.COMMS_LINES?.[npc.faction]||G.COMMS_LINES?.independent;
       const lines = bank?.hostile||['Opening fire!'];
-      const dist = Math.hypot(npc.x-player.x, npc.y-player.y);
-      if(dist < 1000) G.ui?.addMsg('['+npc.name+']: "'+lines[Math.floor(Math.random()*lines.length)]+'"', G.FACTIONS[npc.faction]?.color||'#ff4444');
+      G.ui?.openCommsHostile(npc, lines[Math.floor(Math.random()*lines.length)]);
     }
 
     // Rep loss with their faction (not for independents)
@@ -731,6 +728,12 @@ G.Space = class {
     if(hit&&particles) particles.explosion(proj.x,proj.y,0,0,0.5);
   }
 
+  _missileExplosion(proj, particles) {
+    if(particles) particles.explosion(proj.x, proj.y, 0, 0, 1.2);
+    const dist = G.game?.player ? Math.hypot(proj.x - G.game.player.x, proj.y - G.game.player.y) : 9999;
+    G.sound?.explosion(dist);
+  }
+
   _dropLoot(ship) {
     const sys=G.SYSTEMS.find(s=>s.id===this.sysId);
     const danger=sys?.danger||1;
@@ -761,18 +764,25 @@ G.Space = class {
         });
       }
     }
-    // Ammo drops: ballistic ships drop kinetic rounds, others occasionally too
-    const ammoDrops = [
-      { id:'kinetic_rounds', chance: 0.45 },
-      { id:'grenades',       chance: 0.10 },
-      { id:'missiles',       chance: 0.08 },
-    ];
-    for(const ad of ammoDrops) {
-      if(Math.random() < ad.chance) {
+    // Ammo drops: based on weapons equipped (finite chance per ammo type used)
+    const ammoTypesToDrop = new Set();
+    if(ship.weapons && ship.weapons.length > 0) {
+      for(const wpn of ship.weapons) {
+        const def = G.WEAPONS[wpn.weaponId];
+        if(def?.ammo) ammoTypesToDrop.add(def.ammo);
+      }
+    } else {
+      // Fallback for ships without weapons array
+      if(Math.random() < 0.45) ammoTypesToDrop.add('kinetic_rounds');
+      if(Math.random() < 0.08) ammoTypesToDrop.add('missiles');
+    }
+    for(const ammoId of ammoTypesToDrop) {
+      if(Math.random() < 0.40 && G.ITEMS[ammoId]) {
+        const item = G.ITEMS[ammoId];
         this.floatingLoot.push({ x:ship.x+(Math.random()-0.5)*50, y:ship.y+(Math.random()-0.5)*50,
           vx:(Math.random()-0.5)*30, vy:(Math.random()-0.5)*30,
-          type:'item', itemId:ad.id, qty:1, rarity:'c', ttl:45,
-          color:'#ffcc44' });
+          type:'item', itemId:ammoId, qty:item.ammoRounds || 1,
+          rarity:item.rarity||'c', ttl:45, color:'#ffcc44' });
       }
     }
 
@@ -788,6 +798,7 @@ G.Space = class {
   }
 
   _updateDying(ship, dt, particles, isEnemy) { try {
+    if(ship.jumpingOut) { ship._deathDone = true; return; }
     if(!ship._dyingInitialized) {
       ship._dyingInitialized = true;
       const sz = ship.size || 1;
@@ -841,7 +852,7 @@ G.Space = class {
       G.sound?.explosion(dFin);
       // Shockwave: damage nearby ships
       const shockR = 140 + sz * 120;
-      const shockDmg = 40 + sz * 80;
+      const shockDmg = 80 + sz * 160;
       for(const other of [...this.npcs, ...this.enemies]) {
         if(other===ship||other.dead||other.boarded) continue;
         const d = Math.hypot(other.x-ship.x, other.y-ship.y);
@@ -887,7 +898,7 @@ G.Space = class {
         G.sound?.lootPickup();
         return true;
       }
-      if(item&&player.cargoFreeSpace()>=(item.mass||1)*loot.qty) {
+      if(item&&G.game.fleetCargoFreeSpace()>=(item.mass||1)*loot.qty) {
         player.addCargo(loot.itemId,loot.qty);
         G.ui.addMsg('Picked up '+loot.qty+'x '+item.name,G.rarityColor(loot.rarity));
         G.ui.showLootNotif(item.name,loot.qty,loot.rarity);
@@ -952,14 +963,14 @@ G.Space = class {
   }
 
   boardEnemy(enemy, player) {
-    if(!enemy.disabled||enemy.boarded) return null;
+    if(enemy.disabled||enemy.boarded) return null;
     enemy.boarded=true;
     const sys=G.SYSTEMS.find(s=>s.id===this.sysId);
     const drops=G.genLoot(sys?.danger||1,enemy.credits);
     const collected=[];
     for(const d of drops) {
       const item=G.ITEMS[d.id];
-      if(item&&player.cargoFreeSpace()>=(item.mass||1)*d.qty) {
+      if(item&&G.game.fleetCargoFreeSpace()>=(item.mass||1)*d.qty) {
         player.addCargo(d.id,d.qty); collected.push(d);
       }
     }
@@ -977,7 +988,7 @@ G.Space = class {
     const collected=[];
     for(const d of drops) {
       const item=G.ITEMS[d.id];
-      if(item&&player.cargoFreeSpace()>=(item.mass||1)*d.qty) {
+      if(item&&G.game.fleetCargoFreeSpace()>=(item.mass||1)*d.qty) {
         player.addCargo(d.id,d.qty); collected.push(d);
       }
     }
@@ -1003,12 +1014,14 @@ G.Space = class {
     return nearest;
   }
 
-  // All targetable ships/objects (enemies, NPCs, derelicts)
+  // All targetable ships/objects (enemies, NPCs, derelicts, turrets)
   allTargets() {
     return [
       ...this.enemies.filter(e=>!e.dead&&!e._deathDone&&!e.boarded),
       ...this.npcs.filter(n=>!n.dead&&!n._deathDone&&!n.boarded),
+      ...this.fleetShips.filter(f=>!f.dead&&!f._deathDone),
       ...this.derelicts.filter(d=>!d.looted),
+      ...this.turrets.filter(t=>!t._dead),
     ];
   }
 

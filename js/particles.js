@@ -82,6 +82,23 @@ G.Particles = class {
       life:0.2, maxLife:0.2, color:'#4488ff', vx:0, vy:0, fade:true });
   }
 
+  shockwave(x, y) {
+    this.active.push({ type:'ring', x, y, r:30, maxR:700,
+      life:1.5, maxLife:1.5, color:'#aaddff', vx:0, vy:0, fade:true, expandRate:900 });
+    this.active.push({ type:'ring', x, y, r:15, maxR:400,
+      life:1.0, maxLife:1.0, color:'#ffffff', vx:0, vy:0, fade:true, expandRate:700 });
+    for(let i=0;i<60;i++) {
+      this.emit({ x, y,
+        minSpd:200+Math.random()*600,
+        maxSpd:400+Math.random()*600,
+        life:0.4+Math.random()*0.8,
+        r:1.5+Math.random()*2,
+        color:i%3===0?'#ffffff':i%3===1?'#88ccff':'#4499ff',
+        drag:0.91, fade:true,
+      });
+    }
+  }
+
   emp_hit(x, y) {
     for(let i=0;i<16;i++) {
       this.emit({ x,y,
@@ -171,7 +188,8 @@ G.Particles = class {
         continue;
       }
       if(p.type==='ring') {
-        p.r = G.lerp(p.r, p.maxR, dt*6);
+        if(p.expandRate) p.r = Math.min(p.maxR, p.r + p.expandRate * dt);
+        else p.r = G.lerp(p.r, p.maxR, dt*6);
         continue;
       }
       p.vx *= p.drag;

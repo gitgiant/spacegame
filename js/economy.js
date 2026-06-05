@@ -75,12 +75,12 @@ G.Economy = class {
     if(mission.type==='cargo_haul') {
       const item = mission.params.item;
       const qty  = mission.params.qty;
-      if(player.cargoFreeSpace() < (G.ITEMS[item]?.mass||1)*qty) return false;
+      if(G.game.fleetCargoFreeSpace() < (G.ITEMS[item]?.mass||1)*qty) return false;
       player.addCargo(item, qty);
     }
     if(mission.type==='passenger') {
       const qty = mission.params.qty;
-      if(player.cargoFreeSpace() < qty) return false;
+      if(G.game.fleetCargoFreeSpace() < qty) return false;
       player.addCargo('mission_pkg', qty);
     }
     G.game.activeMissions.push(mission);
@@ -166,19 +166,56 @@ G.Economy = class {
     if(!sys) return [];
 
     const rng = G.seededRng(sysId+'_market');
-    const allItems = Object.values(G.ITEMS).filter(it=>it.cat!=='mission');
+    const danger = sys.danger || 1;
 
-    const result = allItems.map(item => {
-      const price = G.marketPrice(item.id, sysId);
+    // Rarity controls how often an item appears at a given port
+    const rarityChance = {
+      c: 1.0,
+      u: 0.80,
+      r: Math.min(0.85, 0.25 + danger * 0.07),
+      e: Math.min(0.60, 0.04 + danger * 0.07),
+      l: Math.min(0.20, danger * 0.025),
+    };
+
+    // Sale day: every 8 real-minutes = 1 game day; every 7th day a port may run sales
+    const dayNum = Math.floor(Date.now() / (1000 * 60 * 8));
+    const saleRng = G.seededRng(sysId + '_sale_' + dayNum);
+    const isSaleDay = (dayNum % 7 === 0) && saleRng() < 0.60;
+    const saleDiscounts = {};
+    if(isSaleDay) {
+      const saleCount = 2 + Math.floor(saleRng() * 4); // 2-5 items on sale
+      const saleCandidates = Object.values(G.ITEMS).filter(it => it.cat !== 'mission' && it.rarity !== 'l');
+      for(let i = 0; i < saleCount; i++) {
+        const item = saleCandidates[Math.floor(saleRng() * saleCandidates.length)];
+        if(item && !saleDiscounts[item.id]) {
+          saleDiscounts[item.id] = 0.25 + saleRng() * 0.25; // 25-50% off
+        }
+      }
+    }
+
+    const allItems = Object.values(G.ITEMS).filter(it=>it.cat!=='mission');
+    const result = [];
+    for(const item of allItems) {
+      const chance = rarityChance[item.rarity] ?? 0.5;
+      if(rng() > chance) continue; // skip based on rarity
+
+      // Alien metal almost never appears outside alien space
+      if(item.id==='alien_metal' && sys.faction!=='alien' && rng()>0.12) continue;
+
+      let price = G.marketPrice(item.id, sysId);
+      const saleDiscount = saleDiscounts[item.id] || 0;
+      if(saleDiscount > 0) price = Math.round(price * (1 - saleDiscount));
+
       let available = Math.floor(rng()*18)+3;
       if(item.cat==='luxury'  && sys.danger<4)           available = Math.floor(rng()*4)+1;
       if(item.cat==='raw'     && sys.faction==='pirate')  available = Math.floor(rng()*15)+8;
-      if(item.id==='alien_metal' && sys.faction!=='alien') available = Math.floor(rng()*2);
       if(item.cat==='craft'   && sys.danger>=5)           available = Math.floor(rng()*8)+2;
       if(item.cat==='ammo')                               available = Math.floor(rng()*10)+8;
       available = Math.max(0, available);
-      return { id:item.id, name:item.name, cat:item.cat, rarity:item.rarity, price, available };
-    });
+
+      result.push({ id:item.id, name:item.name, cat:item.cat, rarity:item.rarity,
+                    price, available, saleDiscount, isSaleDay });
+    }
 
     this._marketCache[sysId] = result;
     return result;
@@ -257,7 +294,7 @@ G.Economy = class {
     // Check cargo space for output
     const outItem = G.ITEMS[recipe.output.item];
     const outMass = (outItem?.mass||1) * recipe.output.qty;
-    if(player.cargoFreeSpace() < outMass) {
+    if(G.game.fleetCargoFreeSpace() < outMass) {
       return {ok:false, msg:'Cargo full'};
     }
 

@@ -925,5 +925,80 @@ G.Sprites = {
       r('#445566',3,1,1,3); r('#445566',4,1,1,3);
       r('#556677',2,2,4,1);
     },
+    missile_turret(ctx) {
+      const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
+      r('rgba(0,0,0,0.7)',0,0,8,8);
+      // turret base plate
+      r('#334455',0,5,8,3); r('#445566',1,4,6,3);
+      r('#223344',0,5,1,3); r('#223344',7,5,1,3);
+      r('#556677',1,4,6,1);
+      // center barrel
+      r('#445566',3,2,2,3); r('#556677',3,2,1,1);
+      // missile pods (orange) flanking barrel
+      r('#ff8800',1,1,2,4); r('#ff8800',5,1,2,4);
+      r('#ffaa44',1,1,1,1); r('#ffaa44',5,1,1,1);
+      r('#cc5500',2,4,1,1); r('#cc5500',6,4,1,1);
+    },
   },
 };
+
+// ── Ship Photo Images ────────────────────────────────────────────────────────
+// Maps shapeId → path in ship_images/. Add entries here to enable photo sprites
+// for any ship type. Images are center-cropped to square, resized to 128×128,
+// and have near-black pixels made transparent (black-background removal).
+// Falls back to pixel-art sprite when image is absent or still loading.
+G.ShipImages = {
+  // Map entries: string path → black-bg removal applied
+  //              { path, preAlpha: true } → already transparent, skip bg removal
+  _map: {
+    shuttle: 'ship_images/shuttle.png',
+    fighter: 'ship_images/fighter.jpg',
+    frigate: 'ship_images/frigate.png',
+    tanker:  'ship_images/fuel_tanker.png',
+    miner:   { path: 'ship_images/mining_vessel.png', preAlpha: true },
+  },
+  _canvases: new Map(),
+
+  init() {
+    for (const [shapeId, entry] of Object.entries(this._map)) {
+      const path     = typeof entry === 'string' ? entry : entry.path;
+      const preAlpha = typeof entry === 'object' && !!entry.preAlpha;
+      const img = new Image();
+      img.onload = () => {
+        const c = this._process(img, preAlpha);
+        if (c) this._canvases.set(shapeId, c);
+      };
+      img.src = path;
+    }
+  },
+
+  _process(img, preAlpha = false) {
+    const TARGET = 128;
+    const srcSize = Math.min(img.naturalWidth, img.naturalHeight);
+    if (!srcSize) return null;
+    const offX = ((img.naturalWidth  - srcSize) / 2) | 0;
+    const offY = ((img.naturalHeight - srcSize) / 2) | 0;
+    const c = document.createElement('canvas');
+    c.width = c.height = TARGET;
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, offX, offY, srcSize, srcSize, 0, 0, TARGET, TARGET);
+    if (!preAlpha) {
+      const id = ctx.getImageData(0, 0, TARGET, TARGET);
+      const d = id.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const lum = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+        if      (lum < 30) { d[i+3] = 0; }
+        else if (lum < 80) { d[i+3] = ((lum - 30) / 50 * 255) | 0; }
+      }
+      ctx.putImageData(id, 0, 0);
+    }
+    return c;
+  },
+
+  has(shapeId) { return this._canvases.has(shapeId); },
+  get(shapeId) { return this._canvases.get(shapeId) || null; },
+};
+
+G.ShipImages.init();

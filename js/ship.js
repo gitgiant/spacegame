@@ -16,6 +16,7 @@ G.Ship = class {
     this.angle = 0;    // radians, 0=pointing up
     this.angVel = 0;
     this._reverseHeldTime = 0;
+    this._strafeCooldown = 0;
 
     // Base stats (before modules)
     this._baseMass        = tpl.baseMass;
@@ -34,7 +35,7 @@ G.Ship = class {
     this.shieldRegen= 0;
     this.maxEnergy = tpl.baseEnergy;
     this.energy    = tpl.baseEnergy;
-    this.energyRegen= 15;
+    this.energyRegen= 45;
     this.maxFuel   = tpl.baseFuel;
     this.fuel      = tpl.baseFuel;
     this.fuelBurnRate = 0.5;
@@ -59,8 +60,6 @@ G.Ship = class {
     this.powerShields = 0.33;
     this.powerEngines = 0.34;
 
-    // Boost charge: 1 second burst, 2.5s recharge
-    this.boostCharge = 1.0;
     this._boostWasActive = false;
 
     // Module slots: flat array of instId|null, length = ship's slot count
@@ -135,7 +134,7 @@ G.Ship = class {
     this.maxShields = 0;
     this.shieldRegen= 0;
     this.maxEnergy  = this._baseEnergy;
-    this.energyRegen= 15;
+    this.energyRegen= 45;
     this.maxFuel    = this._baseFuel;
     this.cargoSpace = this._baseCargoSpace;
     this.maxCrew    = 1;
@@ -247,15 +246,9 @@ G.Ship = class {
     if(inp.turnL) this.angle -= this.turnSpeed * dt;
     if(inp.turnR) this.angle += this.turnSpeed * dt;
 
-    // Boost charge: drains while boosting, recharges when not
+    // Boost: active as long as key held and energy available (no timer cutoff)
     const boostWanted = inp.boost && this.energy > 5;
-    if(boostWanted && this.boostCharge > 0) {
-      this.boostCharge = Math.max(0, this.boostCharge - dt);
-    } else {
-      this.boostCharge = Math.min(1.0, this.boostCharge + dt / 2.5);
-    }
-    const boostActive = boostWanted && this.boostCharge > 0;
-    // Only play sound on initial key press, not when charge refills while key is held
+    const boostActive = boostWanted;
     if(boostActive && !this._boostKeyWasDown) {
       G.sound?.boost();
     }
@@ -278,7 +271,7 @@ G.Ship = class {
       const thrust = this.thrustPower * thrustEff * boostMult / effectiveMass;
       this.vx += fwdX * thrust * dt;
       this.vy += fwdY * thrust * dt;
-      if(boostActive) this.energy = Math.max(0, this.energy - 30 * dt);
+      if(boostActive) this.energy = Math.max(0, this.energy - 450 * dt);
       this.fuel = Math.max(0, this.fuel - this.fuelBurnRate * 0.05 * dt);
 
       // Grip: while driving forward, fire lateral thrusters to cancel sideways drift
@@ -288,13 +281,15 @@ G.Ship = class {
       this.vx -= latX * dvl;
       this.vy -= latY * dvl;
     }
-    // Q/E = strafe left/right (perpendicular thrust, boosted)
-    if(inp.strafeL || inp.strafeR) {
+    // Q/E = dodge left/right (instant acceleration perpendicular to direction)
+    this._strafeCooldown = Math.max(0, (this._strafeCooldown || 0) - dt);
+    if((inp.strafeL || inp.strafeR) && this._strafeCooldown <= 0) {
       const dir = inp.strafeL ? -1 : 1;
-      const strafeThrust = this.thrustPower * thrustEff * boostMult * 0.65 / effectiveMass;
-      this.vx += latX * dir * strafeThrust * dt;
-      this.vy += latY * dir * strafeThrust * dt;
-      if(boostActive) this.energy = Math.max(0, this.energy - 15 * dt);
+      const dodgeAccel = 8000 / effectiveMass;
+      this.vx += latX * dir * dodgeAccel * dt;
+      this.vy += latY * dir * dodgeAccel * dt;
+      this._strafeCooldown = 0.5;
+      if(boostActive) this.energy = Math.max(0, this.energy - 60);
     }
     // S = retrograde burn — retro thrusters brake ~1.75x harder than forward thrust
     const spd = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
@@ -321,27 +316,13 @@ G.Ship = class {
     // Asymmetric "boat hull" drag: forward drifts cleanly, lateral slides snap out fast
     let vFwd = this.vx*fwdX + this.vy*fwdY;
     let vLat = this.vx*latX + this.vy*latY;
-    vFwd *= Math.max(0, 1 - 0.06 * dt);   // slight forward drag — momentum is preserved
-    vLat *= Math.max(0, 1 - 2.5  * dt);   // strong lateral drag — kills sideways slide
+    vFwd *= Math.max(0, 1 - 0.06 * dt);
+    const _latDrag = (inp.strafeL || inp.strafeR) ? 0.25 : 2.5;
+    vLat *= Math.max(0, 1 - _latDrag * dt);
     this.vx = fwdX*vFwd + latX*vLat;
     this.vy = fwdY*vFwd + latY*vLat;
 
-    // Speed cap: boost lowers max speed, making it better for direction changes than top speed
-    const spd3 = Math.sqrt(this.vx*this.vx+this.vy*this.vy);
-    const maxSpd = 300 + this.thrustPower * 0.022 * (1 / (1 + effectiveMass * 0.001));
-    const cap = maxSpd * (boostActive ? 0.7 : 1.0);
-    if(spd3 > 1) {
-      // Interstellar drag: negligible at cruise, ramps up exponentially near the cap
-      const nearDrag = 90 * Math.pow(spd3 / cap, 8);
-      const factor = Math.max(0, 1 - (nearDrag / spd3) * dt);
-      this.vx *= factor; this.vy *= factor;
-    }
-    // Hard backstop so the cap is never blown through on a big dt spike
-    const spd2 = Math.sqrt(this.vx*this.vx+this.vy*this.vy);
-    if(spd2 > cap * 1.05) {
-      const sc = (cap * 1.05) / spd2;
-      this.vx *= sc; this.vy *= sc;
-    }
+    // No speed cap - ships can accelerate indefinitely
 
     // Integrate position
     this.x += this.vx*dt;
@@ -388,9 +369,9 @@ G.Ship = class {
       return { shieldDmg:amount*0.5, hullDmg:0 };
     }
 
-    // Disabled ships have no power — bypass shields, damage hull directly
+    // Disabled ships have no power — bypass shields, track damage separately (hull stays at 0)
     if(this.disabled) {
-      this.hull -= amount;
+      this._postDisableDmg = (this._postDisableDmg || 0) + amount;
       return { shieldDmg:0, hullDmg:amount };
     }
 
@@ -406,6 +387,8 @@ G.Ship = class {
       hullDmg = amount;
       this.hull -= hullDmg;
       if(this.hull <= 0) {
+        this.hull = 0;
+        this._postDisableDmg = 0;
         this.disabled = true;
       }
     }
@@ -477,6 +460,7 @@ G.Ship = class {
       pierce:wpn.pierce||false,
       ttl:wpn.range / wpn.projSpeed,
       sourceId: this === G.game?.player ? 'player' : this.id,
+      ...(wpn.type === 'mining' ? { originX: this.x, originY: this.y } : {}),
     };
 
     // Multi-pellet spread (shotgun-style)

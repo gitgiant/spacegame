@@ -15,7 +15,7 @@ G.Input = class {
   }
 
   _menuOpen() {
-    const ids = ['comms-overlay','options-overlay','spaceport-overlay',
+    const ids = ['options-overlay','spaceport-overlay',
                  'inventory-overlay','mission-log-overlay','gameover-overlay'];
     return ids.some(id => {
       const el = document.getElementById(id);
@@ -33,7 +33,7 @@ G.Input = class {
       if(!this.keys[e.code]) this.justPressed[e.code] = true;
       this.keys[e.code] = true;
       // Prevent page scroll on space/arrows
-      if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Tab'].includes(e.code)) {
+      if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Tab','KeyC'].includes(e.code)) {
         e.preventDefault();
       }
     });
@@ -73,4 +73,5 @@ G.Input = class {
   get boost()    { return this.is('ShiftLeft') || this.is('ShiftRight'); }
   get fire()     { return this.is('Space'); }
   get fireTap()  { return this.pressed('Space'); }
+  get altFire()  { return this.pressed('KeyX'); }
 };

@@ -11,84 +11,412 @@ G.NPC_NAMES = {
 
 G.COMMS_LINES = {
   earth: {
-    hail:      ["Earth Gov vessel here. Routine patrol. Stay out of trouble.",
-                "EGS checking in. Clear skies, commander.",
-                "All traffic is monitored in this sector."],
-    trade:     ["We can spare some surplus cargo. Fair market rates.",
-                "Authorized to conduct limited trade. What do you need?"],
-    threat:    ["Stand down immediately. You are threatening an Earth Government vessel.",
-                "That's a crime. Your transponder has been flagged."],
-    fuel:      ["Emergency fuel transfer authorized for {cost} credits. Dock alongside.",
-                "We can spare fuel. {cost} credits — standard emergency rate."],
-    hostile:        ["Opening fire! Authority to engage hostile vessel!",
-                     "You are declared a threat. Weapons free!"],
-    neutral_resume: ["Standing down. Threat neutralized.", "Clear. Resuming patrol."],
-    noresponse:["...", "Static.", "No signal."],
-    forgive_accept: ["Stand down. Your fine of {cost} credits has been logged. Don't let it happen again.",
-                     "Payment received. We're watching you."],
-    forgive_deny:   ["Your credits are no good here. Weapons free.",
-                     "This isn't a negotiation. Prepare to be boarded."],
+    hail: [
+      "Earth Gov vessel here. Routine patrol. Stay out of trouble.",
+      "EGS checking in. Clear skies, commander.",
+      "All traffic is monitored in this sector.",
+      "This is {name}. Identify yourself and state your heading.",
+      "{name} to unidentified vessel — you are being tracked. State your business.",
+      "Earth Government patrol, copy. What's your sitrep?",
+      "Lima Charlie on this channel. Proceed with your transmission.",
+      "Sector Foxtrot-Seven patrol checking in. You have our attention.",
+      "EGS vessel {name}, authentication Bravo-Niner. Go ahead.",
+      "All vessels in this corridor are subject to inspection. Stand by.",
+      "This is Earth Gov. We've been tracking your transponder for three sectors.",
+      "Roger your hail. {name} here — keep it short, we're on patrol.",
+      "Earth Navy vessel. Weapons cold but we're watching. Proceed.",
+      "{name} — you're on a monitored channel. Choose your words carefully.",
+      "Grid reference Delta-Four. {name} on patrol. Go ahead.",
+      "Copy. {name} standing by — state your purpose, spacer.",
+    ],
+    trade: [
+      "We can spare some surplus cargo. Fair market rates.",
+      "Authorized to conduct limited trade. What do you need?",
+      "Earth Gov surplus available. Clean goods, clean ledger.",
+      "Checking manifest — units available. Standard rates apply.",
+      "{name} authorizing field trade. One time only.",
+      "Field trade authorization active. Make it quick — we have a patrol to run.",
+      "Cargo exchange acknowledged. Comply with Earth Gov transfer protocols.",
+    ],
+    fuel: [
+      "Emergency fuel transfer authorized for {cost} credits. Dock alongside.",
+      "We can spare fuel. {cost} credits — standard emergency rate.",
+      "{name} en route for fuel transfer. Rate is {cost}, non-negotiable.",
+      "Fuel request approved. {cost} credits. {name} Oscar Mike to your position.",
+      "Roger, en route. {cost} credits. Emergency field transfer protocol active.",
+    ],
+    tribute_accept: [
+      "This violation will be on record. Take it and leave our sector.",
+      "You'll regret this. Transferring under protest.",
+      "...Fine. Under protest. {name} logging this incident for command review.",
+      "Transferring under duress. Your transponder is flagged — enjoy your credits.",
+      "This sector command will hear about this. Credits transferred.",
+      "You've made an enemy today. Take the credits and go.",
+      "{name} complying under coercion. Command notified. You will be found.",
+    ],
+    tribute_refuse: [
+      "Stand down immediately. You are threatening an Earth Government vessel.",
+      "That's a crime. Your transponder has been flagged. Weapons free.",
+      "{name} declaring Code Alpha. Tango acquired. Engaging.",
+      "Negative. Weapons free. Command notified — all units, Code Tango.",
+      "You picked the wrong ship. {name} weapons hot. Engaging hostile.",
+      "By order of Earth Government, you are under arrest. Comply or be destroyed.",
+      "Code Tango! Code Tango! {name} engaging hostile — all units respond.",
+      "{name} — weapons free. Robbing Earth Navy? Bold. Lethal. Stupid.",
+    ],
+    hostile: [
+      "Opening fire! Authority to engage hostile vessel!",
+      "You are declared a threat. Weapons free!",
+      "{name} to command — engaging Tango. Neutralization in progress.",
+      "Code Alpha — weapons hot. You had your chance.",
+      "Earth Gov vessel {name} is weapons hot. This ends now.",
+      "All units: Tango in sector. {name} engaging — request backup.",
+      "Earth Navy protocol Foxtrot-Seven active. Lethal force authorized.",
+      "Target designated. {name} — fire for effect.",
+    ],
+    neutral_resume: [
+      "Standing down. Threat neutralized.",
+      "Clear. Resuming patrol.",
+      "{name} standing down. Returning to patrol. Don't make us come back.",
+      "Situation nominal. {name} resuming sector sweep.",
+      "Code Green. Tango has withdrawn. {name} resuming Oscar Mike.",
+      "Weapons cold. You're clear — for now. Don't test us again.",
+    ],
+    noresponse: [
+      "...",
+      "Static.",
+      "No signal.",
+      "{name} — channel closed. No response.",
+      "Not responding. Signal interference in sector.",
+      "[NO CARRIER]",
+      "Channel November — no response.",
+    ],
+    forgive_accept: [
+      "Stand down. Your fine of {cost} credits has been logged. Don't let it happen again.",
+      "Payment received. We're watching you.",
+      "Fine of {cost} accepted. {name} logging resolution. Stay out of restricted space.",
+      "Credits received. You're on probation. One more incident and there's no deal.",
+      "Clearance granted on payment of {cost}. Bravo Zulu — smart choice.",
+      "{cost} received by {name}. Flagged but not pursued. Don't waste this.",
+    ],
+    forgive_deny: [
+      "Your credits are no good here. Weapons free.",
+      "This isn't a negotiation. Prepare to be boarded.",
+      "Negative on the offer. {name} weapons free. Your account is closed.",
+      "We don't take bribes. Code Tango active. {name} engaging.",
+      "Earth Gov doesn't negotiate with criminals. Weapons free.",
+    ],
   },
+
   rebellion: {
-    hail:      ["Rebellion vessel. We don't want trouble unless you bring it.",
-                "Down with Earth Gov tyranny. Fly free.",
-                "The movement grows stronger every day."],
-    trade:     ["We trade in things the corps don't want available. Interested?",
-                "Sure, we deal. Fair exchange only."],
-    threat:    ["We've faced cruisers. You don't scare us.",
-                "Try it, and see what the rebellion sends after you."],
-    fuel:      ["Fuel costs credits even in a revolution. {cost} — take it.",
-                "We look after each other out here. {cost} credits."],
-    hostile:        ["Open fire! For the rebellion!", "Enemy of the cause — engage!"],
-    neutral_resume: ["Disengaging. Stay out of our way.", "Stand down — for now."],
-    noresponse:["...", "Not interested.", "Save it."],
-    forgive_accept: ["Fine. {cost} credits to the cause. Now get out of our space.",
-                     "We'll take your credits. Don't push your luck."],
-    forgive_deny:   ["You can't buy your way out of this.",
-                     "The rebellion doesn't deal with traitors."],
+    hail: [
+      "Rebellion vessel. We don't want trouble unless you bring it.",
+      "Down with Earth Gov tyranny. Fly free.",
+      "The movement grows stronger every day.",
+      "This is {name}. You're in rebel space — state your allegiance.",
+      "{name} here. Friend or foe? Choose carefully.",
+      "Rebel comms active. We've got eyes on you. What's your business?",
+      "The cause lives. {name} checking in — what do you need?",
+      "We don't broadcast our position for nothing. Talk.",
+      "Rebellion vessel {name}. You've got thirty seconds.",
+      "Every ship that hails us is a resource or a risk. Which are you?",
+      "The old order is dying. {name} — are you with us or against us?",
+      "Running dark out here. {name} — signal received. Go ahead.",
+      "Freedom isn't free. Neither is our time. What do you want?",
+      "{name} on comms. We fight for the people — state your purpose.",
+      "Earth Gov can't hear us out here. {name} — speak freely.",
+    ],
+    trade: [
+      "We trade in things the corps don't want available. Interested?",
+      "Sure, we deal. Fair exchange only.",
+      "{name} authorizing trade window. No questions about origin. Deal?",
+      "We've got surplus from the last Earth Gov convoy we liberated. Interested?",
+      "Trade approved. The rebellion needs credits too. What are you offering?",
+      "Fair barter or fair credits. {name} — honest deal for the right person.",
+    ],
+    fuel: [
+      "Fuel costs credits even in a revolution. {cost} — take it.",
+      "We look after each other out here. {cost} credits.",
+      "{name} en route. The cause needs funded — {cost} for the tank.",
+      "Solidarity only goes so far. {cost} credits, then we're even.",
+      "Roger, en route. {cost} credits. Tax on surviving out here.",
+    ],
+    tribute_accept: [
+      "Fine. You win this one. Don't think it means we're friends.",
+      "Take it. The rebellion remembers every slight.",
+      "Credits transferred. {name} logging this. Earth Gov can't protect everyone.",
+      "You're bold. Fine — take it. The cause will outlast you either way.",
+      "Fine. You fight dirty — respect. Credits incoming from {name}.",
+      "Take what you want. The movement bends — it doesn't break.",
+    ],
+    tribute_refuse: [
+      "We've faced cruisers. You don't scare us. Open fire!",
+      "Try it. The rebellion will send ten ships for every one you shoot down.",
+      "{name} weapons hot. You picked a fight with the wrong side of history.",
+      "We've bled for freedom — we won't pay tribute to anyone. {name} engaging.",
+      "The cause doesn't bow to pirates or tyrants. {name} opening fire.",
+      "Rebels don't kneel. {name} — weapons free!",
+    ],
+    hostile: [
+      "Open fire! For the rebellion!",
+      "Enemy of the cause — engage!",
+      "{name} engaging. The cause demands it.",
+      "Weapons free. The rebellion doesn't forgive traitors.",
+      "You made this choice. {name} — fire everything.",
+      "For every rebel who died — this is for them. {name} engaging.",
+      "Tango acquired. {name} weapons free — for the movement!",
+    ],
+    neutral_resume: [
+      "Disengaging. Stay out of our way.",
+      "Stand down — for now.",
+      "{name} standing down. Consider this a warning from the movement.",
+      "Weapons cold. Don't push us again.",
+      "You got lucky. The rebellion will remember.",
+      "{name} breaking off. The cause is patient. We will meet again.",
+    ],
+    noresponse: [
+      "...",
+      "Not interested.",
+      "Save it.",
+      "{name} — channel dead.",
+      "Running silent.",
+      "Signal rejected.",
+    ],
+    forgive_accept: [
+      "Fine. {cost} credits to the cause. Now get out of our space.",
+      "We'll take your credits. Don't push your luck.",
+      "{cost} credits received by {name}. Debt paid — barely.",
+      "Credits to the cause. Wise. {name} will not pursue — this time.",
+      "Accepted. {cost} to the fund. Now fly before we reconsider.",
+      "{name} — fine accepted. {cost} credits. Don't make us meet again.",
+    ],
+    forgive_deny: [
+      "You can't buy your way out of this.",
+      "The rebellion doesn't deal with traitors.",
+      "{name} — offer declined. We have principles. Weapons free.",
+      "Keep your credits. We'll take them off the wreck.",
+      "No deal. The movement doesn't negotiate with enemies. {name} engaging.",
+    ],
   },
+
   pirate: {
-    hail:      ["What do you want, spacer? Make it quick.",
-                "I've got cargo to deliver. Beat it.",
-                "We don't do idle chat."],
-    trade:     ["Got merchandise. Don't ask provenance. Deal?",
-                "Credits change hands, cargo changes ships. Simple."],
-    threat:    ["Ha. You're threatening a pirate? Bold move.",
-                "I've been shot at by warships. Try harder."],
-    fuel:      ["Fuel's expensive this far out. {cost}. Final offer.",
-                "{cost} credits. I'm not running a charity."],
-    hostile:        ["Arrgh, fire everything!", "Hah! Fresh prey!"],
-    neutral_resume: ["Whatever. Wasn't worth my ammo.", "You got lucky — this time."],
-    noresponse:["...", "Busy.", ""],
-    forgive_accept: ["Hah! {cost} credits? Sure, we're done here. Fly on.",
-                     "Now that's the smart play. {cost} credits — get lost."],
-    forgive_deny:   ["You think that's enough? We'll take it off your wreck.",
-                     "Not nearly enough. Open fire!"],
+    hail: [
+      "What do you want, spacer? Make it quick.",
+      "I've got cargo to deliver. Beat it.",
+      "We don't do idle chat.",
+      "This is {name}. You've got ten seconds before we decide you're cargo.",
+      "{name} here. What do you want? And it better be good.",
+      "Unidentified vessel — you're in our hunting ground. State your business.",
+      "Hailing back. {name} — now talk before I get bored.",
+      "You're on pirate frequencies. Takes guts or stupidity. Which is it?",
+      "Signal received. {name} is listening — and so is our weapons array.",
+      "We run dark out here for a reason. What do you want?",
+      "You've got my attention. That's not always a good thing. Talk.",
+      "{name} on comms. Cut to it — we're not the chatty type.",
+      "Come in. {name} on the line. Make it worth our time.",
+      "Fancy hailing a pirate. Bold move, stranger. {name} — go ahead.",
+    ],
+    trade: [
+      "Got merchandise. Don't ask provenance. Deal?",
+      "Credits change hands, cargo changes ships. Simple.",
+      "{name} authorizing a trade. No receipts, no questions. Credits only.",
+      "We liberate cargo from supply chains. Want some at discount?",
+      "We deal in hard-to-find goods. {name} — fair price for the right buyer.",
+      "Goods available. Origin unspecified. Price negotiable. You in?",
+    ],
+    fuel: [
+      "Fuel's expensive this far out. {cost}. Final offer.",
+      "{cost} credits. I'm not running a charity.",
+      "{name} en route. {cost} and we call it even. Argue and the price doubles.",
+      "Fuel for {cost}. Take it or float. {name} isn't making special trips.",
+      "Alright, we'll sell you fuel. {cost}. Don't make a habit of it.",
+    ],
+    tribute_accept: [
+      "Hah! Bold. Alright, here's your cut. Now disappear.",
+      "Smart move. Take it before I change my mind.",
+      "Credits transferred. {name} respects someone who takes what they want.",
+      "Hah! You've got stones. Credits incoming from {name}.",
+      "Take it. {name} likes audacity. Don't push it further.",
+      "Ha! You robbed a pirate. Genius or a death wish. Credits sent.",
+    ],
+    tribute_refuse: [
+      "Ha! You're demanding tribute from a pirate? Priceless. Die.",
+      "I've been shot at by warships. You're nothing. Open fire!",
+      "{name} — you're robbing a pirate? Hilarious. Weapons free.",
+      "Bold move. Dumbest thing I've seen this sector. {name} engaging.",
+      "You're shaking down {name}? Last thing you'll find funny. Weapons hot.",
+      "Nobody taxes the taxmen. Weapons hot. {name} engaging.",
+    ],
+    hostile: [
+      "Arrgh, fire everything!",
+      "Hah! Fresh prey!",
+      "{name} weapons free! Strip the hull clean!",
+      "Target acquired. {name} — let's see what you're made of.",
+      "Hostile contact! {name} going weapons hot!",
+      "Ha! You walked right into us. {name} — fire at will!",
+      "Shoot first, salvage after. {name} moving to engage.",
+      "{name} weapons hot. Nothing personal — just business.",
+    ],
+    neutral_resume: [
+      "Whatever. Wasn't worth my ammo.",
+      "You got lucky — this time.",
+      "{name} standing down. You've got a guardian angel somewhere.",
+      "Fine. Not worth the fuel. {name} breaking off.",
+      "We'll let you go. Don't make it a habit.",
+    ],
+    noresponse: [
+      "...",
+      "Busy.",
+      "",
+      "{name} — not interested.",
+      "Channel dead. Move on.",
+      "No.",
+    ],
+    forgive_accept: [
+      "Hah! {cost} credits? Sure, we're done here. Fly on.",
+      "Now that's the smart play. {cost} credits — get lost.",
+      "{cost} transferred to {name}. You bought yourself a tomorrow. Use it.",
+      "Hah! Smart spacer. {cost} credits — {name} accepts. Good doing business.",
+      "We'll take it. {cost} from {name}. Come back sometime — maybe we'll trade.",
+    ],
+    forgive_deny: [
+      "You think that's enough? We'll take it off your wreck.",
+      "Not nearly enough. Open fire!",
+      "{name} — not interested. We'll earn more off your cargo. Engaging.",
+      "Keep it. {name} prefers the hard way. Weapons hot.",
+      "Credits? We want your ship. {name} — weapons free.",
+    ],
   },
+
   independent: {
-    hail:      ["Just a trader, friend. Peaceful transit.",
-                "No trouble here. Trying to make a living.",
-                "Merchant vessel. We're not armed for a fight."],
-    trade:     ["Happy to trade. Honest prices — no gouging.",
-                "We've got a few things. What are you looking for?"],
-    threat:    ["Please! I have a family! I'm just a merchant!",
-                "I have nothing worth fighting over, I swear!"],
-    fuel:      ["We all look out for each other. {cost} credits, deal?",
-                "Happy to help. {cost} for a fuel cell transfer."],
-    hostile:        ["Mayday! Being attacked! All hands brace!", "They're firing on us — return fire!"],
-    neutral_resume: ["Oh thank the stars — we're safe!", "Easing off. We don't want trouble."],
-    noresponse:["...", "No response.", "Channel closed."],
-    forgive_accept: ["Okay, okay! {cost} credits — just don't shoot! We're leaving!",
-                     "Deal. {cost} credits. We want no trouble."],
-    forgive_deny:   ["We can't afford that! Just leave us alone!",
-                     "Please! We have nothing!"],
+    hail: [
+      "Just a trader, friend. Peaceful transit.",
+      "No trouble here. Trying to make a living.",
+      "Merchant vessel. We're not armed for a fight.",
+      "This is {name}. Just hauling freight — no trouble wanted.",
+      "{name} on comms. Peaceful merchant. Please don't shoot.",
+      "Registered trader {name}. Clean manifest, clean record. Passing through.",
+      "The fuck you want {name} — independent freighter, no weapons worth mentioning.",
+      "Hail received. {name} — just trying to get to the next port.",
+      "Merchant vessel {name} acknowledges. We come in peace, genuinely.",
+      "This is {name}. Got cargo and a mortgage to pay. No trouble wanted.",
+      "Lima Charlie — loud and clear. {name}, independent hauler. What do you need?",
+      "Just a free trader out here. {name} on comms. What can we do for you?",
+      "Signal received. {name} — civilian merchant. We're unarmed. Please.",
+      "{name} — just trying to make a living. What can we do for you?",
+      "Peaceful contact. {name} — no contraband, no trouble, just cargo runs.",
+    ],
+    trade: [
+      "Happy to trade. Honest prices — no gouging.",
+      "We've got a few things. What are you looking for?",
+      "{name} opening trade bay. Fair prices, clean goods, no trouble.",
+      "Trade? Sure. {name} always looking to turn a profit the honest way.",
+      "We've got surplus cargo. {name} — fair exchange, no tricks.",
+      "Trading is how we survive. {name} — what are you after?",
+    ],
+    fuel: [
+      "We all look out for each other. {cost} credits, deal?",
+      "Happy to help. {cost} for a fuel cell transfer.",
+      "{name} en route. {cost} credits — we help where we can.",
+      "Of course. {cost} credits. {name} — we remember when someone helped us.",
+      "En route to your position. {cost} credits is all we ask. Stay safe.",
+    ],
+    tribute_accept: [
+      "Please! Just take it and go! We don't want any trouble!",
+      "Here — everything in our lockbox. Just don't hurt anyone!",
+      "Credits transferred from {name}. We just want to go home. Please.",
+      "Here. Take it. {name} has a crew to think about. Just let us go.",
+      "Fine. {name} paying up. We can't fight this. Just let us pass.",
+      "Take whatever you want. {name} — we have families. Please.",
+    ],
+    tribute_refuse: [
+      "We won't be intimidated! You'll regret this — open fire!",
+      "No! We're not giving you anything! Fight us then!",
+      "{name} is done being pushed around! Combat stations!",
+      "Enough! {name} to all stations — we fight back!",
+      "We may be traders but we're not cowards! {name} engaging!",
+    ],
+    hostile: [
+      "Mayday! Being attacked! All hands brace!",
+      "They're firing on us — return fire!",
+      "{name} declaring emergency — under attack! Mayday!",
+      "All hands to battle stations! {name} is under fire!",
+      "We're taking hits! {name} — returning fire! Someone help us!",
+      "This is {name} — mayday, mayday! We're being attacked!",
+    ],
+    neutral_resume: [
+      "Oh thank the stars — we're safe!",
+      "Easing off. We don't want trouble.",
+      "{name} standing down. Stars above — we thought we were done for.",
+      "Weapons cold. {name} — deeply relieved. We'll remember your mercy.",
+      "Thank you. {name} — standing down. Safe travels to you.",
+    ],
+    noresponse: [
+      "...",
+      "No response.",
+      "Channel closed.",
+      "{name} — no signal. Channel dead.",
+      "Dead air.",
+      "Trying again... nothing.",
+    ],
+    forgive_accept: [
+      "Okay, okay! {cost} credits — just don't shoot! We're leaving!",
+      "Deal. {cost} credits. We want no trouble.",
+      "{cost} transferred from {name}. Just let us go, please.",
+      "Credits sent. {name} — please, we have a family at port. Let us go.",
+      "Deal accepted. {cost} from {name}. We'll forget this happened.",
+      "{name} — sending {cost} now. We have crew depending on us.",
+    ],
+    forgive_deny: [
+      "We can't afford that! Just leave us alone!",
+      "Please! We have nothing!",
+      "{name} — we can't cover that. Please, we're just traders.",
+      "That's everything we have and more. {name} begging you — stand down.",
+      "We don't have that kind of credits! {name} — please.",
+    ],
   },
+
   alien: {
-    hail:          ["[UNINTELLIGIBLE]", "[STATIC BURST]", "[SIGNAL LOST]"],
-    hostile:       ["[HOSTILE SIGNAL DETECTED]", "[WEAPONS HOT]"],
-    neutral_resume:["[SIGNAL NOMINAL]", "[THREAT WITHDRAWN]"],
-    noresponse:    ["[NO CARRIER]", "...", "[SIGNAL LOST]"],
-    forgive_deny:  ["[UNINTELLIGIBLE]", "[HOSTILE SIGNAL]"],
+    hail: [
+      "[UNINTELLIGIBLE]",
+      "[STATIC BURST]",
+      "[SIGNAL LOST]",
+      "[CARRIER WAVE DETECTED — NO TRANSLATION]",
+      "[HARMONIC FREQUENCY: WARNING]",
+      "[QUANTUM SIGNAL — DECODE FAILED]",
+      "[TRANSMISSION CORRUPT — ORIGIN: {name}]",
+      "[HOSTILE INTENT DETECTED — TRANSLATING...]",
+      "[ANOMALOUS BROADCAST — BIOLOGICAL ENTITY SCANNED]",
+      "[SIGNAL: ORGANIC VESSEL IDENTIFIED — THREAT ASSESSMENT RUNNING]",
+      "[NULL RESPONSE EXPECTED — ENGAGING CONTACT PROTOCOL]",
+    ],
+    hostile: [
+      "[HOSTILE SIGNAL DETECTED]",
+      "[WEAPONS HOT]",
+      "[EXTERMINATE — THREAT VECTOR ACQUIRED]",
+      "[TARGET LOCKED — FIRING SEQUENCE INITIATED]",
+      "[ORGANIC VESSEL — TERMINATE]",
+      "[{name}: COMBAT PROTOCOL ACTIVE]",
+    ],
+    neutral_resume: [
+      "[SIGNAL NOMINAL]",
+      "[THREAT WITHDRAWN]",
+      "[DISENGAGING — TEMPORARILY]",
+      "[SECTOR SCAN COMPLETE — WITHDRAWING]",
+    ],
+    noresponse: [
+      "[NO CARRIER]",
+      "...",
+      "[SIGNAL LOST]",
+      "[CHANNEL VOID]",
+      "[NULL RESPONSE]",
+    ],
+    forgive_deny: [
+      "[UNINTELLIGIBLE]",
+      "[HOSTILE SIGNAL]",
+      "[TRANSACTION REJECTED — EXTERMINATION CONTINUING]",
+      "[ORGANIC CURRENCY: IRRELEVANT]",
+    ],
   },
 };
 
@@ -105,11 +433,11 @@ G.NPCShip = class {
 
     // Pick ship type appropriate to faction
     const shipPool = {
-      earth:       ['earth_shuttle','earth_corvette','earth_patrol','earth_hauler','earth_shuttle'],
-      rebellion:   ['rebel_runner','rebel_corvette','rebel_frigate','rebel_hauler','rebel_runner'],
-      pirate:      ['pirate_skiff','pirate_corvette','pirate_raider','pirate_skiff'],
-      independent: ['shuttle','miner_ship','container_ship','tanker_ship','corvette'],
-      alien:       ['alien_scout','alien_warship','alien_scout'],
+      earth:       ['earth_shuttle','earth_fighter','earth_corvette','earth_patrol','earth_hauler','earth_bomber','earth_destroyer','earth_cruiser','earth_carrier'],
+      rebellion:   ['rebel_runner','rebel_fighter','rebel_corvette','rebel_frigate','rebel_hauler','rebel_bomber','rebel_destroyer','rebel_cruiser','rebel_carrier'],
+      pirate:      ['pirate_skiff','pirate_fighter','pirate_corvette','pirate_raider','pirate_hauler','pirate_marauder','pirate_destroyer','pirate_battleship'],
+      independent: ['shuttle','fighter','miner_ship','container_ship','tanker_ship','corvette','frigate','bomber'],
+      alien:       ['alien_scout','alien_fighter','alien_warship'],
     };
     const pool   = shipPool[faction]||shipPool.independent;
     this.shipId  = pool[Math.floor(Math.random()*pool.length)];
@@ -117,6 +445,7 @@ G.NPCShip = class {
     this.shapeId = tpl.shape||'shuttle';
     this.color   = G.FACTIONS[faction]?.color||'#888888';
     this.size    = tpl.size||1.0;
+    this.captain = { sex: Math.random() < 0.5 ? 'male' : 'female', faceIdx: Math.floor(Math.random() * 5) };
 
     // Stats derived from ship template so larger ships are tankier and slower
     const hullVar = 0.8 + Math.random() * 0.4;
@@ -475,6 +804,8 @@ G.NPCShip = class {
       case 'charging_jump': {
         const chargeTime = 2.5;
         this.jumpChargeT += dt;
+        const pDist = G.game?.player ? Math.hypot(this.x - G.game.player.x, this.y - G.game.player.y) : 9999;
+        if(pDist < 2000) G.sound?.jumpCharge(this.jumpChargeT / chargeTime, pDist);
         if(this.jumpChargeT >= chargeTime) {
           // Hyperspace jump-out
           this.jumpingOut = true;
@@ -482,6 +813,8 @@ G.NPCShip = class {
           this.vx = Math.sin(this.angle)*6000;
           this.vy = -Math.cos(this.angle)*6000;
           if(particles) particles.warp_effect(this.x, this.y);
+          if(pDist < 3000) G.sound?.hyperspace(pDist);
+          else G.sound?.stopJumpCharge();
         }
         break;
       }
@@ -493,7 +826,24 @@ G.NPCShip = class {
     const dx=t.x-this.x, dy=t.y-this.y;
     const dist=Math.hypot(dx,dy);
     this._steerTo(t.x, t.y, dt);
-    if(dist>220) this._thrust(dt);
+    const _approachSpd = dist>0 ? -(dx/dist*this.vx+dy/dist*this.vy) : 0;
+    if(dist>280) { this._thrust(dt); }
+    else if(_approachSpd>70) { this._brake(dt); }
+
+    // Strafe dodge in combat
+    this._strafeCd = (this._strafeCd||0) - dt;
+    if((this._strafeDur||0) > 0) {
+      this._strafeDur -= dt;
+      this._doStrafe(this._strafeDir||1, dt);
+    } else {
+      this._strafeDir = 0;
+      if(this._strafeCd <= 0 && dist < 500) {
+        this._strafeDir = Math.random() < 0.5 ? 1 : -1;
+        this._strafeDur = 0.5 + Math.random() * 0.6;
+        this._strafeCd  = 1.0 + Math.random() * 1.2;
+      }
+    }
+
     const angleToT=Math.atan2(dx,-dy);
     const diff=Math.abs(G.wrapAngle(this.angle-angleToT));
     const wpn = G.WEAPONS[this.weaponId] || {};
@@ -517,7 +867,7 @@ G.NPCShip = class {
         sourceId: this.id,
       });
       const playerDist = G.game?.player ? Math.hypot(this.x - G.game.player.x, this.y - G.game.player.y) : 0;
-      G.sound?.weaponFire(playerDist);
+      G.sound?.enemyWeapon(wpn.type || 'laser', playerDist);
     }
   }
 
@@ -567,6 +917,23 @@ G.NPCShip = class {
     if(s>this.speed){this.vx*=this.speed/s;this.vy*=this.speed/s;}
   }
 
+  _brake(dt) {
+    const spd=Math.hypot(this.vx,this.vy);
+    if(spd<20) return;
+    const decel=this.speed*0.5*dt;
+    this.vx-=(this.vx/spd)*decel;
+    this.vy-=(this.vy/spd)*decel;
+  }
+
+  _doStrafe(dir, dt) {
+    const latX = Math.cos(this.angle) * dir;
+    const latY = Math.sin(this.angle) * dir;
+    this.vx += latX * this.speed * 0.4 * dt;
+    this.vy += latY * this.speed * 0.4 * dt;
+    const s = Math.hypot(this.vx, this.vy);
+    if(s > this.speed * 1.5) { this.vx *= this.speed * 1.5 / s; this.vy *= this.speed * 1.5 / s; }
+  }
+
   _applyDrag(dt) {
     const fwdX=Math.sin(this.angle), fwdY=-Math.cos(this.angle);
     const latX=Math.cos(this.angle), latY= Math.sin(this.angle);
@@ -587,15 +954,11 @@ G.NPCShip = class {
   }
 
   // Returns array of comms options
-  getCommsOptions(playerFuelPct) {
-    const fuelNeeded  = G.game?.player ? Math.max(0, G.game.player.maxFuel - G.game.player.fuel) : 0;
-    const fuelCostEst = Math.round(fuelNeeded * 8);
+  getCommsOptions() {
     const opts = [
       { key:'hail',    label:'Hail',           color:'#00ffee' },
       { key:'trade',   label:'Propose Trade',  color:'#ffcc00' },
-      { key:'fuel',    label:`Request Fuel — ${G.fmtCredits(fuelCostEst)} (rendezvous)`, color:'#ff8844',
-        disabled: this.hostile || playerFuelPct > 0.9 },
-      { key:'threaten',label:'Threaten',       color:'#ff4444' },
+      { key:'tribute', label:'Demand Tribute',  color:'#ff4444' },
     ];
     const playerRep = G.game?.getRel(this.faction) ?? 0;
     if(this.hostile && playerRep > -75) {
@@ -630,9 +993,20 @@ G.NPCShip = class {
     if(action==='trade') {
       res.tradeItems = Object.entries(this.cargo).map(([id,qty])=>({id,qty,price:Math.round((G.ITEMS[id]?.base||100)*0.9)}));
     }
-    if(action==='threaten') {
-      const baseChance = this.faction==='pirate'?0.25:this.faction==='independent'?0.55:0.45;
-      res.hostile = Math.random()<baseChance;
+    if(action==='tribute') {
+      const successChance = this.faction==='independent'?0.65:this.faction==='pirate'?0.12:this.faction==='earth'?0.22:0.35;
+      const success = Math.random() < successChance;
+      const bank2 = G.COMMS_LINES[this.faction]||G.COMMS_LINES.independent;
+      if(success) {
+        const cargoVal = Object.entries(this.cargo).reduce((sum,[id,qty])=>sum+(G.ITEMS[id]?.base||50)*qty,0);
+        res.tributeAmount = Math.max(80, Math.round(cargoVal*0.35 + 100 + Math.random()*200));
+        const lines = bank2.tribute_accept||["Fine. Take it and go."];
+        res.text = lines[Math.floor(Math.random()*lines.length)];
+      } else {
+        res.hostile = true;
+        const lines = bank2.tribute_refuse||["You dare threaten me?! Open fire!"];
+        res.text = lines[Math.floor(Math.random()*lines.length)];
+      }
     }
     if(action==='forgive') {
       const cost    = G.npcForgivenessCost(this.faction);
@@ -641,6 +1015,7 @@ G.NPCShip = class {
       res.text = lines[Math.floor(Math.random()*lines.length)].replace('{cost}', G.fmtCredits(cost));
       res.forgiveResult = { success, cost };
     }
+    res.text = (res.text || '').replace(/{name}/g, this.name || 'vessel');
     return res;
   }
 };
@@ -680,11 +1055,40 @@ G.FleetShip = class {
     this.dead = false;
     this.disabled = false;
     this._deathDone = false;
+    this.jumpingOut = false;
+    this.jumpOutTimer = 0;
+    this._chargingJump = false;
     this._orbitOffset = Math.random() * Math.PI * 2;
     this._aiTimer = 0;
   }
 
   update(dt, player, target, projectiles, particles, now) {
+    if(this.jumpingOut) {
+      this.jumpOutTimer -= dt;
+      this.x += this.vx*dt; this.y += this.vy*dt;
+      if(particles && Math.random() < 0.7)
+        particles.engine_trail(this.x, this.y, this.angle, this.vx, this.vy, this.size||1);
+      if(this.jumpOutTimer <= 0) this._deathDone = true;
+      return;
+    }
+
+    if(this._released) {
+      this._releasedTimer = (this._releasedTimer||0) + dt;
+      // Fly away from player
+      const dx = this.x - player.x, dy = this.y - player.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const awayAngle = Math.atan2(dx, -dy);
+      this.angle += G.clamp(G.wrapAngle(awayAngle - this.angle) * 5, -this.turnSpeed, this.turnSpeed) * dt;
+      this.vx += Math.sin(this.angle)*this.speed*dt*0.5;
+      this.vy -= Math.cos(this.angle)*this.speed*dt*0.5;
+      const s = Math.hypot(this.vx, this.vy);
+      if(s > this.speed) { this.vx *= this.speed/s; this.vy *= this.speed/s; }
+      this.x += this.vx*dt; this.y += this.vy*dt;
+      // Despawn after 12s or when far away
+      if(this._releasedTimer > 12 || dist > 2000) this._deathDone = true;
+      return;
+    }
+
     if(this.disabled) {
       this.vx *= Math.max(0, 1 - 1.5*dt);
       this.vy *= Math.max(0, 1 - 1.5*dt);
@@ -717,6 +1121,7 @@ G.FleetShip = class {
       if(angleDiff < 0.5 && distToTarget < 680 && now - this.lastShot > 1/this.fireRate) {
         this.lastShot = now;
         const spd = this.weaponType==='laser' ? 780 : 560;
+        const isMissile = this.weaponType === 'missile';
         projectiles.push({
           x: this.x+Math.sin(this.angle)*16, y: this.y-Math.cos(this.angle)*16,
           vx: Math.sin(aimAngle)*spd+this.vx*0.2, vy: -Math.cos(aimAngle)*spd+this.vy*0.2,
@@ -724,14 +1129,15 @@ G.FleetShip = class {
           range: 700, traveled: 0,
           color: this.weaponColor, width: 2,
           ttl: 0.95, sourceId: this.id,
-          splash: 0, empStrength: 0, tracking: false, pierce: false,
+          splash: 0, empStrength: 0, tracking: isMissile, pierce: false,
+          trackTarget: isMissile ? { x: attackTarget.x, y: attackTarget.y } : null,
         });
         if(particles) particles.emit({
           x: this.x+Math.sin(this.angle)*16, y: this.y-Math.cos(this.angle)*16,
           minSpd:20, maxSpd:60, life:0.15, r:2, color:this.weaponColor,
         });
         const playerDist = Math.hypot(this.x - player.x, this.y - player.y);
-        G.sound?.weaponFire(playerDist);
+        G.sound?.enemyWeapon(this.weaponType, playerDist);
       }
     } else {
       const dx = player.x - this.x, dy = player.y - this.y;
