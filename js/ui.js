@@ -1524,6 +1524,8 @@ G.UI = class {
         if(repaired > 0){
           G.game.credits -= cost;
           entry.ship.hull += repaired;
+          const activeFleetShip = G.game.space?.fleetShips?.find(fs => fs.fleetDataId === escortId);
+          if(activeFleetShip) activeFleetShip.hull += repaired;
           const msg = repaired === damage ? entry.fleetName + ' repaired' : `${entry.fleetName} repaired ${repaired} of ${Math.ceil(damage)} HP`;
           this.addMsg(msg,'#44ff44');
           this.renderSpaceportTab('repair');
