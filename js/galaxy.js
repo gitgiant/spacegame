@@ -8,6 +8,8 @@ G.Galaxy = class {
     this.selected   = null;
     this.hoveredSys = null;
     this.jumpRoute  = [];
+    this._infoSys   = null;      // persistently selected system (click)
+    this._landableCache = {};
     this._canvas    = null;
     this._ctx       = null;
     // Zoom/pan state
@@ -32,10 +34,21 @@ G.Galaxy = class {
     });
 
     this._canvas.addEventListener('click', e => {
-      if(!this.hoveredSys) return;
-      const targetId  = this.hoveredSys.id;
       const currentId = G.game?.currentSysId;
-      if(targetId === currentId) return;
+      if(!this.hoveredSys) {
+        // Click on empty space — clear selection and route
+        this._infoSys  = null;
+        this.jumpRoute = [];
+        this.selected  = null;
+        return;
+      }
+      const targetId = this.hoveredSys.id;
+      this._infoSys  = this.hoveredSys;  // always pin info on click
+      if(targetId === currentId) {
+        // Clicking current system just shows info, no routing
+        G.sound?.mapNodeSelect();
+        return;
+      }
       const route = this._findRoute(currentId, targetId);
       if(route && route.length > 0) {
         this.jumpRoute = route;
@@ -106,7 +119,7 @@ G.Galaxy = class {
     return this.canJumpTo(id) ? G.SYSTEMS.find(s => s.id === id) : null;
   }
 
-  clearRoute() { this.jumpRoute = []; this.selected = null; }
+  clearRoute() { this.jumpRoute = []; this.selected = null; this._infoSys = null; }
 
   // Mark a system visited and reveal its neighbors on the map
   revealAround(sysId) {
@@ -158,7 +171,10 @@ G.Galaxy = class {
     // 3. Canvas-space UI overlays
     if(this.jumpRoute.length > 0) {
       this._drawRoutePanel(ctx, playerSysId);
-    } else if(this.hoveredSys && this.hoveredSys.id !== playerSysId) {
+    }
+    if(this._infoSys) {
+      this._drawInfoPanel(ctx, this._infoSys, playerSysId);
+    } else if(this.hoveredSys) {
       const [csx, csy] = this._toCanvas(...this.hoveredSys.pos);
       this._drawHoverPanel(ctx, this.hoveredSys, playerSysId, csx, csy);
     }
@@ -385,9 +401,9 @@ G.Galaxy = class {
         ctx.strokeStyle = 'rgba(0,220,220,0.7)'; ctx.lineWidth = 1.5 * lw; ctx.stroke();
       }
 
-      // Node dot — faction colored, dimmed if unvisited
+      // Node dot — faction colored (including current system)
       const r = isCur ? 5.5 : (visited ? 4.5 : 3);
-      const dotFill = isCur ? '#00ffee' : (isRoute ? '#44aaff' : facCol);
+      const dotFill = isRoute && !isCur ? '#44aaff' : facCol;
       ctx.globalAlpha = (visited || isCur) ? 1.0 : 0.38;
 
       if(sys.noStar) {
@@ -416,7 +432,8 @@ G.Galaxy = class {
         ctx.fillStyle = labelCol;
         ctx.globalAlpha = (visited || isCur) ? 1.0 : 0.55;
         ctx.font = `${isCur ? 'bold ' : ''}8px "Press Start 2P",monospace`;
-        ctx.fillText(sys.name, sx + 6, sy - 5);
+        const displayName = (visited || isCur) ? sys.name : 'UNDISCOVERED';
+        ctx.fillText(displayName, sx + 6, sy - 5);
         ctx.globalAlpha = 1.0;
       }
     }
@@ -466,20 +483,22 @@ G.Galaxy = class {
 
   // ── Hover panel (canvas-space, positioned near node) ────
   _drawHoverPanel(ctx, sys, playerSysId, csx, csy) {
-    const fac    = G.FACTIONS[sys.faction];
-    const rel    = G.game ? G.game.getRel(sys.faction) : 0;
-    const visited = this.visited.has(sys.id);
-    const route  = this._findRoute(playerSysId, sys.id);
-    const hops   = route ? route.length : null;
-    const facCol = (fac && sys.faction !== 'contested' && sys.faction !== 'neutral')
-                 ? fac.color : '#aaaaaa';
+    const fac     = G.FACTIONS[sys.faction];
+    const rel     = G.game ? G.game.getRel(sys.faction) : 0;
+    const visited = this.visited.has(sys.id) || sys.id === playerSysId;
+    const isCur   = sys.id === playerSysId;
+    const route   = isCur ? null : this._findRoute(playerSysId, sys.id);
+    const hops    = route ? route.length : null;
+    const facCol  = (fac && sys.faction !== 'contested' && sys.faction !== 'neutral')
+                  ? fac.color : '#aaaaaa';
+    const displayName = visited ? sys.name : 'UNDISCOVERED';
 
-    const PW = 200, PH = 140;
+    const PW = 200, PH = visited ? 155 : 110;
     const px = Math.min(csx + 18, 950 - PW - 8);
     const py = Math.max(8, Math.min(csy - 20, 700 - PH - 8));
 
     ctx.save();
-    ctx.fillStyle = 'rgba(3,10,22,0.94)'; ctx.strokeStyle = '#1a4a6a'; ctx.lineWidth = 1;
+    ctx.fillStyle = 'rgba(3,10,22,0.94)'; ctx.strokeStyle = isCur ? '#00ffee' : '#1a4a6a'; ctx.lineWidth = 1;
     const rr = 4;
     ctx.beginPath();
     ctx.moveTo(px+rr,py); ctx.lineTo(px+PW-rr,py); ctx.quadraticCurveTo(px+PW,py,px+PW,py+rr);
@@ -492,27 +511,135 @@ G.Galaxy = class {
     ctx.beginPath(); ctx.moveTo(csx, csy); ctx.lineTo(px, py + PH / 2);
     ctx.strokeStyle = 'rgba(0,200,200,0.22)'; ctx.lineWidth = 0.5; ctx.stroke();
 
-    ctx.font = '10px "Press Start 2P",monospace';
-    ctx.fillStyle = facCol;
-    ctx.fillText(sys.name.slice(0, 18), px+8, py+18);
-    ctx.font = '7px "Press Start 2P",monospace'; ctx.fillStyle = '#aaa';
-    const stars = '★'.repeat(Math.min(sys.danger, 5)) + '☆'.repeat(Math.max(0, 5 - sys.danger));
-    ctx.fillText('Faction: ' + (fac?.name || sys.faction).slice(0, 14), px+8, py+33);
-    ctx.fillStyle = '#ff8844';
-    ctx.fillText('Danger:  ' + stars, px+8, py+46);
-    ctx.fillStyle = visited ? '#44ff44' : '#888';
-    ctx.fillText(visited ? 'Visited' : 'Unexplored', px+8, py+59);
-    ctx.fillStyle = rel > 0 ? '#44ff44' : rel < 0 ? '#ff4444' : '#aaa';
-    ctx.fillText('Rep: ' + rel, px+8, py+72);
-    if(hops !== null) {
-      ctx.fillStyle = '#00aaff';
-      ctx.fillText(hops + ' hop' + (hops !== 1 ? 's' : '') + ' / ' + (hops * 10) + ' fuel', px+8, py+88);
-      ctx.fillStyle = '#aaaaaa';
-      ctx.fillText('Click to set destination', px+8, py+104);
+    ctx.font = '9px "Press Start 2P",monospace';
+    ctx.fillStyle = visited ? facCol : '#556677';
+    ctx.fillText(displayName.slice(0, 18), px+8, py+16);
+
+    if(isCur) {
+      ctx.font = '6px "Press Start 2P",monospace'; ctx.fillStyle = '#00ffee';
+      ctx.fillText('CURRENT SYSTEM', px+8, py+28);
+    }
+
+    if(visited) {
+      ctx.font = '7px "Press Start 2P",monospace'; ctx.fillStyle = '#aaa';
+      const stars = '★'.repeat(Math.min(sys.danger, 5)) + '☆'.repeat(Math.max(0, 5 - sys.danger));
+      const facName = (fac?.name || sys.faction).slice(0, 14);
+      const ports = this._getLandableCount(sys);
+      const r0 = isCur ? 42 : 30;
+      ctx.fillText('Faction: ' + facName, px+8, py+r0);
+      ctx.fillStyle = '#ff8844';
+      ctx.fillText('Danger:  ' + stars, px+8, py+r0+13);
+      ctx.fillStyle = '#44aaff';
+      ctx.fillText('Ports:   ' + ports, px+8, py+r0+26);
+      ctx.fillStyle = rel > 0 ? '#44ff44' : rel < 0 ? '#ff4444' : '#aaa';
+      ctx.fillText('Rep:     ' + rel, px+8, py+r0+39);
+      if(!isCur && hops !== null) {
+        ctx.fillStyle = '#00aaff';
+        ctx.fillText(hops + ' hop' + (hops!==1?'s':'') + ' / ' + (hops*10) + ' fuel', px+8, py+r0+56);
+        ctx.fillStyle = '#aaaaaa'; ctx.font = '6px "Press Start 2P",monospace';
+        ctx.fillText('Click to set destination', px+8, py+r0+70);
+      } else if(!isCur) {
+        ctx.fillStyle = '#666'; ctx.font = '7px "Press Start 2P",monospace';
+        ctx.fillText('Unreachable', px+8, py+r0+56);
+      } else {
+        ctx.fillStyle = '#556677'; ctx.font = '6px "Press Start 2P",monospace';
+        ctx.fillText('Click for system info', px+8, py+PH-10);
+      }
     } else {
-      ctx.fillStyle = '#666'; ctx.fillText('Unreachable', px+8, py+88);
+      ctx.font = '6px "Press Start 2P",monospace'; ctx.fillStyle = '#445566';
+      ctx.fillText('Scan required to identify', px+8, py+34);
+      if(hops !== null) {
+        ctx.fillStyle = '#334455';
+        ctx.fillText(hops + ' hop' + (hops!==1?'s':'') + ' away', px+8, py+50);
+      }
     }
     ctx.restore();
+  }
+
+  // ── Persistent info panel (after click) ──────────────────
+  _drawInfoPanel(ctx, sys, playerSysId) {
+    const fac     = G.FACTIONS[sys.faction];
+    const rel     = G.game ? G.game.getRel(sys.faction) : 0;
+    const visited = this.visited.has(sys.id) || sys.id === playerSysId;
+    const isCur   = sys.id === playerSysId;
+    const facCol  = (fac && sys.faction !== 'contested' && sys.faction !== 'neutral')
+                  ? fac.color : '#aaaaaa';
+    const displayName = visited ? sys.name : 'UNDISCOVERED';
+    const ports   = visited ? this._getLandableCount(sys) : null;
+
+    const PW = 220, PH = 185;
+    const px = 12, py = 12;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(2,8,18,0.96)';
+    ctx.strokeStyle = isCur ? '#00ffee' : facCol;
+    ctx.lineWidth = 1.2;
+    const rr = 5;
+    ctx.beginPath();
+    ctx.moveTo(px+rr,py); ctx.lineTo(px+PW-rr,py); ctx.quadraticCurveTo(px+PW,py,px+PW,py+rr);
+    ctx.lineTo(px+PW,py+PH-rr); ctx.quadraticCurveTo(px+PW,py+PH,px+PW-rr,py+PH);
+    ctx.lineTo(px+rr,py+PH); ctx.quadraticCurveTo(px,py+PH,px,py+PH-rr);
+    ctx.lineTo(px,py+rr); ctx.quadraticCurveTo(px,py,px+rr,py);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+
+    // Title
+    ctx.font = 'bold 9px "Press Start 2P",monospace';
+    ctx.fillStyle = visited ? facCol : '#445566';
+    ctx.fillText(displayName.slice(0, 20), px+10, py+18);
+
+    if(isCur) {
+      ctx.font = '6px "Press Start 2P",monospace';
+      ctx.fillStyle = '#00ffee';
+      ctx.fillText('★ CURRENT LOCATION', px+10, py+30);
+    }
+
+    let row = isCur ? py+46 : py+34;
+    const line = (label, val, col) => {
+      ctx.font = '7px "Press Start 2P",monospace';
+      ctx.fillStyle = '#556677'; ctx.fillText(label, px+10, row);
+      ctx.fillStyle = col||'#aabbcc'; ctx.fillText(val, px+90, row);
+      row += 16;
+    };
+
+    if(visited) {
+      const facName = (fac?.name || sys.faction) || 'Independent';
+      const stars = '★'.repeat(Math.min(sys.danger,5))+'☆'.repeat(Math.max(0,5-sys.danger));
+      const relCol = rel>=50?'#44ff88':rel>=-20?'#aabbcc':rel>=-50?'#ffcc00':'#ff4444';
+      const relStr = (rel>0?'+':'')+rel;
+      line('FACTION', facName.slice(0,14), facCol);
+      line('DANGER', stars, '#ff8844');
+      line('PORTS', ports+' landable', '#44aaff');
+      line('REP', relStr, relCol);
+      if(!isCur) {
+        const route = this._findRoute(playerSysId, sys.id);
+        if(route) {
+          const hops = route.length;
+          line('ROUTE', hops+' hop'+(hops!==1?'s':'')+' / '+(hops*10)+' fuel', '#00aaff');
+        } else {
+          line('ROUTE', 'unreachable', '#444');
+        }
+      }
+    } else {
+      ctx.font = '7px "Press Start 2P",monospace';
+      ctx.fillStyle = '#334455';
+      ctx.fillText('System not yet visited.', px+10, row);
+      row += 16;
+      ctx.fillText('Jump there to reveal info.', px+10, row);
+    }
+
+    ctx.font = '6px "Press Start 2P",monospace';
+    ctx.fillStyle = '#334455';
+    ctx.fillText('Click space to dismiss', px+10, py+PH-10);
+    ctx.restore();
+  }
+
+  // ── Landable body count (cached) ─────────────────────────
+  _getLandableCount(sys) {
+    if(this._landableCache[sys.id] !== undefined) return this._landableCache[sys.id];
+    const local = G.generateLocalSystem(sys);
+    const count = local.bodies.filter(b => b.hasSpaceport).length;
+    this._landableCache[sys.id] = count;
+    return count;
   }
 
   // ── Legend (canvas-space, bottom) ───────────────────────
@@ -558,7 +685,7 @@ G.Galaxy = class {
     ctx.save();
     ctx.font = '6px "Press Start 2P",monospace';
     ctx.fillStyle = 'rgba(80,100,120,0.7)';
-    ctx.fillText('SCROLL to zoom · CLICK system to route', 8, 14);
+    ctx.fillText('SCROLL to zoom · CLICK node to select · CLICK space to clear', 8, 14);
     ctx.restore();
   }
 };

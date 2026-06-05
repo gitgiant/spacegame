@@ -95,11 +95,9 @@ G.Particles = class {
   }
 
   engine_trail(x, y, angle, vx, vy, scale=1) {
-    // Emit at exhaust point behind the ship
     const exhaustDist = 14 * scale;
     const ex = x - Math.sin(angle) * exhaustDist;
     const ey = y + Math.cos(angle) * exhaustDist;
-    // Particles move backward relative to ship direction (no ship velocity inheritance)
     const exhaustAngle = angle + Math.PI + G.rand(-0.25, 0.25);
     this.emit({
       x: ex, y: ey,
@@ -109,6 +107,36 @@ G.Particles = class {
       r: (1.5 + Math.random() * 1.5) * scale,
       color: Math.random() < 0.6 ? '#ffaa22' : '#ff6622',
       drag: 0.88,
+      fade: true,
+    });
+  }
+
+  boost_trail(x, y, angle, scale=1) {
+    const exhaustDist = 14 * scale;
+    const ex = x - Math.sin(angle) * exhaustDist;
+    const ey = y + Math.cos(angle) * exhaustDist;
+    const exhaustAngle = angle + Math.PI + G.rand(-0.14, 0.14);
+    // Main bright blue streak — longer life so it lingers
+    this.emit({
+      x: ex, y: ey,
+      vx: Math.sin(exhaustAngle) * G.rand(60, 180) * scale,
+      vy: -Math.cos(exhaustAngle) * G.rand(60, 180) * scale,
+      life: 0.35 + Math.random() * 0.25,
+      r: (2 + Math.random() * 2) * scale,
+      color: Math.random() < 0.55 ? '#44aaff' : '#88ccff',
+      drag: 0.91,
+      fade: true,
+      type: 'streak',
+    });
+    // Dim core glow
+    this.emit({
+      x: ex, y: ey,
+      vx: Math.sin(exhaustAngle) * G.rand(20, 60) * scale,
+      vy: -Math.cos(exhaustAngle) * G.rand(20, 60) * scale,
+      life: 0.18 + Math.random() * 0.12,
+      r: (1 + Math.random()) * scale,
+      color: '#ffffff',
+      drag: 0.87,
       fade: true,
     });
   }
@@ -174,10 +202,27 @@ G.Particles = class {
 
       ctx.save();
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(sx, sy, p.r, 0, Math.PI*2);
-      ctx.fill();
+      if (p.type === 'streak') {
+        // Elongated streak in velocity direction
+        const spd = Math.sqrt(p.vx*p.vx + p.vy*p.vy) || 1;
+        const len = Math.min(spd * 0.018, 14) + p.r * 2;
+        const nx = p.vx / spd, ny = p.vy / spd;
+        const grad = ctx.createLinearGradient(sx, sy, sx - nx*len, sy - ny*len);
+        grad.addColorStop(0, p.color);
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = p.r * 2;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx - nx*len, sy - ny*len);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(sx, sy, p.r, 0, Math.PI*2);
+        ctx.fill();
+      }
       ctx.restore();
     }
   }

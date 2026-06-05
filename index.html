@@ -115,6 +115,7 @@
           <button class="tab" data-tab="repair">REPAIR</button>
           <button class="tab" data-tab="craft">CRAFTING</button>
           <button class="tab" data-tab="inventory">INVENTORY</button>
+          <button class="tab hidden" data-tab="cantina" id="cantina-tab">CANTINA</button>
           <button id="launch-btn" class="btn btn-launch">LAUNCH [L]</button>
         </div>
       </div>
@@ -144,8 +145,8 @@
   <!-- Inventory overlay -->
   <div id="inventory-overlay" class="hidden">
     <div id="inv-window">
-      <div class="panel-title">CARGO HOLD <button id="close-inv-btn" class="btn">CLOSE [I]</button></div>
-      <div id="inv-body"></div>
+      <div class="panel-title">INVENTORY <button id="close-inv-btn" class="btn">CLOSE [I]</button></div>
+      <div id="inv-body" style="overflow-y:auto;max-height:70vh"></div>
     </div>
   </div>
 
@@ -212,9 +213,53 @@
         C · COMMS &nbsp; F · REQUEST FUEL &nbsp; ESC · OPTIONS
       </div>
       <button class="btn btn-big" id="opt-save-btn">SAVE GAME</button>
+      <button class="btn btn-big" id="opt-fleet-btn" style="border-color:#44ff88;color:#44ff88">FLEET</button>
+      <button class="btn btn-big" id="opt-log-btn" style="border-color:#aabbcc;color:#aabbcc">LOG</button>
       <button class="btn btn-big" id="opt-quit-btn" style="border-color:#ff6644;color:#ff6644">QUIT TO MENU</button>
       <button class="btn btn-big" id="opt-close-btn">RESUME [ESC]</button>
     </div>
+  </div>
+
+  <!-- Boarding popup -->
+  <div id="boarding-popup" class="hidden" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.82);z-index:200">
+    <div id="boarding-box" style="background:#050e1a;border:2px solid #ff8844;padding:20px;width:320px;font-family:'Press Start 2P',monospace">
+      <div class="panel-title" style="color:#ff8844;margin-bottom:12px">DISABLED SHIP</div>
+      <div id="boarding-ship-info" style="font-size:6px;color:#aabbcc;margin-bottom:14px;line-height:2.2"></div>
+      <div id="boarding-options" style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <button id="board-loot-btn" class="btn" style="font-size:6px">LOOT CARGO</button>
+        <button id="board-scuttle-btn" class="btn" style="font-size:6px;border-color:#ff4444;color:#ff4444">SCUTTLE</button>
+        <button id="board-commandeer-btn" class="btn" style="font-size:6px;border-color:#44ff88;color:#44ff88">COMMANDEER</button>
+      </div>
+      <div id="boarding-result" style="font-size:6px;min-height:22px;line-height:2;margin-bottom:10px"></div>
+      <button id="boarding-close-btn" class="btn" style="font-size:6px">CLOSE</button>
+    </div>
+  </div>
+
+  <!-- Fleet overlay -->
+  <div id="fleet-overlay" class="hidden" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.85);z-index:200">
+    <div id="fleet-window" style="background:#050e1a;border:2px solid #44ff88;padding:20px;width:640px;max-height:82vh;display:flex;flex-direction:column;font-family:'Press Start 2P',monospace">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div class="panel-title" style="margin:0;color:#44ff88">FLEET COMMAND</div>
+        <button id="fleet-close-btn" class="btn" style="font-size:6px">CLOSE</button>
+      </div>
+      <div id="fleet-body" style="overflow-y:auto;flex:1"></div>
+    </div>
+  </div>
+
+  <!-- Combat log overlay -->
+  <div id="combat-log-overlay" class="hidden" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.75);z-index:120">
+    <div id="combat-log-box" style="background:#050e1a;border:1px solid #1a4a6a;padding:16px;width:560px;max-height:70vh;display:flex;flex-direction:column;font-family:'Press Start 2P',monospace">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div class="panel-title" style="margin:0;font-size:8px">LOG</div>
+        <button id="close-combat-log-btn" class="btn" style="font-size:6px">CLOSE</button>
+      </div>
+      <div id="combat-log-list" style="overflow-y:auto;flex:1;max-height:55vh"></div>
+    </div>
+  </div>
+
+  <!-- Mission result popup -->
+  <div id="mission-result-popup" class="hidden" style="position:absolute;top:20%;left:50%;transform:translateX(-50%);z-index:110;pointer-events:none">
+    <div id="mission-result-body" style="background:#050e1a;border:2px solid #44ff88;padding:12px 20px;font-family:'Press Start 2P',monospace;text-align:center;min-width:220px"></div>
   </div>
 
   <!-- Main menu -->
@@ -235,20 +280,20 @@
   </div>
 
 </div>
-<script src="js/data.js"></script>
-<script src="js/utils.js"></script>
-<script src="js/sprites.js"></script>
-<script src="js/planets.js"></script>
-<script src="js/npc.js"></script>
-<script src="js/input.js"></script>
-<script src="js/particles.js"></script>
-<script src="js/ship.js"></script>
-<script src="js/enemies.js"></script>
-<script src="js/space.js"></script>
-<script src="js/economy.js"></script>
-<script src="js/galaxy.js"></script>
-<script src="js/ui.js"></script>
-<script src="js/sound.js"></script>
-<script src="js/main.js"></script>
+<script src="js/data.js?v=5"></script>
+<script src="js/utils.js?v=5"></script>
+<script src="js/sprites.js?v=5"></script>
+<script src="js/planets.js?v=5"></script>
+<script src="js/npc.js?v=5"></script>
+<script src="js/input.js?v=5"></script>
+<script src="js/particles.js?v=5"></script>
+<script src="js/ship.js?v=5"></script>
+<script src="js/enemies.js?v=5"></script>
+<script src="js/space.js?v=5"></script>
+<script src="js/economy.js?v=5"></script>
+<script src="js/galaxy.js?v=5"></script>
+<script src="js/ui.js?v=5"></script>
+<script src="js/sound.js?v=5"></script>
+<script src="js/main.js?v=5"></script>
 </body>
 </html>

@@ -251,12 +251,16 @@ G.generateLocalSystem = function(sys) {
       const orbitR = 6000 + rng()*8000;
       const angle  = rng()*Math.PI*2;
       const speed  = (0.00003 + rng()*0.00004) * (rng()<0.5?1:-1);
+      const maxHp  = 400 + Math.floor(rng()*400);
       bodies.push({
         type:'comet',
         x: Math.cos(angle)*orbitR, y: Math.sin(angle)*orbitR,
         r: 4 + rng()*4,
         orbitR, orbitAngle:angle, orbitSpeed:speed,
         color:'#aaddff',
+        maxHp, hp: maxHp,
+        tailLen: 80 + rng()*120,
+        drops: ['ore','crystals','ore'],
       });
     }
   }
@@ -446,6 +450,33 @@ G.genEnemyShips = function(sys, count) {
       disabled:false, boarded:false,
     });
   }
+
+  // Enemy fleet: randomly group into flagship + escorts (danger >= 4)
+  if(enemies.length >= 2 && danger >= 4 && rng() < 0.38) {
+    const flagIdx = Math.floor(rng() * enemies.length);
+    const flagship = enemies[flagIdx];
+    const fleetId = 'fl'+(Math.floor(rng()*99999));
+    flagship._fleetId = fleetId;
+    flagship.isFleetFlagship = true;
+    flagship.hp = flagship.maxHp = (flagship.maxHp || flagship.hp) * 1.9;
+    flagship.size = (flagship.size || 1.0) * 1.5;
+    flagship.speed = (flagship.speed || 300) * 0.72;
+    flagship.damage = (flagship.damage || 15) * 1.4;
+    flagship.engageRange = 900;
+    let assigned = 0;
+    for(let i = 0; i < enemies.length && assigned < 2; i++) {
+      if(i === flagIdx) continue;
+      const escort = enemies[i];
+      escort.fleetFlagshipId = fleetId;
+      const ea = rng()*Math.PI*2;
+      escort.x = flagship.x + Math.cos(ea)*220;
+      escort.y = flagship.y + Math.sin(ea)*220;
+      escort.patrolCenter = { x: flagship.x, y: flagship.y };
+      escort.patrolDist = 160 + rng()*120;
+      assigned++;
+    }
+  }
+
   return enemies;
 };
 

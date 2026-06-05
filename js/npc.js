@@ -20,7 +20,9 @@ G.COMMS_LINES = {
                 "That's a crime. Your transponder has been flagged."],
     fuel:      ["Emergency fuel transfer authorized for {cost} credits. Dock alongside.",
                 "We can spare fuel. {cost} credits — standard emergency rate."],
-    hostile:   ["Opening fire! Authority to engage hostile vessel!"],
+    hostile:        ["Opening fire! Authority to engage hostile vessel!",
+                     "You are declared a threat. Weapons free!"],
+    neutral_resume: ["Standing down. Threat neutralized.", "Clear. Resuming patrol."],
     noresponse:["...", "Static.", "No signal."],
     forgive_accept: ["Stand down. Your fine of {cost} credits has been logged. Don't let it happen again.",
                      "Payment received. We're watching you."],
@@ -37,7 +39,8 @@ G.COMMS_LINES = {
                 "Try it, and see what the rebellion sends after you."],
     fuel:      ["Fuel costs credits even in a revolution. {cost} — take it.",
                 "We look after each other out here. {cost} credits."],
-    hostile:   ["Open fire! For the rebellion!"],
+    hostile:        ["Open fire! For the rebellion!", "Enemy of the cause — engage!"],
+    neutral_resume: ["Disengaging. Stay out of our way.", "Stand down — for now."],
     noresponse:["...", "Not interested.", "Save it."],
     forgive_accept: ["Fine. {cost} credits to the cause. Now get out of our space.",
                      "We'll take your credits. Don't push your luck."],
@@ -54,7 +57,8 @@ G.COMMS_LINES = {
                 "I've been shot at by warships. Try harder."],
     fuel:      ["Fuel's expensive this far out. {cost}. Final offer.",
                 "{cost} credits. I'm not running a charity."],
-    hostile:   ["Arrgh, fire everything!"],
+    hostile:        ["Arrgh, fire everything!", "Hah! Fresh prey!"],
+    neutral_resume: ["Whatever. Wasn't worth my ammo.", "You got lucky — this time."],
     noresponse:["...", "Busy.", ""],
     forgive_accept: ["Hah! {cost} credits? Sure, we're done here. Fly on.",
                      "Now that's the smart play. {cost} credits — get lost."],
@@ -71,7 +75,8 @@ G.COMMS_LINES = {
                 "I have nothing worth fighting over, I swear!"],
     fuel:      ["We all look out for each other. {cost} credits, deal?",
                 "Happy to help. {cost} for a fuel cell transfer."],
-    hostile:   ["Mayday! Being attacked! All hands brace!"],
+    hostile:        ["Mayday! Being attacked! All hands brace!", "They're firing on us — return fire!"],
+    neutral_resume: ["Oh thank the stars — we're safe!", "Easing off. We don't want trouble."],
     noresponse:["...", "No response.", "Channel closed."],
     forgive_accept: ["Okay, okay! {cost} credits — just don't shoot! We're leaving!",
                      "Deal. {cost} credits. We want no trouble."],
@@ -79,9 +84,11 @@ G.COMMS_LINES = {
                      "Please! We have nothing!"],
   },
   alien: {
-    hail:      ["[UNINTELLIGIBLE]", "[STATIC BURST]", "[SIGNAL LOST]"],
-    noresponse:["[NO CARRIER]", "...", "[SIGNAL LOST]"],
-    forgive_deny: ["[UNINTELLIGIBLE]", "[HOSTILE SIGNAL]"],
+    hail:          ["[UNINTELLIGIBLE]", "[STATIC BURST]", "[SIGNAL LOST]"],
+    hostile:       ["[HOSTILE SIGNAL DETECTED]", "[WEAPONS HOT]"],
+    neutral_resume:["[SIGNAL NOMINAL]", "[THREAT WITHDRAWN]"],
+    noresponse:    ["[NO CARRIER]", "...", "[SIGNAL LOST]"],
+    forgive_deny:  ["[UNINTELLIGIBLE]", "[HOSTILE SIGNAL]"],
   },
 };
 
@@ -139,6 +146,18 @@ G.NPCShip = class {
     this.damage    = 10+Math.random()*10;
     this.lastShot  = 0;
 
+    // Primary weapon from ship template
+    const weaponIds = tpl.startWeapons || ['laser_cannon'];
+    this.weaponId = weaponIds[0];
+
+    // Mining state
+    const shipClass = tpl.class || 'shuttle';
+    this.isMiner  = (shipClass === 'miner');
+    this.cargoMax = tpl.baseCargoSpace || 20;
+    this.cargoUsed = 0;
+    this.mineTarget = null;
+    this.mineTimer  = 0;
+
     // AI
     this.aiState       = 'entering';
     this.dockTimer     = 0;
@@ -158,7 +177,7 @@ G.NPCShip = class {
     this.empTimer     = 0;
     this.jumpingOut   = false;
     this.jumpOutTimer = 0;
-    this.landingScale = 1;
+    this._boosting    = false;
 
     // Cargo / credits
     this.credits = 80+Math.floor(Math.random()*400);
@@ -171,6 +190,10 @@ G.NPCShip = class {
   }
 
   _setInitialDestination(bodies) {
+    if(this.isMiner && Math.random() < 0.6) {
+      this.aiState = 'seek_asteroid';
+      return;
+    }
     const ports = bodies.filter(b=>b.hasSpaceport);
     if(ports.length && Math.random()<0.65) {
       this.dockBody = ports[Math.floor(Math.random()*ports.length)];
@@ -186,6 +209,8 @@ G.NPCShip = class {
   update(dt, bodies, otherNPCs, enemies, projectiles, particles, now) {
     if(this.dead||this.boarded) return;
 
+    this._boosting = false;
+
     // Hyperspace jump-out sequence
     if(this.jumpingOut) {
       this.jumpOutTimer -= dt;
@@ -197,7 +222,11 @@ G.NPCShip = class {
       return;
     }
 
-    if(this.disabled) { this.x+=this.vx*dt; this.y+=this.vy*dt; return; }
+    if(this.disabled) {
+      const drag = Math.max(0, 1 - 1.2 * dt);
+      this.vx *= drag; this.vy *= drag;
+      this.x+=this.vx*dt; this.y+=this.vy*dt; return;
+    }
     if(this.empTimer>0) { this.empTimer-=dt; this.x+=this.vx*dt; this.y+=this.vy*dt; return; }
 
     // Occasional radio chatter to the player
@@ -232,6 +261,10 @@ G.NPCShip = class {
       if(ct.dead||ct.boarded) {
         this.hostile=false; this.combatTarget=null;
         this.aiState='transit_to_jump'; this._setJumpTarget();
+        const bank = G.COMMS_LINES[this.faction]||G.COMMS_LINES.independent;
+        const lines = bank.neutral_resume||bank.hail||['Standing down.'];
+        const dist = G.game?.player ? Math.hypot(this.x-G.game.player.x,this.y-G.game.player.y) : 9999;
+        if(dist < 900) G.ui?.addMsg('['+this.name+']: "'+lines[Math.floor(Math.random()*lines.length)]+'"', G.FACTIONS[this.faction]?.color||'#88ccee');
       } else {
         this._updateCombat(dt, projectiles, particles, now);
         this.x+=this.vx*dt; this.y+=this.vy*dt; return;
@@ -239,7 +272,7 @@ G.NPCShip = class {
     }
 
     // Autonomous behavior
-    this._updateAutonomous(dt);
+    this._updateAutonomous(dt, particles);
     this._applyDrag(dt);
     this.x+=this.vx*dt; this.y+=this.vy*dt;
 
@@ -247,7 +280,7 @@ G.NPCShip = class {
     if(!this.hostile) {
       const scan = [...enemies, ...otherNPCs];
       for(const s of scan) {
-        if(s===this||s.dead||s.boarded) continue;
+        if(s===this||s.dead||s.boarded||s.disabled) continue;
         if(G.HOSTILE[this.faction]?.[s.faction]) {
           if(Math.hypot(this.x-s.x, this.y-s.y) < 700) {
             this.hostile=true; this.combatTarget=s; break;
@@ -257,7 +290,7 @@ G.NPCShip = class {
     }
   }
 
-  _updateAutonomous(dt) {
+  _updateAutonomous(dt, particles) {
     switch(this.aiState) {
       case 'transit_to_port': {
         const dx2=this.targetX-this.x, dy2=this.targetY-this.y;
@@ -278,30 +311,117 @@ G.NPCShip = class {
           this.vx *= drag; this.vy *= drag;
         }
         if(dist2 < 200) {
-          this.aiState='landing'; this.landingScale=1; this.vx=0; this.vy=0;
+          // Compute a parking spot at the planet's edge in the current approach direction
+          const pAngle = Math.atan2(this.y - this.targetY, this.x - this.targetX);
+          const parkDist = (this.dockBody?.r || 50) + (this.size||1) * 14 + 20;
+          this.parkOffsetX = Math.cos(pAngle) * parkDist;
+          this.parkOffsetY = Math.sin(pAngle) * parkDist;
+          this.aiState = 'parking'; this.vx = 0; this.vy = 0;
         }
         break;
       }
-      case 'landing': {
-        // Zoom into the planet center, shrink to zero
-        const ldx=this.targetX-this.x, ldy=this.targetY-this.y;
-        const ld=Math.hypot(ldx,ldy)||1;
-        this.vx += (ldx/ld)*this.speed*dt*3;
-        this.vy += (ldy/ld)*this.speed*dt*3;
-        this.landingScale = Math.max(0, this.landingScale - dt*2.8);
-        if(this.landingScale <= 0) {
-          this.aiState='docked'; this.dockTimer=8+Math.random()*22;
-          this.vx=0; this.vy=0;
+      case 'parking': {
+        const parkX = this.targetX + this.parkOffsetX;
+        const parkY = this.targetY + this.parkOffsetY;
+        const pdx = parkX - this.x, pdy = parkY - this.y;
+        const pd = Math.hypot(pdx, pdy);
+        if(pd > 6) {
+          this._steerTo(parkX, parkY, dt);
+          this._thrust(dt);
+          const drag = Math.pow(0.90, dt * 60);
+          this.vx *= drag; this.vy *= drag;
+          const spd = Math.hypot(this.vx, this.vy);
+          const maxSpd = Math.min(this.speed, pd * 1.5);
+          if(spd > maxSpd) { this.vx *= maxSpd/spd; this.vy *= maxSpd/spd; }
+        } else {
+          this.x = parkX; this.y = parkY;
+          this.vx = 0; this.vy = 0;
+          this.aiState = 'docked'; this.dockTimer = 8 + Math.random() * 22;
         }
         break;
       }
       case 'docked':
-        this.dockTimer-=dt;
-        if(this.dockTimer<=0) {
-          this.aiState='transit_to_jump'; this._setJumpTarget();
-          this.landingScale=1; // reappear at full size
+        this.x = this.targetX + this.parkOffsetX;
+        this.y = this.targetY + this.parkOffsetY;
+        this.vx = 0; this.vy = 0;
+        this.dockTimer -= dt;
+        if(this.dockTimer <= 0) {
+          this._setDepartTarget();
+          if(this.isMiner) {
+            this.cargo = {}; this.cargoUsed = 0;
+            if(G.game?.space?.asteroids?.length) {
+              this._afterDepart = 'seek_asteroid';
+              this.aiState = 'departing'; break;
+            }
+          }
+          this._afterDepart = null;
+          this.aiState = 'departing';
         }
         break;
+      case 'departing': {
+        const ddx = this._departTargetX - this.x, ddy = this._departTargetY - this.y;
+        this._steerTo(this._departTargetX, this._departTargetY, dt);
+        this._thrust(dt);
+        if(Math.hypot(ddx, ddy) < 100) {
+          if(this._afterDepart) { this.aiState = this._afterDepart; this._afterDepart = null; }
+          else { this.aiState = 'transit_to_jump'; this._setJumpTarget(); }
+        }
+        break;
+      }
+      case 'seek_asteroid': {
+        const sAst = G.game?.space?.asteroids;
+        if(!sAst || !sAst.length) { this.aiState='transit_to_jump'; this._setJumpTarget(); break; }
+        let nearA=null, nearD=Infinity;
+        for(const a of sAst) { const d=Math.hypot(a.x-this.x,a.y-this.y); if(d<nearD){nearD=d;nearA=a;} }
+        if(!nearA) { this.aiState='transit_to_jump'; this._setJumpTarget(); break; }
+        this.mineTarget = nearA;
+        this.aiState = 'transit_to_asteroid';
+        break;
+      }
+      case 'transit_to_asteroid': {
+        if(!this.mineTarget) { this.aiState='seek_asteroid'; break; }
+        const sAst2 = G.game?.space?.asteroids;
+        if(sAst2 && !sAst2.includes(this.mineTarget)) { this.mineTarget=null; this.aiState='seek_asteroid'; break; }
+        this.targetX = this.mineTarget.x; this.targetY = this.mineTarget.y;
+        const mdist = Math.hypot(this.targetX-this.x, this.targetY-this.y);
+        this._steerTo(this.targetX, this.targetY, dt);
+        if(mdist > 85) this._thrust(dt);
+        if(mdist < 85) this.aiState = 'mining_asteroid';
+        break;
+      }
+      case 'mining_asteroid': {
+        if(!this.mineTarget) { this.aiState='seek_asteroid'; break; }
+        const spc = G.game?.space;
+        if(spc && !spc.asteroids.includes(this.mineTarget)) {
+          this.mineTarget = null;
+          if(this.cargoUsed >= this.cargoMax) this._returnToPort();
+          else if(spc.asteroids.length) this.aiState = 'seek_asteroid';
+          else { this.aiState='transit_to_jump'; this._setJumpTarget(); }
+          break;
+        }
+        this.targetX = this.mineTarget.x; this.targetY = this.mineTarget.y;
+        if(Math.hypot(this.targetX-this.x, this.targetY-this.y) > 100) {
+          this._steerTo(this.targetX, this.targetY, dt); this._thrust(dt);
+        }
+        this.mineTimer -= dt;
+        if(this.mineTimer <= 0) {
+          this.mineTimer = 0.5;
+          this.mineTarget.hp -= 12;
+          if(particles) particles.mine_spark(this.mineTarget.x, this.mineTarget.y);
+          if(this.mineTarget.hp <= 0) {
+            const dropId = G.randEl(this.mineTarget.drops);
+            if(dropId) { const qty=1+Math.floor(Math.random()*2); this.cargo[dropId]=(this.cargo[dropId]||0)+qty; this.cargoUsed+=qty; }
+            if(particles) particles.explosion(this.mineTarget.x, this.mineTarget.y, 0, 0, 0.6);
+            const idx = spc.asteroids.indexOf(this.mineTarget);
+            if(idx>=0) spc.asteroids.splice(idx,1);
+            this.mineTarget = null;
+            if(this.cargoUsed >= this.cargoMax) this._returnToPort();
+            else if(spc.asteroids.length) this.aiState = 'seek_asteroid';
+            else { this.aiState='transit_to_jump'; this._setJumpTarget(); }
+          }
+        }
+        break;
+      }
       case 'fuel_rendezvous': {
         const player = G.game?.player;
         if(!player) { this.aiState='transit_to_jump'; this._setJumpTarget(); break; }
@@ -342,6 +462,7 @@ G.NPCShip = class {
         break;
       }
       case 'transit_to_jump':
+        this._boosting = true;
         this._steerTo(this.targetX, this.targetY, dt);
         this._thrust(dt);
         if(Math.hypot(this.x-this.targetX,this.y-this.targetY) < 130) {
@@ -375,16 +496,25 @@ G.NPCShip = class {
     if(dist>220) this._thrust(dt);
     const angleToT=Math.atan2(dx,-dy);
     const diff=Math.abs(G.wrapAngle(this.angle-angleToT));
-    if(dist<600&&diff<0.5&&now-this.lastShot>1/this.fireRate) {
-      this.lastShot=now;
+    const wpn = G.WEAPONS[this.weaponId] || {};
+    const range = wpn.range || 600;
+    const rate  = wpn.fireRate || this.fireRate;
+    const spd   = wpn.projSpeed || 800;
+    if(dist < range * 0.85 && diff < 0.5 && now - this.lastShot > 1/rate) {
+      this.lastShot = now;
       projectiles.push({
-        x:this.x+Math.sin(this.angle)*16, y:this.y-Math.cos(this.angle)*16,
-        vx:Math.sin(angleToT)*800+this.vx*0.2,
-        vy:-Math.cos(angleToT)*800+this.vy*0.2,
-        damage:this.damage, type:'laser',
-        color:this.color, width:2, splash:0,
-        pierce:false, ttl:0.85, tracking:false,
-        sourceId:this.id,
+        x: this.x+Math.sin(this.angle)*16, y: this.y-Math.cos(this.angle)*16,
+        vx: Math.sin(angleToT)*spd + this.vx*0.2,
+        vy: -Math.cos(angleToT)*spd + this.vy*0.2,
+        damage: wpn.damage || this.damage,
+        type:   wpn.type   || 'laser',
+        color:  wpn.color  || this.color,
+        width:  wpn.width  || 2,
+        splash: wpn.splash || 0,
+        pierce: wpn.pierce ?? false,
+        ttl:    (wpn.range || 600) / (wpn.projSpeed || 800),
+        tracking: false,
+        sourceId: this.id,
       });
     }
   }
@@ -392,6 +522,23 @@ G.NPCShip = class {
   _setJumpTarget() {
     const a=Math.random()*Math.PI*2;
     this.targetX=Math.cos(a)*3800; this.targetY=Math.sin(a)*3800;
+  }
+
+  _setDepartTarget() {
+    const angle = Math.atan2(this.parkOffsetY || 0, this.parkOffsetX || 1);
+    this._departTargetX = this.x + Math.cos(angle) * 600;
+    this._departTargetY = this.y + Math.sin(angle) * 600;
+  }
+
+  _returnToPort() {
+    const ports = (G.game?.space?.bodies || []).filter(b => b.hasSpaceport);
+    if(ports.length) {
+      this.dockBody = ports[Math.floor(Math.random() * ports.length)];
+      this.targetX = this.dockBody.x; this.targetY = this.dockBody.y;
+      this.aiState = 'transit_to_port';
+    } else {
+      this.aiState = 'transit_to_jump'; this._setJumpTarget();
+    }
   }
 
   _steerTo(tx,ty,dt) {
@@ -434,7 +581,7 @@ G.NPCShip = class {
     if(this.disabled){this.hp-=amount;if(this.hp<=0)this.dead=true;return;}
     if(this.shields>0){const sd=Math.min(this.shields,amount);this.shields-=sd;amount=(amount-sd)*0.2;}
     this.hp-=amount;
-    if(this.hp<=0){this.hp=Math.round((this.maxHp||this.hp)*0.2)||10;this.disabled=true;}
+    if(this.hp<=0){this.disabled=true;}
   }
 
   // Returns array of comms options
@@ -448,7 +595,8 @@ G.NPCShip = class {
         disabled: this.hostile || playerFuelPct > 0.9 },
       { key:'threaten',label:'Threaten',       color:'#ff4444' },
     ];
-    if(this.hostile) {
+    const playerRep = G.game?.getRel(this.faction) ?? 0;
+    if(this.hostile && playerRep > -75) {
       const cost   = G.npcForgivenessCost(this.faction);
       const chance = Math.round(G.npcForgivenessChance(this.faction) * 100);
       opts.push({ key:'forgive', label:`Beg Forgiveness — ${G.fmtCredits(cost)} (${chance}% success)`, color:'#ffaa00' });
@@ -495,3 +643,133 @@ G.NPCShip = class {
   }
 };
 G.NPCShip._uid = 0;
+
+// ── Fleet Ship (player escort AI) ─────────────────────────
+G.FleetShip = class {
+  constructor(entry) {
+    this.id = 'fs'+(++G.FleetShip._uid);
+    this.type = 'fleet';
+    this.isFleetShip = true;
+    this.fleetDataId = entry.id;
+    this.name = entry.fleetName || 'Fleet Ship';
+    const tpl = G.SHIPS[entry.ship?.templateId];
+    this.shapeId = tpl?.shape || 'shuttle';
+    this.color = tpl?.color || '#8899bb';
+    this.size = tpl?.size || 1.0;
+
+    const s = entry.ship;
+    this.hull = s?.hull ?? 100;
+    this.maxHull = s?.maxHull ?? 160;
+    this.shields = s?.shields ?? 0;
+    this.maxShields = s?.maxShields ?? 0;
+
+    this.speed = entry.combatSpeed || 280;
+    this.turnSpeed = entry.combatTurnSpeed || 2.0;
+    this.damage = entry.combatDamage || 15;
+    this.fireRate = entry.combatFireRate || 1.0;
+    this.weaponType = entry.combatWeaponType || 'laser';
+    this.weaponColor = entry.combatWeaponColor || '#44aaff';
+
+    this.x = 0; this.y = 0;
+    this.vx = 0; this.vy = 0;
+    this.angle = 0;
+    this.lastShot = 0;
+
+    this.dead = false;
+    this.disabled = false;
+    this._deathDone = false;
+    this._orbitOffset = Math.random() * Math.PI * 2;
+    this._aiTimer = 0;
+  }
+
+  update(dt, player, target, projectiles, particles, now) {
+    if(this.disabled) {
+      this.vx *= Math.max(0, 1 - 1.5*dt);
+      this.vy *= Math.max(0, 1 - 1.5*dt);
+      this.x += this.vx*dt; this.y += this.vy*dt;
+      this.angle += 0.4*dt;
+      return;
+    }
+
+    this._aiTimer += dt;
+    const attackTarget = target && !target.dead && target !== player ? target : null;
+
+    if(attackTarget) {
+      const tdx = attackTarget.x - this.x;
+      const tdy = attackTarget.y - this.y;
+      const distToTarget = Math.hypot(tdx, tdy) || 1;
+      const aimAngle = Math.atan2(tdx, -tdy);
+
+      if(distToTarget > 380) {
+        this._steerTo(attackTarget.x, attackTarget.y, dt);
+        this._thrust(dt, distToTarget > 700);
+      } else {
+        const side = Math.sin(this._aiTimer*0.7) > 0 ? 1 : -1;
+        const perpX = (-tdy/distToTarget)*280, perpY = (tdx/distToTarget)*280;
+        this._steerTo(attackTarget.x+perpX*side, attackTarget.y+perpY*side, dt);
+        this._thrust(dt);
+      }
+
+      const angleDiff = Math.abs(G.wrapAngle(this.angle - aimAngle));
+      if(angleDiff < 0.5 && distToTarget < 680 && now - this.lastShot > 1/this.fireRate) {
+        this.lastShot = now;
+        const spd = this.weaponType==='laser' ? 780 : 560;
+        projectiles.push({
+          x: this.x+Math.sin(this.angle)*16, y: this.y-Math.cos(this.angle)*16,
+          vx: Math.sin(aimAngle)*spd+this.vx*0.2, vy: -Math.cos(aimAngle)*spd+this.vy*0.2,
+          damage: this.damage, type: this.weaponType,
+          range: 700, traveled: 0,
+          color: this.weaponColor, width: 2,
+          ttl: 0.95, sourceId: this.id,
+          splash: 0, empStrength: 0, tracking: false, pierce: false,
+        });
+        if(particles) particles.emit({
+          x: this.x+Math.sin(this.angle)*16, y: this.y-Math.cos(this.angle)*16,
+          minSpd:20, maxSpd:60, life:0.15, r:2, color:this.weaponColor,
+        });
+      }
+    } else {
+      const dx = player.x - this.x, dy = player.y - this.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      this._orbitOffset += dt * 0.28;
+      if(dist > 420) {
+        this._steerTo(player.x, player.y, dt);
+        this._thrust(dt, dist > 700);
+      } else {
+        const ox = player.x + Math.cos(this._orbitOffset)*260;
+        const oy = player.y + Math.sin(this._orbitOffset)*260;
+        this._steerTo(ox, oy, dt);
+        this._thrust(dt);
+      }
+    }
+
+    this.x += this.vx*dt; this.y += this.vy*dt;
+  }
+
+  _steerTo(tx, ty, dt) {
+    const dx=tx-this.x, dy=ty-this.y;
+    if(Math.abs(dx)+Math.abs(dy)<5) return;
+    const tgt=Math.atan2(dx,-dy);
+    const diff=G.wrapAngle(tgt-this.angle);
+    this.angle += G.clamp(diff*5, -this.turnSpeed, this.turnSpeed)*dt;
+  }
+
+  _thrust(dt, fast=false) {
+    const spd = this.speed*(fast?1.45:1.0);
+    this.vx += Math.sin(this.angle)*spd*dt*0.5;
+    this.vy -= Math.cos(this.angle)*spd*dt*0.5;
+    const s = Math.hypot(this.vx, this.vy);
+    if(s > spd) { this.vx*=spd/s; this.vy*=spd/s; }
+  }
+
+  takeDamage(amount, type) {
+    if(type==='emp') return;
+    if(this.shields>0){ const sd=Math.min(this.shields,amount); this.shields-=sd; amount=(amount-sd)*0.2; }
+    this.hull -= amount;
+    const entry = G.game?.fleet?.find(e => e.id === this.fleetDataId);
+    if(entry && entry.ship) entry.ship.hull = this.hull;
+    if(this.hull<=0 && !this.disabled) this.disabled = true;
+    if(this.hull<=-this.maxHull*0.4) this.dead = true;
+  }
+};
+G.FleetShip._uid = 0;

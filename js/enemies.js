@@ -19,18 +19,35 @@ G.EnemyAI = class {
     this.empStrength  = data.empStrength || 0;
     this.size     = data.size || 1.0;
     this.angle    = data.angle || 0;
+    this._boosting = false;
   }
 
   update(dt, player, projectiles, particles, now) {
     if(this.disabled) {
+      const drag = Math.max(0, 1 - 1.2 * dt);
+      this.vx *= drag; this.vy *= drag;
       this.x += this.vx*dt;
       this.y += this.vy*dt;
-      // Spin slowly while disabled
       this.angle += 0.4 * dt;
       return;
     }
     if(this.boarded) return;
 
+    // Fleet escort: keep patrol center on flagship
+    if(this.fleetFlagshipId) {
+      const flagship = G.game?.space?.enemies?.find(e=>e._fleetId===this.fleetFlagshipId);
+      if(flagship && !flagship.dead && !flagship._deathDone) {
+        this.patrolCenter = { x: flagship.x, y: flagship.y };
+        if((flagship.aiState==='engage'||flagship._lastAttackerId) && this.aiState==='patrol') {
+          this.aiState = 'engage';
+        }
+        if(flagship.disabled || flagship.dead) this.fleetFlagshipId = null;
+      } else {
+        this.fleetFlagshipId = null;
+      }
+    }
+
+    this._boosting = (this.aiState === 'flee');
     this.aiTimer += dt;
     const dx = player.x - this.x;
     const dy = player.y - this.y;
@@ -56,6 +73,18 @@ G.EnemyAI = class {
         if(Math.random() < cowardice) {
           this.aiState = 'flee';
           this.fleeTimer = 5 + Math.random() * 4;
+          const fleeMsgs = {
+            pirate:    ['Every man for himself!', "You got lucky — I'm out!", 'Not worth dying over!'],
+            earth:     ['Tactical retreat! Reinforcements en route!', 'Falling back — abort mission!'],
+            rebellion: ["Fall back! We'll meet again!", 'Retreat — regroup at the rally point!'],
+            alien:     ['[DISTRESS SIGNAL]', '[RETREAT PATTERN DETECTED]'],
+          };
+          const lines = fleeMsgs[this.faction] || ['Retreating!'];
+          const fleeMsg = lines[Math.floor(Math.random() * lines.length)];
+          const distToPlayer = G.game?.player ? Math.hypot(this.x - G.game.player.x, this.y - G.game.player.y) : 9999;
+          if (distToPlayer < 1500) {
+            G.ui?.addMsg((this.name || (this.faction||'enemy').toUpperCase()+' SHIP')+': '+fleeMsg, '#ff8844');
+          }
           return;
         }
         // Fight on — go berserker: close range, faster firing
@@ -137,7 +166,7 @@ G.EnemyAI = class {
         });
       }
     }
-    this.dead = true;
+    this._deathDone = true; // skip dying sequence — ship escaped
   }
 
   _steerTo(tx, ty, dt) {
@@ -179,7 +208,6 @@ G.EnemyAI = class {
     }
     this.hp -= amount;
     if(this.hp <= 0) {
-      this.hp = Math.round(this.maxHp * 0.2);
       this.disabled = true;
       this.aiState = 'disabled';
     }

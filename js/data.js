@@ -408,7 +408,7 @@ G.SHIPS = {
     baseThrust:15000, baseTurn:2.0, baseCargoSpace:8,
     slots:9,
     startModules:['basic_engine','jump_drive','small_cargo','escape_pod','crew_quarters','basic_sensors','reactor'],
-    startWeapons:['laser_cannon'],
+    startWeapons:['autocannon'],
     shape:'shuttle', color:'#8899bb', size:1.0,
     expansionLimit:3,
     stats:'HULL:80  CARGO:8',
@@ -948,26 +948,26 @@ G.SHIPS = {
 G.SYSTEMS = [
   // ── Earth Government Core — shifted into the upper-left galactic arm ──
   // (Sol is NOT at the galaxy's mathematical center; the galactic core sits in contested space)
-  { id:'sol',        name:'Sol',           pos:[415,305], faction:'earth',     danger:1, starColor:'#ffff88', jumpR:153 },
+  { id:'sol',        name:'Sol',           pos:[415,305], faction:'earth',     danger:1, starColor:'#ffff88', jumpR:153, hasCantina:true },
   { id:'alpha_cen',  name:'Alpha Centauri',pos:[455,305], faction:'earth',     danger:1, starColor:'#ffcc88', jumpR:145 },
   { id:'barnards',   name:"Barnard's Star",pos:[375,305], faction:'earth',     danger:1, starColor:'#ff8866', jumpR:136 },
   { id:'wolf359',    name:'Wolf 359',      pos:[480,332], faction:'earth',     danger:2, starColor:'#ff6644', jumpR:136 },
   { id:'lalande',    name:'Lalande 21185', pos:[442,370], faction:'earth',     danger:2, starColor:'#ff8844', jumpR:136 },
-  { id:'sirius',     name:'Sirius',        pos:[388,370], faction:'earth',     danger:2, starColor:'#cceeff', jumpR:136 },
+  { id:'sirius',     name:'Sirius',        pos:[388,370], faction:'earth',     danger:2, starColor:'#cceeff', jumpR:136, hasCantina:true },
   { id:'luyten726',  name:'Luyten 726-8',  pos:[350,332], faction:'earth',     danger:2, starColor:'#ff6633', jumpR:136 },
   { id:'ross154',    name:'Ross 154',      pos:[350,278], faction:'earth',     danger:2, starColor:'#ff5533', jumpR:136 },
   { id:'procyon',    name:'Procyon',       pos:[388,240], faction:'earth',     danger:2, starColor:'#ffffcc', jumpR:136 },
-  { id:'eps_eri',    name:'Eps. Eridani',  pos:[442,240], faction:'earth',     danger:2, starColor:'#ffaa66', jumpR:145 },
+  { id:'eps_eri',    name:'Eps. Eridani',  pos:[442,240], faction:'earth',     danger:2, starColor:'#ffaa66', jumpR:145, hasCantina:true },
   { id:'lacaille93', name:'Lacaille 9352', pos:[480,278], faction:'earth',     danger:2, starColor:'#ff7744', jumpR:136 },
   { id:'ross128',    name:'Ross 128',      pos:[595,345], faction:'earth',     danger:3, starColor:'#ff6633', jumpR:136 },
   { id:'cygni61',    name:'61 Cygni',      pos:[567,422], faction:'earth',     danger:3, starColor:'#ffaa88', jumpR:136 },
   { id:'groombr34',  name:'Groombridge 34',pos:[496,463], faction:'earth',     danger:3, starColor:'#ff8866', jumpR:136 },
   { id:'eps_ind',    name:'Eps. Indi',     pos:[415,449], faction:'earth',     danger:3, starColor:'#ffbb88', jumpR:136 },
-  { id:'tau_ceti',   name:'Tau Ceti',      pos:[362,386], faction:'earth',     danger:3, starColor:'#ffcc88', jumpR:145 },
+  { id:'tau_ceti',   name:'Tau Ceti',      pos:[362,386], faction:'earth',     danger:3, starColor:'#ffcc88', jumpR:145, hasCantina:true },
   { id:'luyten',     name:"Luyten's Star", pos:[362,304], faction:'earth',     danger:3, starColor:'#ff7755', jumpR:136 },
   { id:'kapteyn',    name:"Kapteyn's Star",pos:[415,241], faction:'earth',     danger:3, starColor:'#ffaa88', jumpR:136 },
   { id:'lacaille87', name:'Lacaille 8760', pos:[496,227], faction:'earth',     danger:3, starColor:'#ff6644', jumpR:136 },
-  { id:'delta_pav',  name:'Delta Pavonis', pos:[567,268], faction:'earth',     danger:3, starColor:'#ffdd88', jumpR:136 },
+  { id:'delta_pav',  name:'Delta Pavonis', pos:[567,268], faction:'earth',     danger:3, starColor:'#ffdd88', jumpR:136, hasCantina:true },
 
   // ── Contested Middle Ring ──
   { id:'kruger60',   name:'Kruger 60',     pos:[645,345], faction:'contested', danger:4, starColor:'#ff6633', jumpR:145 },
@@ -981,7 +981,7 @@ G.SYSTEMS = [
   { id:'sigma_dra',  name:'Sigma Draconis',pos:[337,445], faction:'contested', danger:4, starColor:'#ffcc88', jumpR:136 },
   { id:'eri82',      name:'82 Eridani',    pos:[313,398], faction:'contested', danger:4, starColor:'#ffcc88', jumpR:136 },
   { id:'gl667',      name:'Gliese 667',    pos:[305,345], faction:'contested', danger:4, starColor:'#ff6633', jumpR:136 },
-  { id:'gl570',      name:'Gliese 570',    pos:[313,292], faction:'contested', danger:4, starColor:'#ff7744', jumpR:136 },
+  { id:'gl570',      name:'Gliese 570',    pos:[313,292], faction:'contested', danger:4, starColor:'#ff7744', jumpR:136, hasCantina:true },
   { id:'vir61',      name:'61 Virginis',   pos:[337,245], faction:'contested', danger:4, starColor:'#ffdd88', jumpR:136 },
   { id:'cancri55',   name:'55 Cancri',     pos:[375,207], faction:'contested', danger:4, starColor:'#ffcc88', jumpR:136 },
   { id:'mu_cas',     name:'Mu Cassiopeiae',pos:[422,183], faction:'contested', danger:4, starColor:'#eeeeff', jumpR:136 },
@@ -989,16 +989,16 @@ G.SYSTEMS = [
   { id:'hd40307',    name:'HD 40307',      pos:[528,183], faction:'contested', danger:5, starColor:'#ff8855', jumpR:136 },
   { id:'fomalhaut',  name:'Fomalhaut',     pos:[575,207], faction:'contested', danger:5, starColor:'#cceeff', jumpR:136 },
   { id:'altair',     name:'Altair',        pos:[613,245], faction:'contested', danger:5, starColor:'#eeffff', jumpR:145 },
-  { id:'vega',       name:'Vega',          pos:[637,292], faction:'contested', danger:5, starColor:'#eeeeff', jumpR:145 },
+  { id:'vega',       name:'Vega',          pos:[637,292], faction:'contested', danger:5, starColor:'#eeeeff', jumpR:145, hasCantina:true },
 
   // ── Rebellion Outer Ring ──
-  { id:'arcturus',   name:'Arcturus',      pos:[712,382], faction:'rebellion', danger:5, starColor:'#ffbb88', jumpR:153 },
+  { id:'arcturus',   name:'Arcturus',      pos:[712,382], faction:'rebellion', danger:5, starColor:'#ffbb88', jumpR:153, hasCantina:true },
   { id:'pollux',     name:'Pollux',        pos:[689,454], faction:'rebellion', danger:5, starColor:'#ffcc88', jumpR:145 },
   { id:'capella',    name:'Capella',       pos:[645,515], faction:'rebellion', danger:5, starColor:'#ffffcc', jumpR:145 },
   { id:'aldebaran',  name:'Aldebaran',     pos:[584,559], faction:'rebellion', danger:5, starColor:'#ffaa66', jumpR:145 },
-  { id:'regulus',    name:'Regulus',       pos:[512,582], faction:'rebellion', danger:5, starColor:'#eeeeff', jumpR:136 },
+  { id:'regulus',    name:'Regulus',       pos:[512,582], faction:'rebellion', danger:5, starColor:'#eeeeff', jumpR:136, hasCantina:true },
   { id:'castor',     name:'Castor',        pos:[438,582], faction:'rebellion', danger:5, starColor:'#eeeeff', jumpR:136 },
-  { id:'deneb',      name:'Deneb',         pos:[366,559], faction:'rebellion', danger:6, starColor:'#eeeeff', jumpR:145 },
+  { id:'deneb',      name:'Deneb',         pos:[366,559], faction:'rebellion', danger:6, starColor:'#eeeeff', jumpR:145, hasCantina:true },
   { id:'bellatrix',  name:'Bellatrix',     pos:[305,515], faction:'rebellion', danger:6, starColor:'#ccddff', jumpR:136 },
   { id:'spica',      name:'Spica',         pos:[261,454], faction:'rebellion', danger:6, starColor:'#cceeff', jumpR:145 },
   { id:'antares',    name:'Antares',       pos:[238,382], faction:'rebellion', danger:6, starColor:'#ff8844', jumpR:145 },
@@ -1014,11 +1014,11 @@ G.SYSTEMS = [
   { id:'betelgeuse', name:'Betelgeuse',    pos:[712,308], faction:'rebellion', danger:6, starColor:'#ff8866', jumpR:145 },
 
   // ── Pirate Badlands ──
-  { id:'saiph',      name:'Saiph',         pos:[775,345], faction:'pirate',    danger:6, starColor:'#cceeff', jumpR:136 },
+  { id:'saiph',      name:'Saiph',         pos:[775,345], faction:'pirate',    danger:6, starColor:'#cceeff', jumpR:136, hasCantina:true },
   { id:'aludra',     name:'Aludra',        pos:[760,438], faction:'pirate',    danger:6, starColor:'#eeeeff', jumpR:136 },
   { id:'zeta_pup',   name:'Zeta Puppis',   pos:[718,522], faction:'pirate',    danger:7, starColor:'#88ccff', jumpR:136 },
   { id:'naos',       name:'Naos',          pos:[652,588], faction:'pirate',    danger:7, starColor:'#88aaff', jumpR:136 },
-  { id:'algol',      name:'Algol',         pos:[568,630], faction:'pirate',    danger:7, starColor:'#ccddff', jumpR:145, noStar:true },
+  { id:'algol',      name:'Algol',         pos:[568,630], faction:'pirate',    danger:7, starColor:'#ccddff', jumpR:145, noStar:true, hasCantina:true },
   { id:'mira',       name:'Mira',          pos:[475,645], faction:'pirate',    danger:7, starColor:'#ff8866', jumpR:136 },
   { id:'dubhe',      name:'Dubhe',         pos:[382,630], faction:'pirate',    danger:7, starColor:'#ffcc88', jumpR:136 },
   { id:'merak',      name:'Merak',         pos:[298,588], faction:'pirate',    danger:7, starColor:'#ffffcc', jumpR:136 },
@@ -1076,6 +1076,7 @@ G.MISSION_TYPES = [
   {
     type:'cargo_haul', name:'Cargo Delivery',
     desc:'Deliver {qty} units of {item} to {dest}.',
+    repReward: 5,
     reward: (dist, qty) => 200 + dist * 35 + qty * 25,
     genFn: (sys, allSys) => {
       const items = ['food','medicine','electronics','metals','polymers','fuel_cells'];
@@ -1090,6 +1091,7 @@ G.MISSION_TYPES = [
   {
     type:'passenger', name:'Passenger Transport',
     desc:'Transport {qty} passengers to {dest}. Handle with care.',
+    repReward: 8,
     reward: (dist, qty) => 400 + dist * 60 + qty * 80,
     genFn: (sys, allSys) => {
       const qty = 1 + Math.floor(Math.random()*4);
@@ -1101,6 +1103,7 @@ G.MISSION_TYPES = [
   {
     type:'bounty', name:'Bounty Hunt',
     desc:'Destroy pirate vessels operating near {target}.',
+    repReward: 8,
     reward: (dist, qty) => 600 + dist * 40,
     genFn: (sys, allSys) => {
       const pirates = allSys.filter(s => s.faction==='pirate'||s.faction==='contested');
@@ -1111,6 +1114,7 @@ G.MISSION_TYPES = [
   {
     type:'salvage', name:'Salvage Operation',
     desc:'Recover {qty} units of cargo from a derelict near {dest}.',
+    repReward: 5,
     reward: (dist, qty) => 350 + dist * 30 + qty * 40,
     genFn: (sys, allSys) => {
       const qty = 3+Math.floor(Math.random()*6);

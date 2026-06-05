@@ -1,0 +1,6 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "echo \"$(whoami)@$(hostname -s) $(basename \"$(pwd)\")\""
+  }
+}

@@ -232,10 +232,9 @@ G.Ship = class {
   update(dt, inp) {
     if(this.disabled || this.empTimer > 0) {
       if(this.empTimer > 0) this.empTimer -= dt;
-      // Drift
       this.x += this.vx*dt;
       this.y += this.vy*dt;
-      // Regenerate shields/energy slowly
+      this.angle += 0.4 * dt; // spin slowly while disabled
       this._regenPassive(dt*0.3);
       return;
     }
@@ -261,16 +260,22 @@ G.Ship = class {
       G.sound?.boost();
     }
     this._boostKeyWasDown = inp.boost;
+    G.sound?.updateBoost(boostActive);
 
     // Heading basis: forward = nose direction, lateral = starboard (perpendicular)
     const fwdX = Math.sin(this.angle),  fwdY = -Math.cos(this.angle);
     const latX = Math.cos(this.angle),  latY =  Math.sin(this.angle);
 
+    // Cargo adds weight, reducing acceleration
+    let cargoMass = 0;
+    for(const [id, qty] of Object.entries(this.cargo)) cargoMass += (G.ITEMS[id]?.mass||1) * qty;
+    const effectiveMass = this.mass + cargoMass;
+
     // Thrust
     // Boost: high acceleration for sharp maneuvering, but lower top speed
     const boostMult   = boostActive ? 5.0 : 1.0;
     if(inp.thrust) {
-      const thrust = this.thrustPower * thrustEff * boostMult / this.mass;
+      const thrust = this.thrustPower * thrustEff * boostMult / effectiveMass;
       this.vx += fwdX * thrust * dt;
       this.vy += fwdY * thrust * dt;
       if(boostActive) this.energy = Math.max(0, this.energy - 30 * dt);
@@ -278,7 +283,7 @@ G.Ship = class {
 
       // Grip: while driving forward, fire lateral thrusters to cancel sideways drift
       const vLat = this.vx*latX + this.vy*latY;
-      const gripMag = this.thrustPower * thrustEff * boostMult * 1.2 / this.mass;
+      const gripMag = this.thrustPower * thrustEff * boostMult * 1.2 / effectiveMass;
       const dvl = Math.sign(vLat) * Math.min(Math.abs(vLat), gripMag * dt);
       this.vx -= latX * dvl;
       this.vy -= latY * dvl;
@@ -286,7 +291,7 @@ G.Ship = class {
     // Q/E = strafe left/right (perpendicular thrust, boosted)
     if(inp.strafeL || inp.strafeR) {
       const dir = inp.strafeL ? -1 : 1;
-      const strafeThrust = this.thrustPower * thrustEff * boostMult * 0.65 / this.mass;
+      const strafeThrust = this.thrustPower * thrustEff * boostMult * 0.65 / effectiveMass;
       this.vx += latX * dir * strafeThrust * dt;
       this.vy += latY * dir * strafeThrust * dt;
       if(boostActive) this.energy = Math.max(0, this.energy - 15 * dt);
@@ -297,14 +302,14 @@ G.Ship = class {
       this._reverseHeldTime += dt;
       if(spd > 1 && this._reverseHeldTime < 1.0) {
         // Braking mode: apply retrograde braking
-        const brakeMag = this.thrustPower * 2.0 * thrustEff * boostMult / this.mass;
+        const brakeMag = this.thrustPower * 2.0 * thrustEff * boostMult / effectiveMass;
         const bx = -(this.vx/spd) * brakeMag * dt;
         const by = -(this.vy/spd) * brakeMag * dt;
         this.vx = Math.abs(this.vx + bx) < Math.abs(bx) ? 0 : this.vx + bx;
         this.vy = Math.abs(this.vy + by) < Math.abs(by) ? 0 : this.vy + by;
       } else if(this._reverseHeldTime >= 1.0) {
         // Backwards vectoring mode: apply reverse thrust
-        const thrustMag = this.thrustPower * thrustEff * boostMult * 0.8 / this.mass;
+        const thrustMag = this.thrustPower * thrustEff * boostMult * 0.8 / effectiveMass;
         this.vx -= fwdX * thrustMag * dt;
         this.vy -= fwdY * thrustMag * dt;
         this.fuel = Math.max(0, this.fuel - this.fuelBurnRate * 0.04 * dt);
@@ -323,7 +328,7 @@ G.Ship = class {
 
     // Speed cap: boost lowers max speed, making it better for direction changes than top speed
     const spd3 = Math.sqrt(this.vx*this.vx+this.vy*this.vy);
-    const maxSpd = 300 + this.thrustPower * 0.022 * (1 / (1 + this.mass * 0.001));
+    const maxSpd = 300 + this.thrustPower * 0.022 * (1 / (1 + effectiveMass * 0.001));
     const cap = maxSpd * (boostActive ? 0.7 : 1.0);
     if(spd3 > 1) {
       // Interstellar drag: negligible at cruise, ramps up exponentially near the cap
@@ -401,7 +406,6 @@ G.Ship = class {
       hullDmg = amount;
       this.hull -= hullDmg;
       if(this.hull <= 0) {
-        this.hull = Math.round(this.maxHull * 0.2);
         this.disabled = true;
       }
     }

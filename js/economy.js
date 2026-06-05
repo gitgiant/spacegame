@@ -41,13 +41,18 @@ G.Economy = class {
           .replace('{target}', destSys?.name||'Unknown')
           .replace('{sys}',  destSys?.name||'Unknown');
 
+        // Scale rep reward by distance (further = more rep)
+        const baseRep = tpl.repReward || (tpl.faction ? 30 : 5);
+        const repReward = tpl.faction
+          ? Math.round(baseRep * Math.max(1, 0.8 + dist * 0.12))
+          : Math.round(baseRep * Math.max(1, 1 + (dist - 1) * 0.3));
         missions.push({
           id: 'm_'+sysId+'_'+i,
           type: tpl.type,
           title: tpl.name,
           desc,
           reward: Math.round(reward),
-          repReward: tpl.repReward||5,
+          repReward,
           repFaction: tpl.repFaction||sys.faction,
           params,
           faction: sys.faction,
@@ -91,20 +96,20 @@ G.Economy = class {
       if(m.type==='cargo_haul' && m.params.dest===sysId) {
         if(player.cargo[m.params.item] >= m.params.qty) {
           player.removeCargo(m.params.item, m.params.qty);
-          m.completed = true;
-          completed.push(m);
+          m.completed = true; completed.push(m);
           G.game.credits += m.reward;
-          G.game.setRel(m.faction, G.game.getRel(m.faction)+5);
+          const rep = m.repReward||5;
+          G.game.setRel(m.repFaction||m.faction, G.game.getRel(m.repFaction||m.faction)+rep, 'cargo mission: '+m.title);
         }
       }
       if(m.type==='passenger' && m.params.dest===sysId) {
-        // Passengers are tracked as mission_pkg cargo
         const have = player.cargo['mission_pkg']||0;
         if(have >= m.params.qty) {
           player.removeCargo('mission_pkg', m.params.qty);
           m.completed=true; completed.push(m);
           G.game.credits+=m.reward;
-          G.game.setRel(m.faction, G.game.getRel(m.faction)+8);
+          const rep = m.repReward||8;
+          G.game.setRel(m.repFaction||m.faction, G.game.getRel(m.repFaction||m.faction)+rep, 'passenger mission: '+m.title);
         }
       }
       if(m.type==='salvage' && m.params.dest===sysId) {
@@ -112,19 +117,23 @@ G.Economy = class {
         if(m.progress>=1) {
           m.completed=true; completed.push(m);
           G.game.credits+=m.reward;
-          G.game.setRel(m.faction, G.game.getRel(m.faction)+5);
+          const rep = m.repReward||5;
+          G.game.setRel(m.repFaction||m.faction, G.game.getRel(m.repFaction||m.faction)+rep, 'salvage mission: '+m.title);
         }
       }
       if(m.type==='bounty') { /* checked in checkBounty */ }
-      // Faction prestige missions complete on visiting dest system
       if((m.type==='faction_earth'||m.type==='faction_rebellion'||m.type==='faction_pirate') && m.params.dest===sysId) {
         m.progress=(m.progress||0)+1;
         if(m.progress>=1) {
           m.completed=true; completed.push(m);
           G.game.credits+=m.reward;
-          G.game.setRel(m.repFaction||m.faction, G.game.getRel(m.repFaction||m.faction)+(m.repReward||40));
+          G.game.setRel(m.repFaction||m.faction, G.game.getRel(m.repFaction||m.faction)+(m.repReward||40), 'faction mission: '+m.title);
         }
       }
+    }
+    for(const m of completed) {
+      G.game.addCombatLog?.('MISSION COMPLETE: '+m.title.toUpperCase()+' +'+G.fmtCredits(m.reward)+(m.repReward?' +'+m.repReward+' REP':''), '#44ff88');
+      G.ui?.showMissionResult?.(true, m.title, m.reward, m.repReward||0);
     }
     return completed;
   }
@@ -139,8 +148,11 @@ G.Economy = class {
         if(m.progress>=1) {
           m.completed=true;
           G.game.credits+=m.reward;
-          G.game.setRel(m.faction, G.game.getRel(m.faction)+8);
+          const bRep = m.repReward||8;
+          G.game.setRel(m.repFaction||m.faction, G.game.getRel(m.repFaction||m.faction)+bRep, 'bounty: '+m.title);
           G.ui.addMsg('Bounty complete! +'+G.fmtCredits(m.reward), '#ffcc00');
+          G.game.addCombatLog?.('BOUNTY COMPLETE: '+m.title.toUpperCase()+' +'+G.fmtCredits(m.reward), '#44ff88');
+          G.ui?.showMissionResult?.(true, m.title, m.reward, bRep);
         }
       }
     }

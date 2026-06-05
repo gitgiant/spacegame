@@ -20,6 +20,7 @@ G.SLOT_RING = {
 G.UI = class {
   constructor() {
     this._msgs     = [];
+    this._msgHistory = [];
     this._spTab    = 'trade';
     this._currentSysId = 'sol';
     this.els = {};
@@ -136,6 +137,7 @@ G.UI = class {
 
     document.getElementById('comms-close-btn')?.addEventListener('click',()=>this.closeComms());
     document.getElementById('close-log-btn')?.addEventListener('click',()=>this.hideMissionLog());
+    document.getElementById('close-combat-log-btn')?.addEventListener('click',()=>this.hideCombatLog());
     this._commsNPC = null;
   }
 
@@ -164,6 +166,44 @@ G.UI = class {
     document.getElementById('opt-save-btn')?.addEventListener('click',()=>{
       G.game.saveGame();
     });
+    document.getElementById('opt-fleet-btn')?.addEventListener('click',()=>{
+      document.getElementById('options-overlay')?.classList.add('hidden');
+      G.game.paused = false;
+      this.showFleetMenu();
+    });
+    document.getElementById('fleet-close-btn')?.addEventListener('click',()=>{
+      document.getElementById('fleet-overlay')?.classList.add('hidden');
+      G.game.paused = false;
+    });
+    // Boarding popup
+    document.getElementById('board-loot-btn')?.addEventListener('click',()=>{
+      const e = this._boardingTarget; if(!e) return;
+      const savedCreds = e.credits || 0;
+      const res = G.game.space.boardEnemy(e, G.game.player);
+      const el = document.getElementById('boarding-result');
+      if(el) el.innerHTML = res
+        ? `<span style="color:#ffcc00">Looted: +${G.fmtCredits(savedCreds)}${res.items?.length?' + '+res.items.length+' items':''}</span>`
+        : '<span style="color:#ff4444">Nothing to take.</span>';
+      document.getElementById('boarding-options').style.display='none';
+      G.sound?.lootPickup();
+    });
+    document.getElementById('board-scuttle-btn')?.addEventListener('click',()=>{
+      const e = this._boardingTarget; if(!e) return;
+      G.game.space.scuttleEnemy(e);
+      const el = document.getElementById('boarding-result');
+      if(el) el.innerHTML = '<span style="color:#ff6644">Ship scuttled — debris scattered.</span>';
+      document.getElementById('boarding-options').style.display='none';
+    });
+    document.getElementById('board-commandeer-btn')?.addEventListener('click',()=>{
+      const e = this._boardingTarget; if(!e) return;
+      const res = G.game.commandeerShip(e);
+      const el = document.getElementById('boarding-result');
+      if(el) el.innerHTML = res.success
+        ? `<span style="color:#44ff88">Success! ${res.entry.fleetName} joins your fleet.</span>`
+        : `<span style="color:#ff4444">Failed (${Math.round(res.chance*100)}% odds): ${res.reason}</span>`;
+      document.getElementById('boarding-options').style.display='none';
+    });
+    document.getElementById('boarding-close-btn')?.addEventListener('click',()=>this.closeBoardingPopup());
     document.getElementById('opt-quit-btn')?.addEventListener('click',()=>{
       document.getElementById('options-overlay')?.classList.add('hidden');
       G.game.paused = false;
@@ -173,6 +213,7 @@ G.UI = class {
       document.getElementById('options-overlay')?.classList.add('hidden');
       G.game.paused = false;
     });
+    document.getElementById('opt-log-btn')?.addEventListener('click',()=>this.showCombatLog());
     document.getElementById('opt-sfx-enabled')?.addEventListener('change', e=>{
       const on = e.target.checked;
       document.getElementById('opt-sfx-label').textContent = on ? 'ON' : 'OFF';
@@ -246,7 +287,10 @@ G.UI = class {
     const p=player, e=this.els;
     const hPct=G.pct(p.hull,p.maxHull), sPct=G.pct(p.shields,Math.max(p.maxShields,1));
     const fPct=G.pct(p.fuel,p.maxFuel);
-    if(e['bar-hull'])   e['bar-hull'].style.width=hPct+'%';
+    if(e['bar-hull']) {
+      e['bar-hull'].style.width=hPct+'%';
+      e['bar-hull'].style.background = p.disabled ? '#556677' : '';
+    }
     if(e['bar-shield']) e['bar-shield'].style.width=sPct+'%';
     if(e['bar-fuel'])   e['bar-fuel'].style.width=fPct+'%';
     const ePct=G.pct(p.energy,Math.max(p.maxEnergy,1));
@@ -355,11 +399,11 @@ G.UI = class {
         const tplId  = target.templateId || target.shapeId;
         const tpl    = G.SHIPS[tplId];
         const tShip  = target.name || tpl?.name || 'SHIP';
-        const tFac   = (target.faction||'?').toUpperCase();
-        const tClass = tpl?.class ? G.SHIP_CLASSES[tpl.class]?.label || tpl.class.toUpperCase() : '';
+        const tFac   = target.faction||'?';
+        const facColor = G.FACTIONS[tFac]?.color || '#888888';
         const isHostile = target.hostile || (target.faction && (G.game?.getRel(target.faction)||0) < -30 && target !== G.game?.player);
         const hostileTag = isHostile ? ' <span style="color:#ff3333">■ HOSTILE</span>' : ' <span style="color:#44ff88">■ NEUTRAL</span>';
-        e['tgt-name'].innerHTML = tFac + ' · ' + tShip.toUpperCase() + (tClass ? ' · ' + tClass : '') + hostileTag;
+        e['tgt-name'].innerHTML = tShip.toUpperCase() + ' <span style="color:' + facColor + '">■ ' + tFac.toUpperCase() + '</span>' + hostileTag;
       }
       if(target.disabled && (target.disabledHp !== undefined)) {
         if(e['tgt-hull-bar']) { e['tgt-hull-bar'].style.width=G.pct(Math.max(0,target.disabledHp),50)+'%'; e['tgt-hull-bar'].style.background='#ff6600'; }
@@ -379,7 +423,12 @@ G.UI = class {
   showSpaceport(name, sysId) {
     this._currentSysId=sysId;
     this._spTab='trade';
+    if(this._cantinaCache) delete this._cantinaCache['cantina_'+sysId];
     if(this.els['sp-name']) this.els['sp-name'].textContent=name.toUpperCase();
+    // Show cantina tab only at systems with a cantina
+    const sys = G.SYSTEMS.find(s=>s.id===sysId);
+    const cantinaTab = document.getElementById('cantina-tab');
+    if(cantinaTab) cantinaTab.classList.toggle('hidden', !sys?.hasCantina);
     this._updateSpStatusBar();
     this.renderSpaceportTab('trade');
     document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab==='trade'));
@@ -411,6 +460,7 @@ G.UI = class {
       case 'repair':    body.innerHTML=this._buildRepairHTML();    this._bindRepair();    break;
       case 'craft':     body.innerHTML=this._buildCraftHTML();     this._bindCraft();     break;
       case 'inventory': body.innerHTML=this._buildModInventoryHTML(); this._bindModInventory(); break;
+      case 'cantina':   body.innerHTML=this._buildCantinaHTML();      this._bindCantina();      break;
     }
     this._updateSpStatusBar();
   }
@@ -689,9 +739,12 @@ G.UI = class {
       listHtml+=`<div class="section-title">ACTIVE MISSIONS</div>`;
       for(const m of active){
         const destId=this._getMissionDestId(m);
-        listHtml+=`<div class="mission-card" data-destid="${destId||''}" data-hover="mission">
+        const aRepStr = m.repReward ? `<div style="font-size:5px;color:#44ff88">+${m.repReward} REP</div>` : '';
+      listHtml+=`<div class="mission-card" data-destid="${destId||''}" data-hover="mission">
           <div class="mission-info"><div class="mission-title">${m.title}</div><div class="mission-desc">${m.desc}</div></div>
-          <div class="mission-reward">$ ${G.fmt(m.reward)}</div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+            <div class="mission-reward">$ ${G.fmt(m.reward)}</div>${aRepStr}
+          </div>
         </div>`;
       }
     }
@@ -699,10 +752,12 @@ G.UI = class {
     const available=missions.filter(m=>!G.game.activeMissions.find(am=>am.id===m.id));
     for(const m of available){
       const destId=this._getMissionDestId(m);
+      const repStr = m.repReward ? `<div style="font-size:5px;color:#44ff88">+${m.repReward} ${(m.repFaction||m.faction||'').toUpperCase()} REP</div>` : '';
       listHtml+=`<div class="mission-card" data-destid="${destId||''}" data-hover="mission">
         <div class="mission-info"><div class="mission-title">${m.title}</div><div class="mission-desc">${m.desc}</div></div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
           <div class="mission-reward">$ ${G.fmt(m.reward)}</div>
+          ${repStr}
           <button class="btn btn-buy" data-missionid="${m.id}">ACCEPT</button>
         </div>
       </div>`;
@@ -777,6 +832,51 @@ G.UI = class {
     document.getElementById('mission-log-overlay')?.classList.add('hidden');
   }
 
+  // ── Combat Log ────────────────────────────────────────────
+  showCombatLog() {
+    const overlay = document.getElementById('combat-log-overlay');
+    if(!overlay) return;
+    overlay.classList.remove('hidden');
+    const list = document.getElementById('combat-log-list');
+    if(list) {
+      const log = this._msgHistory || [];
+      if(!log.length) {
+        list.innerHTML = '<div style="color:#556677;font-size:7px;padding:16px">No events logged.</div>';
+      } else {
+        list.innerHTML = log.map(e =>
+          `<div style="display:flex;gap:8px;margin-bottom:4px;font-size:6px;line-height:1.6">
+            <span style="color:#445566;white-space:nowrap">${e.ts}</span>
+            <span style="color:${e.color||'#aabbcc'}">${e.text}</span>
+          </div>`
+        ).join('');
+      }
+    }
+  }
+
+  hideCombatLog() {
+    document.getElementById('combat-log-overlay')?.classList.add('hidden');
+  }
+
+  // ── Mission result popup ──────────────────────────────────
+  showMissionResult(success, title, credits, rep) {
+    const el = document.getElementById('mission-result-popup');
+    if(!el) return;
+    const color = success ? '#44ff88' : '#ff6644';
+    const icon  = success ? '✓' : '✗';
+    const repStr = rep > 0
+      ? `<div style="color:${success?'#44ff88':'#ff4444'};font-size:7px">${success?'+':''}${rep} REP</div>`
+      : '';
+    el.innerHTML = `<div id="mission-result-body" style="border-color:${color}">
+      <div style="color:${color};font-size:9px;margin-bottom:4px">${icon} MISSION ${success?'COMPLETE':'FAILED'}</div>
+      <div style="font-size:6px;color:#aabbcc;margin-bottom:4px">${title}</div>
+      ${credits ? `<div style="color:#ffcc00;font-size:7px">+${G.fmtCredits(credits)}</div>` : ''}
+      ${repStr}
+    </div>`;
+    el.classList.remove('hidden');
+    clearTimeout(this._missionResultTimer);
+    this._missionResultTimer = setTimeout(() => el.classList.add('hidden'), 4000);
+  }
+
   _refreshMissionLog(){
     const list=document.getElementById('mission-log-list');
     const canvas=document.getElementById('mission-log-canvas');
@@ -814,10 +914,13 @@ G.UI = class {
     if(m.type==='cargo_haul') G.game.player.removeCargo(m.params.item, m.params.qty||1);
     if(m.type==='passenger')  G.game.player.removeCargo('mission_pkg', m.params.qty||1);
     G.game.activeMissions.splice(idx,1);
-    G.game.setRel(m.repFaction||m.faction, G.game.getRel(m.repFaction||m.faction)-5);
+    const repLoss = Math.max(3, Math.round((m.repReward||5)*0.5));
+    const fac = m.repFaction||m.faction;
+    G.game.setRel(fac, G.game.getRel(fac)-repLoss, 'abandoned: '+m.title);
     this.addMsg('Mission abandoned: '+m.title,'#ff8844');
+    G.game.addCombatLog('MISSION ABANDONED: '+m.title.toUpperCase()+' (-'+repLoss+' REP)', '#ff8844');
+    this.showMissionResult(false, m.title, 0, -repLoss);
     this._refreshMissionLog();
-    // Invalidate galaxy mission targets
     G.game.galaxy.draw(G.game.currentSysId);
   }
 
@@ -831,6 +934,7 @@ G.UI = class {
   _buildOutfitterHTML(){
     const p=G.game.player;
     const tpl=G.SHIPS[p.templateId];
+    if(!Array.isArray(p.slots)) p.slots = new Array(tpl.slots).fill(null);
     const mods=G.game.economy.getOutfitter(this._currentSysId);
     const hasEmpty=p.slots.includes(null);
 
@@ -855,7 +959,7 @@ G.UI = class {
       const mod=inst?(G.MODULES[inst.moduleId]||G.WEAPONS[inst.moduleId]):null;
       if(!mod) return;
       const removeBtn=`<button class="btn btn-remove" style="font-size:5px;padding:2px 4px;margin-top:3px;width:100%"
-        onclick="G.ui.removeModuleFromSlot('${instId}')" title="Sell (40% refund)">REMOVE • $${G.fmt(Math.floor(mod.price*0.4))}</button>`;
+        onclick="G.ui.removeModuleFromSlot('${instId}')" title="Remove module to inventory">REMOVE</button>`;
       equippedHtml+=`<div class="item-card" style="margin-bottom:8px">${this._modCardHTML(mod,removeBtn)}</div>`;
     });
     if(equipCount===0) equippedHtml+='<div style="font-size:6px;color:#556677">No modules installed</div>';
@@ -1050,6 +1154,8 @@ G.UI = class {
   // ── Module Inventory (spaceport tab) ─────────────────────
   _buildModInventoryHTML() {
     const p = G.game.player;
+    const tpl = G.SHIPS[p.templateId];
+    if(!Array.isArray(p.slots)) p.slots = new Array(tpl.slots).fill(null);
     const inv = p.moduleInventory || [];
     const hasSlot = p.slots.includes(null);
     let html = `<div class="panel-title">CARGO & MODULES</div>`;
@@ -1307,15 +1413,15 @@ G.UI = class {
     <div class="two-col">
     <div class="item-card"><div class="item-name">Hull Repair</div>
       <div class="item-stats">Damage: ${Math.ceil(p.maxHull-p.hull)} HP — Cost: ${G.fmtCredits(hCost)}</div>
-      <button class="btn btn-buy" id="rep-hull" ${p.hull<p.maxHull&&G.game.credits>=hCost?'':'disabled style="opacity:0.3"'}>REPAIR HULL</button>
+      <button class="btn btn-buy" id="rep-hull" ${p.hull<p.maxHull?'':'disabled style="opacity:0.3"'}>REPAIR HULL</button>
     </div>
     <div class="item-card"><div class="item-name">Refuel</div>
       <div class="item-stats">Need: ${Math.ceil(p.maxFuel-p.fuel)} — Cost: ${G.fmtCredits(fCost)}</div>
-      <button class="btn btn-buy" id="rep-fuel" ${p.fuel<p.maxFuel&&G.game.credits>=fCost?'':'disabled style="opacity:0.3"'}>REFUEL</button>
+      <button class="btn btn-buy" id="rep-fuel" ${p.fuel<p.maxFuel?'':'disabled style="opacity:0.3"'}>REFUEL</button>
     </div>
     ${p.maxShields>0?`<div class="item-card"><div class="item-name">Shield Recharge</div>
       <div class="item-stats">Depleted: ${Math.ceil(p.maxShields-p.shields)} — Cost: ${G.fmtCredits(sCost)}</div>
-      <button class="btn btn-buy" id="rep-shld" ${p.shields<p.maxShields&&G.game.credits>=sCost?'':'disabled style="opacity:0.3"'}>RECHARGE</button>
+      <button class="btn btn-buy" id="rep-shld" ${p.shields<p.maxShields?'':'disabled style="opacity:0.3"'}>RECHARGE</button>
     </div>`:''}
     </div>`;
     if(broken.length){
@@ -1329,6 +1435,18 @@ G.UI = class {
       }
       html+='</div>';
     }
+    const damagedEscorts = (G.game.fleet || []).filter(e => e.ship && e.ship.hull < e.ship.maxHull);
+    if(damagedEscorts.length){
+      html+=`<div class="section-title">ESCORT REPAIRS</div><div class="two-col">`;
+      for(const entry of damagedEscorts){
+        const damage = Math.ceil(entry.ship.maxHull - entry.ship.hull);
+        const cost = Math.ceil(damage * 5);
+        html+=`<div class="item-card"><div class="item-name" style="color:#44ff44">${entry.fleetName}</div>
+        <div class="item-stats">Hull damage: ${damage} HP — Cost: ${G.fmtCredits(cost)}</div>
+        <button class="btn btn-buy" data-repescort="${entry.id}">REPAIR</button></div>`;
+      }
+      html+='</div>';
+    }
     // Save game button
     html+=`<div style="margin-top:16px;border-top:1px solid #1a4a6a;padding-top:12px">
       <button class="btn" id="save-game-btn" style="border-color:#00ffee;color:#00ffee">💾 SAVE GAME</button>
@@ -1339,16 +1457,50 @@ G.UI = class {
 
   _bindRepair(){
     document.getElementById('rep-hull')?.addEventListener('click',()=>{
-      const p=G.game.player, cost=Math.ceil((p.maxHull-p.hull)*5);
-      if(G.game.credits>=cost){G.game.credits-=cost;p.hull=p.maxHull;this.addMsg('Hull repaired','#44ff44');this.renderSpaceportTab('repair');}
+      const p=G.game.player;
+      const damage = p.maxHull - p.hull;
+      if(damage <= 0) return;
+      const costPerHp = 5;
+      const fullCost = damage * costPerHp;
+      const repaired = Math.min(damage, Math.floor(G.game.credits / costPerHp));
+      const cost = repaired * costPerHp;
+      if(repaired > 0){
+        G.game.credits -= cost;
+        p.hull += repaired;
+        const msg = repaired === damage ? 'Hull repaired' : `Hull repaired ${repaired} of ${Math.ceil(damage)} HP`;
+        this.addMsg(msg,'#44ff44');
+        this.renderSpaceportTab('repair');
+      }
     });
     document.getElementById('rep-fuel')?.addEventListener('click',()=>{
-      const p=G.game.player, cost=Math.ceil((p.maxFuel-p.fuel)*2);
-      if(G.game.credits>=cost){G.game.credits-=cost;p.fuel=p.maxFuel;this.addMsg('Refueled','#44ff44');this.renderSpaceportTab('repair');}
+      const p=G.game.player;
+      const need = p.maxFuel - p.fuel;
+      if(need <= 0) return;
+      const costPerUnit = 2;
+      const refueled = Math.min(need, Math.floor(G.game.credits / costPerUnit));
+      const cost = refueled * costPerUnit;
+      if(refueled > 0){
+        G.game.credits -= cost;
+        p.fuel += refueled;
+        const msg = refueled === need ? 'Refueled' : `Refueled ${refueled} of ${Math.ceil(need)}`;
+        this.addMsg(msg,'#44ff44');
+        this.renderSpaceportTab('repair');
+      }
     });
     document.getElementById('rep-shld')?.addEventListener('click',()=>{
-      const p=G.game.player, cost=Math.ceil((p.maxShields-p.shields)*3);
-      if(G.game.credits>=cost){G.game.credits-=cost;p.shields=p.maxShields;this.addMsg('Shields recharged','#44ff44');this.renderSpaceportTab('repair');}
+      const p=G.game.player;
+      const depleted = p.maxShields - p.shields;
+      if(depleted <= 0) return;
+      const costPerHp = 3;
+      const recharged = Math.min(depleted, Math.floor(G.game.credits / costPerHp));
+      const cost = recharged * costPerHp;
+      if(recharged > 0){
+        G.game.credits -= cost;
+        p.shields += recharged;
+        const msg = recharged === depleted ? 'Shields recharged' : `Shields recharged ${recharged} of ${Math.ceil(depleted)} HP`;
+        this.addMsg(msg,'#44ff44');
+        this.renderSpaceportTab('repair');
+      }
     });
     document.querySelectorAll('[data-repmod]').forEach(btn=>{
       btn.addEventListener('click',()=>{
@@ -1359,12 +1511,33 @@ G.UI = class {
         if(G.game.credits>=cost){G.game.credits-=cost;inst.broken=false;inst.hp=mod?.hp||50;G.game.player._recompute();this.addMsg('Repaired '+mod?.name,'#44ff44');this.renderSpaceportTab('repair');}
       });
     });
+    document.querySelectorAll('[data-repescort]').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        const escortId = btn.dataset.repescort;
+        const entry = (G.game.fleet||[]).find(e => e.id === escortId);
+        if(!entry || !entry.ship) return;
+        const damage = entry.ship.maxHull - entry.ship.hull;
+        if(damage <= 0) return;
+        const costPerHp = 5;
+        const repaired = Math.min(damage, Math.floor(G.game.credits / costPerHp));
+        const cost = repaired * costPerHp;
+        if(repaired > 0){
+          G.game.credits -= cost;
+          entry.ship.hull += repaired;
+          const msg = repaired === damage ? entry.fleetName + ' repaired' : `${entry.fleetName} repaired ${repaired} of ${Math.ceil(damage)} HP`;
+          this.addMsg(msg,'#44ff44');
+          this.renderSpaceportTab('repair');
+        }
+      });
+    });
     document.getElementById('save-game-btn')?.addEventListener('click',()=>G.game.saveGame());
   }
 
   // ── Crafting ─────────────────────────────────────────────
   _buildCraftHTML(){
     const p=G.game.player;
+    const tpl=G.SHIPS[p.templateId];
+    if(!Array.isArray(p.slots)) p.slots = new Array(tpl.slots).fill(null);
     let html=`<div class="panel-title">CRAFTING ${p.canCraft?'<span style="color:#44ff44">[WORKSHOP ACTIVE]</span>':''}</div>`;
     for(const recipe of G.RECIPES){
       const canCraft=recipe.reqModule?p.canCraft:true;
@@ -1427,19 +1600,108 @@ G.UI = class {
   showInventory(){
     const p=G.game.player, body=document.getElementById('inv-body');
     if(!body) return;
-    let html='<div class="inv-grid">';
+    let html='';
+
+    // ── Cargo section ──
+    html+='<div style="font-size:6px;color:#aabbcc;margin-bottom:6px;letter-spacing:1px">CARGO</div>';
+    html+='<div class="inv-grid">';
     const entries=Object.entries(p.cargo);
     if(!entries.length) html+='<div style="color:#556677;font-size:7px">Cargo hold is empty</div>';
     for(const[id,qty]of entries){
       const item=G.ITEMS[id]; if(!item) continue;
+      const isMission = item.cat==='mission';
       html+=`<div class="inv-item rarity-${item.rarity||'c'}">
         <div class="inv-qty">${qty}</div>
         <div class="inv-name">${item.name}</div>
         <div style="font-size:5px;color:#556677;margin-top:2px">${G.RARITY[item.rarity||'c']?.label||item.rarity}</div>
+        ${!isMission?`<button data-jettison="${id}" style="margin-top:3px;font-size:5px;padding:1px 3px;background:#331111;border:1px solid #663333;color:#ff6644;cursor:pointer">JETTISON</button>`:''}
       </div>`;
     }
-    html+=`</div><div style="margin-top:10px;font-size:7px;color:#556677">Free space: ${Math.ceil(p.cargoFreeSpace())} units</div>`;
+    html+=`</div><div style="margin-top:6px;font-size:7px;color:#556677;margin-bottom:12px">Free space: ${Math.ceil(p.cargoFreeSpace())} units</div>`;
+
+    // ── Stored modules section ──
+    const modInv = p.moduleInventory || [];
+    html+='<div style="font-size:6px;color:#aabbcc;margin-bottom:6px;letter-spacing:1px">STORED MODULES</div>';
+    html+='<div class="inv-grid">';
+    if(!modInv.length) html+='<div style="color:#556677;font-size:7px">No modules in storage</div>';
+    for(let mi=0;mi<modInv.length;mi++){
+      const modId=modInv[mi];
+      const mod=G.MODULES[modId]||G.WEAPONS[modId]; if(!mod) continue;
+      html+=`<div class="inv-item rarity-${mod.rarity||'c'}">
+        <div class="inv-name" style="font-size:5px">${mod.name}</div>
+        <div style="font-size:5px;color:#556677;margin-top:2px">${G.RARITY[mod.rarity||'c']?.label||mod.rarity||''}</div>
+        <button data-jettison-mod="${mi}" style="margin-top:3px;font-size:5px;padding:1px 3px;background:#331111;border:1px solid #663333;color:#ff6644;cursor:pointer">JETTISON</button>
+      </div>`;
+    }
+    html+='</div>';
+
+    // ── Equipped modules section ──
+    html+='<div style="font-size:6px;color:#aabbcc;margin:12px 0 6px;letter-spacing:1px">EQUIPPED MODULES</div>';
+    html+='<div class="inv-grid">';
+    let equippedAny=false;
+    p.slots.forEach((instId)=>{
+      if(!instId) return;
+      const inst=p.modules[instId];
+      const mod=inst?(G.MODULES[inst.moduleId]||G.WEAPONS[inst.moduleId]):null;
+      if(!mod) return;
+      equippedAny=true;
+      html+=`<div class="inv-item rarity-${mod.rarity||'c'}" style="opacity:0.8">
+        <div class="inv-name" style="font-size:5px">${mod.name}</div>
+        <div style="font-size:5px;color:#556677;margin-top:2px">${G.RARITY[mod.rarity||'c']?.label||mod.rarity||''}</div>
+        <div style="font-size:4px;color:#445566;margin-top:2px">equipped</div>
+      </div>`;
+    });
+    if(!equippedAny) html+='<div style="color:#556677;font-size:7px">No modules equipped</div>';
+    html+='</div>';
+
     body.innerHTML=html;
+
+    // Bind cargo jettison buttons
+    body.querySelectorAll('[data-jettison]').forEach(btn=>{
+      btn.addEventListener('click', e=>{
+        e.stopPropagation();
+        const itemId=btn.dataset.jettison;
+        const qty=p.cargo[itemId]||0;
+        if(!qty) return;
+        p.removeCargo(itemId, qty);
+        const space=G.game.space;
+        if(space) {
+          space.floatingLoot.push({
+            x:p.x+(Math.random()-0.5)*60, y:p.y+(Math.random()-0.5)*60,
+            vx:(Math.random()-0.5)*60, vy:(Math.random()-0.5)*60,
+            type:'item', itemId, qty, rarity:G.ITEMS[itemId]?.rarity||'c', ttl:60,
+            color:G.rarityColor(G.ITEMS[itemId]?.rarity||'c'),
+          });
+        }
+        this.addMsg('Jettisoned '+qty+'x '+(G.ITEMS[itemId]?.name||itemId),'#ff8844');
+        this.showInventory();
+      });
+    });
+
+    // Bind module jettison buttons
+    body.querySelectorAll('[data-jettison-mod]').forEach(btn=>{
+      btn.addEventListener('click', e=>{
+        e.stopPropagation();
+        const mi=+btn.dataset.jettisonMod;
+        const inv=p.moduleInventory||[];
+        const modId=inv[mi];
+        if(!modId) return;
+        inv.splice(mi,1);
+        const mod=G.MODULES[modId]||G.WEAPONS[modId];
+        const space=G.game.space;
+        if(space) {
+          space.floatingLoot.push({
+            x:p.x+(Math.random()-0.5)*60, y:p.y+(Math.random()-0.5)*60,
+            vx:(Math.random()-0.5)*60, vy:(Math.random()-0.5)*60,
+            type:'module', moduleId:modId, rarity:mod?.rarity||'u', ttl:60,
+            color:G.rarityColor(mod?.rarity||'u'),
+          });
+        }
+        this.addMsg('Jettisoned '+(mod?.name||modId),'#ff8844');
+        this.showInventory();
+      });
+    });
+
     this.els['inventory-overlay']?.classList.remove('hidden');
   }
 
@@ -1453,6 +1715,11 @@ G.UI = class {
     const now=Date.now();
     if(this._lastMsg===text && now-this._lastMsgT<2000) return;
     this._lastMsg=text; this._lastMsgT=now;
+    // Persist to history for the log overlay
+    const d=new Date(now);
+    const ts=d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0')+':'+d.getSeconds().toString().padStart(2,'0');
+    this._msgHistory.unshift({ts, text, color});
+    if(this._msgHistory.length>200) this._msgHistory.length=200;
     // Cap visible lines at 5
     while(msgs.children.length>=5) msgs.removeChild(msgs.lastChild);
     const el=document.createElement('div');
@@ -1640,7 +1907,10 @@ G.UI = class {
     if(res.hostile) {
       target.hostile = true;
       target.combatTarget = null;
-      this.addMsg(target.name+' has turned hostile!','#ff4444');
+      const hBank = G.COMMS_LINES?.[target.faction]||G.COMMS_LINES?.independent;
+      const hLines = hBank?.hostile||['Opening fire!'];
+      const hMsg = hLines[Math.floor(Math.random()*hLines.length)];
+      this.addMsg('['+target.name+']: "'+hMsg+'"', G.FACTIONS[target.faction]?.color||'#ff4444');
       if(target.faction!=='independent') G.game.setRel(target.faction, G.game.getRel(target.faction)-5);
       this.closeComms();
     }
@@ -1684,6 +1954,10 @@ G.UI = class {
       const newRel = Math.min(100, G.game.getRel(target.faction) + 10);
       G.game.setRel(target.faction, newRel);
     }
+    const nBank = G.COMMS_LINES?.[target.faction]||G.COMMS_LINES?.independent;
+    const nLines = nBank?.neutral_resume||nBank?.forgive_accept||['Standing down.'];
+    const nMsg = nLines[Math.floor(Math.random()*nLines.length)].replace('{cost}', G.fmtCredits(result.cost));
+    this.addMsg('['+target.name+']: "'+nMsg+'"', G.FACTIONS[target.faction]?.color||'#88ccee');
     this.addMsg('Forgiveness purchased for '+G.fmtCredits(result.cost)+'.', '#ffaa00');
     setTimeout(()=>this.closeComms(), 1500);
   }
@@ -1703,6 +1977,302 @@ G.UI = class {
     clearTimeout(this._noRespTimer);
     this.els['comms-overlay']?.classList.add('hidden');
     this._commsNPC = null;
+  }
+
+  // ── Boarding popup ────────────────────────────────────────
+  showBoardingPopup(enemy) {
+    this._boardingTarget = enemy;
+    const popup = document.getElementById('boarding-popup');
+    if(!popup) return;
+    const player = G.game.player;
+    const playerSize = G.SHIPS[player.templateId]?.size || 1.0;
+    const enemyHpScale = (enemy.maxHp||120)/120;
+    const enemyEff = (enemy.size||1.0) * enemyHpScale;
+    const chance = G.clamp(0.65*playerSize/enemyEff, 0.06, 0.78);
+    const fleetFull = G.game.fleet.length >= 5;
+    const fac = (enemy.faction||'unknown').toUpperCase();
+    const shape = (enemy.shapeId||'ship').replace(/_/g,' ').toUpperCase();
+    const hpPct = Math.round((enemy.hp||0)/Math.max(enemy.maxHp||1,1)*100);
+    const el = document.getElementById('boarding-ship-info');
+    if(el) el.innerHTML = `
+      <div>${fac} ${shape}</div>
+      <div>Hull: ${hpPct}% integrity</div>
+      <div style="color:#ffcc44">Commandeer chance: ${Math.round(chance*100)}%</div>
+      <div style="color:#${fleetFull?'ff4444':'556677'}">Fleet: ${G.game.fleet.length}/5 ships</div>`;
+    const resultEl = document.getElementById('boarding-result');
+    if(resultEl) resultEl.innerHTML = '';
+    const opts = document.getElementById('boarding-options');
+    if(opts) opts.style.display = '';
+    const cmdBtn = document.getElementById('board-commandeer-btn');
+    if(cmdBtn){ cmdBtn.disabled=fleetFull; cmdBtn.style.opacity=fleetFull?'0.4':'1'; }
+    popup.classList.remove('hidden');
+  }
+
+  closeBoardingPopup() {
+    document.getElementById('boarding-popup')?.classList.add('hidden');
+    this._boardingTarget = null;
+    G.game.paused = false;
+  }
+
+  // ── Fleet management ──────────────────────────────────────
+  showFleetMenu() {
+    const overlay = document.getElementById('fleet-overlay');
+    if(!overlay) return;
+    this._renderFleetMenu();
+    overlay.classList.remove('hidden');
+    G.game.paused = true;
+  }
+
+  _renderFleetMenu() {
+    const body = document.getElementById('fleet-body');
+    if(!body) return;
+    const fleet = G.game.fleet;
+    if(!fleet.length) {
+      body.innerHTML = `<div style="color:#556677;font-size:7px;padding:20px;text-align:center">No ships in fleet.<br><br>
+        <div style="font-size:5px;color:#334455;margin-top:8px">Commandeer disabled enemy ships or hire ships at cantinas.</div></div>`;
+      return;
+    }
+    let html = `<div style="font-size:5px;color:#556677;margin-bottom:10px">Fleet ships escort you in-system and attack your current target.</div>`;
+    fleet.forEach((entry, idx) => {
+      const s = entry.ship;
+      const tpl = G.SHIPS[s.templateId];
+      const hpPct = Math.round(s.hull/Math.max(s.maxHull,1)*100);
+      const hpCol = hpPct>60?'#44ff88':hpPct>30?'#ffcc44':'#ff4444';
+      const modCount = Object.keys(s.modules||{}).length;
+      const freeSlots = (s.slots||[]).filter(x=>x===null).length;
+      html += `<div style="border:1px solid #1a4a6a;padding:10px;margin-bottom:8px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <div>
+            <div style="font-size:7px;color:#00ffee">${entry.fleetName}</div>
+            <div style="font-size:5px;color:#556677;margin-top:2px">${tpl?.name||s.templateId} · SPD ${Math.round(entry.combatSpeed||280)}</div>
+          </div>
+          <button class="btn btn-sell" style="font-size:5px" onclick="G.ui.dismissFleetShip('${entry.id}')">DISMISS</button>
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:6px">
+          <div style="font-size:5px;color:#aabbcc">HULL: <span style="color:${hpCol}">${Math.ceil(s.hull)}/${s.maxHull}</span></div>
+          <div style="font-size:5px;color:#aabbcc">MODS: ${modCount}/${(s.slots||[]).length}</div>
+          <div style="font-size:5px;color:#aabbcc">FREE: ${freeSlots} slots</div>
+        </div>
+        <button class="btn btn-buy" style="font-size:5px" onclick="G.ui.openFleetShipConfig(${idx})">CONFIGURE MODULES</button>
+      </div>`;
+    });
+    body.innerHTML = html;
+  }
+
+  dismissFleetShip(id) {
+    const idx = G.game.fleet.findIndex(e=>e.id===id);
+    if(idx<0) return;
+    const entry = G.game.fleet[idx];
+    const fs = G.game.space?.fleetShips?.find(f=>f.fleetDataId===id);
+    if(fs) fs._deathDone = true;
+    G.game.fleet.splice(idx,1);
+    this.addMsg(entry.fleetName+' dismissed from fleet.','#ffaa44');
+    this._renderFleetMenu();
+  }
+
+  openFleetShipConfig(fleetIdx) {
+    const entry = G.game.fleet[fleetIdx];
+    if(!entry) return;
+    const body = document.getElementById('fleet-body');
+    if(!body) return;
+    const s = entry.ship;
+    const playerInventory = G.game.player.moduleInventory || [];
+
+    let equippedHtml = '<div style="font-size:6px;color:#aaa;margin-bottom:5px">INSTALLED MODULES</div>';
+    let hasAny = false;
+    (s.slots||[]).forEach((instId) => {
+      if(!instId) return;
+      hasAny = true;
+      const inst = s.modules[instId];
+      const mod = inst ? (G.MODULES[inst.moduleId]||G.WEAPONS[inst.moduleId]) : null;
+      if(!mod) return;
+      const removeBtn = `<button class="btn btn-remove" style="font-size:5px;padding:2px 4px;margin-top:3px;width:100%"
+        onclick="G.ui.fleetRemoveModule(${fleetIdx},'${instId}')">REMOVE TO INVENTORY</button>`;
+      equippedHtml += `<div class="item-card" style="margin-bottom:6px">${this._modCardHTML(mod, removeBtn)}</div>`;
+    });
+    if(!hasAny) equippedHtml += '<div style="font-size:6px;color:#556677">No modules installed.</div>';
+
+    let inventoryHtml = '<div style="font-size:6px;color:#aaa;margin-top:12px;margin-bottom:5px">YOUR MODULE INVENTORY</div>';
+    const freeSlot = (s.slots||[]).includes(null);
+    if(!playerInventory.length) {
+      inventoryHtml += '<div style="font-size:6px;color:#556677">No modules in inventory.</div>';
+    } else {
+      playerInventory.forEach((modId, i) => {
+        const mod = G.MODULES[modId]||G.WEAPONS[modId];
+        if(!mod) return;
+        const installBtn = `<button class="btn btn-buy" style="font-size:5px;padding:2px 4px;margin-top:3px;width:100%"
+          onclick="G.ui.fleetInstallModule(${fleetIdx},${i})" ${freeSlot?'':'disabled style="opacity:0.4"'}>INSTALL</button>`;
+        inventoryHtml += `<div class="item-card" style="margin-bottom:6px">${this._modCardHTML(mod, installBtn)}</div>`;
+      });
+    }
+
+    body.innerHTML = `
+      <button class="btn" style="font-size:5px;margin-bottom:10px" onclick="G.ui._renderFleetMenu()">← BACK</button>
+      <div style="font-size:7px;color:#00ffee;margin-bottom:8px">${entry.fleetName} — MODULES</div>
+      <div style="font-size:5px;color:#556677;margin-bottom:10px">Stats: Hull ${Math.ceil(s.hull)}/${s.maxHull} · SPD ${Math.round(entry.combatSpeed||280)} · DMG ${Math.round(entry.combatDamage||15)}</div>
+      ${equippedHtml}${inventoryHtml}`;
+  }
+
+  fleetRemoveModule(fleetIdx, instId) {
+    const entry = G.game.fleet[fleetIdx];
+    if(!entry) return;
+    const inst = entry.ship.modules[instId];
+    if(!inst) return;
+    entry.ship.removeModule(instId);
+    if(!G.game.player.moduleInventory) G.game.player.moduleInventory=[];
+    G.game.player.moduleInventory.push(inst.moduleId);
+    this.addMsg('Module removed to your inventory.','#aabbcc');
+    this.openFleetShipConfig(fleetIdx);
+  }
+
+  fleetInstallModule(fleetIdx, inventoryIdx) {
+    const entry = G.game.fleet[fleetIdx];
+    if(!entry) return;
+    const player = G.game.player;
+    const modId = (player.moduleInventory||[])[inventoryIdx];
+    if(!modId) return;
+    const instId = entry.ship.installModule(modId);
+    if(instId) {
+      player.moduleInventory.splice(inventoryIdx, 1);
+      this.addMsg('Module installed on fleet ship.','#44ff88');
+      this.openFleetShipConfig(fleetIdx);
+    } else {
+      this.addMsg('No free slot on fleet ship!','#ff4444');
+    }
+  }
+
+  // ── Cantina ───────────────────────────────────────────────
+  _buildCantinaHTML() {
+    const sys = G.SYSTEMS.find(s=>s.id===this._currentSysId);
+    const danger = sys?.danger || 1;
+    const routes = G.game.galaxy.routes[this._currentSysId] || [];
+    const intelCost = 120 + danger * 75;
+    const options = this._getCantinaRecruits(sys);
+    const fleetCount = G.game.fleet.length;
+
+    const recruitHtml = options.map(r => {
+      const canHire = fleetCount < 5 && G.game.credits >= r.cost;
+      const fac = G.FACTIONS[r.faction];
+      const tpl = G.SHIPS[r.templateId];
+      return `<div style="display:flex;align-items:center;gap:10px;padding:8px;border:1px solid #1a3a5a;margin-bottom:6px">
+        <div style="flex:1">
+          <div style="font-size:6px;color:${fac?.color||'#aabbcc'}">${r.name}</div>
+          <div style="font-size:5px;color:#556677;margin-top:3px">${tpl?.name||r.templateId} · Hull ${tpl?.baseHull||160} · SPD ${Math.round(r.speed)}</div>
+        </div>
+        <button class="btn btn-buy" onclick="G.ui.cantinaHire('${r.id}',${r.cost})" ${canHire?'':'disabled style="opacity:0.4"'}>HIRE $${G.fmt(r.cost)}</button>
+      </div>`;
+    }).join('');
+
+    return `<div class="panel-title">CANTINA</div>
+      <div style="font-size:5px;color:#556677;margin-bottom:12px">"The Rusty Comet" — information, rogues, and questionable business.</div>
+      <div class="section-title">INTEL BROKER</div>
+      <div style="margin-bottom:14px">
+        <div style="font-size:6px;color:#aabbcc;margin-bottom:6px">Purchase system intelligence: danger ratings, faction patrols, star charts for adjacent systems.</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <button class="btn btn-buy" onclick="G.ui.cantinaIntel(${intelCost})" ${G.game.credits<intelCost?'disabled style="opacity:0.4"':''}>BUY INTEL — $${intelCost}</button>
+          <div id="cantina-intel-result" style="font-size:6px;color:#ffcc44"></div>
+        </div>
+      </div>
+      <div class="section-title">MERCENARY CREWS</div>
+      <div style="font-size:6px;color:#aabbcc;margin-bottom:4px">Hire ships to join your fleet. They will escort and fight alongside you.</div>
+      <div style="font-size:5px;color:#${fleetCount>=5?'ff4444':'556677'};margin-bottom:8px">Fleet capacity: ${fleetCount}/5 ships</div>
+      ${recruitHtml}`;
+  }
+
+  _bindCantina() {}
+
+  cantinaIntel(cost) {
+    if(G.game.credits < cost){ this.addMsg('Not enough credits!','#ff4444'); return; }
+    G.game.credits -= cost;
+    const routes = G.game.galaxy.routes[this._currentSysId] || [];
+    const revealed = [];
+    for(const sysId of routes) {
+      if(!G.game.galaxy.known.has(sysId)){
+        G.game.galaxy.known.add(sysId);
+        const sys = G.SYSTEMS.find(s=>s.id===sysId);
+        if(sys) revealed.push(sys);
+      }
+    }
+    const el = document.getElementById('cantina-intel-result');
+    if(revealed.length) {
+      if(el) el.textContent = 'Revealed: '+revealed.map(s=>s.name+'[D'+s.danger+']').join(', ');
+      this.addMsg('Intel: '+revealed.length+' new system(s) charted.','#ffcc44');
+    } else {
+      const adjInfo = routes.map(id=>G.SYSTEMS.find(s=>s.id===id)).filter(Boolean)
+        .map(s=>s.name+'['+s.faction+'/D'+s.danger+']').join(', ');
+      if(el) el.textContent = 'All known. Adjacent: '+adjInfo;
+      G.game.credits += Math.floor(cost/2);
+      this.addMsg('No new systems — partial refund.','#778899');
+    }
+    this.renderSpaceportTab('cantina');
+  }
+
+  cantinaHire(recruitId, cost) {
+    if(G.game.fleet.length>=5){ this.addMsg('Fleet at capacity!','#ff4444'); return; }
+    if(G.game.credits<cost){ this.addMsg('Not enough credits!','#ff4444'); return; }
+    const sys = G.SYSTEMS.find(s=>s.id===this._currentSysId);
+    const options = this._getCantinaRecruits(sys);
+    const recruit = options.find(r=>r.id===recruitId);
+    if(!recruit) return;
+    G.game.credits -= cost;
+    const tpl = G.SHIPS[recruit.templateId];
+    const ship = new G.Ship(recruit.templateId);
+    ship._recompute();
+    const suffixes = ['Thunderbolt','Iron Claw','Voidstriker','Dawn Runner','Steel Fang','Apex'];
+    const prefixes = { earth:'EGS',rebellion:'RFS',pirate:'RS',independent:'MV',neutral:'SS',contested:'RV' };
+    const pre = prefixes[recruit.faction]||'MV';
+    const suf = suffixes[Math.floor(Math.random()*suffixes.length)];
+    const entry = {
+      id: 'fleet_'+Date.now(),
+      fleetName: pre+' '+suf,
+      ship,
+      combatSpeed: recruit.speed,
+      combatTurnSpeed: tpl?.baseTurn || 2.0,
+      combatDamage: 12 + (tpl?.size||1)*8,
+      combatFireRate: 0.8 + Math.random()*0.6,
+      combatWeaponType: 'laser',
+      combatWeaponColor: G.FACTIONS[recruit.faction]?.color || '#44aaff',
+    };
+    G.game.fleet.push(entry);
+    if(this._cantinaCache) delete this._cantinaCache['cantina_'+this._currentSysId];
+    this.addMsg(entry.fleetName+' hired and joins fleet!','#44ff88');
+    this.renderSpaceportTab('cantina');
+  }
+
+  _getCantinaRecruits(sys) {
+    const key = 'cantina_'+(this._currentSysId||'?');
+    if(!this._cantinaCache) this._cantinaCache = {};
+    if(this._cantinaCache[key]) return this._cantinaCache[key];
+    const danger = sys?.danger || 1;
+    const faction = sys?.faction || 'independent';
+    const poolsByFaction = {
+      earth:       ['earth_shuttle','earth_corvette','shuttle'],
+      rebellion:   ['rebel_runner','rebel_corvette','corvette'],
+      pirate:      ['pirate_skiff','pirate_corvette','corvette'],
+      contested:   ['pirate_skiff','shuttle','corvette'],
+      independent: ['shuttle','miner_ship','corvette'],
+      neutral:     ['shuttle','corvette'],
+    };
+    const pool = (poolsByFaction[faction]||poolsByFaction.independent).filter(id=>G.SHIPS[id]);
+    const count = 2 + (danger>=5?1:0);
+    const shuffled = [...pool].sort(()=>Math.random()-0.5).slice(0,count);
+    const result = shuffled.map((tplId,i) => {
+      const tpl = G.SHIPS[tplId];
+      const sizeFactor = tpl?.size||1.0;
+      const cost = Math.floor((1200 + sizeFactor*1800 + danger*180)*(0.85+Math.random()*0.3));
+      const speed = (tpl?.baseThrust||8000)/(tpl?.baseMass||80)*1.5 + 80;
+      const factionLabels = { earth:'EGS Mercenary',rebellion:'Rebel Contractor',pirate:'Rogue Blade',
+        independent:'Free Pilot',neutral:'Drifter',contested:'Scavenger' };
+      return {
+        id: 'recruit_'+tplId+'_'+i,
+        name: (factionLabels[tpl?.faction||faction]||'Merc')+' — '+tpl?.name,
+        templateId: tplId,
+        faction: tpl?.faction||faction,
+        cost, speed,
+      };
+    });
+    this._cantinaCache[key] = result;
+    return result;
   }
 
   updateFactionPanel() {

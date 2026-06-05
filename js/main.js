@@ -94,6 +94,7 @@ G.Renderer = class {
   }
 
   drawShip(x, y, angle, shapeId, color, scale=1, thrusting=false, boosting=false, jumpStretch=1, strafeDir=0) {
+    if(isNaN(x)||isNaN(y)||!isFinite(x)||!isFinite(y)) return;
     const shape = G.SHAPES[shapeId] || G.SHAPES.shuttle;
     const ctx = this.ctx;
     const SZ = G.Sprites.SZ;
@@ -208,12 +209,12 @@ G.Renderer = class {
     ctx.restore();
   }
 
-  drawComet(x, y, r, col) {
+  drawComet(x, y, r, col, tailLen) {
     const ctx = this.ctx;
     ctx.save();
     // Tail points away from star (star is always at origin)
     const tailAngle = Math.atan2(y, x);
-    const tailLen = 50 + r * 7;
+    tailLen = tailLen || (50 + r * 7);
     // Tail gradient
     const tx = x + Math.cos(tailAngle)*tailLen;
     const ty = y + Math.sin(tailAngle)*tailLen;
@@ -351,22 +352,26 @@ G.Renderer = class {
 
     // Shadow cast by the sprite's non-transparent pixels creates an exact silhouette glow
     ctx.shadowColor = `rgba(80,160,255,${Math.min(1, alpha)})`;
-    ctx.shadowBlur  = blur / scale; // compensate for ctx.scale so blur stays consistent
+    ctx.shadowBlur  = blur / scale;
     ctx.drawImage(sprite, -(SZ >> 1), -(SZ >> 1), SZ, SZ);
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
     ctx.restore();
   }
 
   drawEnemyBars(enemy) {
     const ctx=this.ctx;
     const bw=40, bh=4, bx=enemy.x-bw/2, by=enemy.y-(enemy.size||1)*24;
+    const hpFrac = Math.max(0, (enemy.hp||0) / (enemy.maxHp||1));
     ctx.fillStyle='#1a2233'; ctx.fillRect(bx|0,by|0,bw,bh);
-    ctx.fillStyle='#44ff44'; ctx.fillRect(bx|0,by|0,(bw*(enemy.hp/enemy.maxHp))|0,bh);
+    ctx.fillStyle = enemy.disabled ? '#667788' : '#44ff44';
+    ctx.fillRect(bx|0,by|0,(bw*hpFrac)|0,bh);
     if(enemy.maxShields>0) {
       ctx.fillStyle='#111a2a'; ctx.fillRect(bx|0,(by+bh+1)|0,bw,bh);
       ctx.fillStyle='#4488ff'; ctx.fillRect(bx|0,(by+bh+1)|0,(bw*(enemy.shields/Math.max(enemy.maxShields,1)))|0,bh);
     }
     if(enemy.disabled) {
-      ctx.fillStyle='rgba(255,200,0,0.85)'; ctx.font='6px "Press Start 2P",monospace';
+      ctx.fillStyle='rgba(180,180,200,0.85)'; ctx.font='6px "Press Start 2P",monospace';
       ctx.fillText('DISABLED',(enemy.x-22)|0,(by-4)|0);
     }
   }
@@ -430,6 +435,18 @@ G.Renderer = class {
       if(inBounds(ax,ay)) ctx.fillRect(ax,ay,1,1);
     }
 
+    // Comets — cyan dot with short tail line
+    for(const b of space.bodies){
+      if(b.type!=='comet'||b.hp<=0) continue;
+      const cx2=tx(b)|0,cy2=ty(b)|0;
+      if(!inBounds(cx2,cy2)) continue;
+      const tailAngle=Math.atan2(b.y,b.x);
+      const tailPx=Math.cos(tailAngle)*8,tailPy=Math.sin(tailAngle)*8;
+      ctx.strokeStyle='rgba(150,220,255,0.6)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(cx2,cy2); ctx.lineTo(cx2+tailPx,cy2+tailPy); ctx.stroke();
+      ctx.fillStyle='#aaddff'; ctx.beginPath(); ctx.arc(cx2,cy2,2,0,Math.PI*2); ctx.fill();
+    }
+
     // helper: draw an oriented triangle on the minimap
     const drawShipTriangle=(x,y,angle,col,sz=4)=>{
       ctx.save(); ctx.translate(x,y); ctx.rotate(angle);
@@ -441,7 +458,7 @@ G.Renderer = class {
 
     // NPC ships — colored by faction relation, drawn as triangles
     for(const n of space.npcs){
-      if(n.dead||n.aiState==='docked') continue;
+      if(n.dead||n.boarded) continue;
       const nx=tx(n)|0,ny=ty(n)|0;
       if(!inBounds(nx,ny)) continue;
       if(n.jumpingOut) {
@@ -452,6 +469,13 @@ G.Renderer = class {
           ctx.strokeStyle='rgba(200,220,255,0.5)'; ctx.lineWidth=1; ctx.stroke();
         }
         continue;
+      }
+      if(n.arriving && n.arriving > 0) {
+        const pulse = Math.sin(Date.now()*0.008)*0.5+0.5;
+        ctx.fillStyle=`rgba(100,200,255,${pulse*0.8})`;
+        ctx.beginPath(); ctx.arc(nx,ny,4,0,Math.PI*2); ctx.fill();
+        ctx.strokeStyle='rgba(100,200,255,0.6)'; ctx.lineWidth=1.5;
+        ctx.beginPath(); ctx.arc(nx,ny,7,0,Math.PI*2); ctx.stroke();
       }
       const nRel=game.getRel(n.faction);
       const nCol=n.hostile?'#ff3333':nRel>=50?'#00ee66':nRel>=-20?'#88aacc':nRel>=-50?'#ffcc00':'#ff8800';
@@ -465,9 +489,16 @@ G.Renderer = class {
 
     // Enemy ships — triangles, hostile or negative faction → red/yellow
     for(const e of space.enemies){
-      if(e.dead||e.boarded) continue;
+      if(e._deathDone||e.boarded) continue;
       const ex=tx(e)|0,ey=ty(e)|0;
       if(!inBounds(ex,ey)) continue;
+      if(e.arriving && e.arriving > 0) {
+        const pulse = Math.sin(Date.now()*0.008)*0.5+0.5;
+        ctx.fillStyle=`rgba(255,100,100,${pulse*0.8})`;
+        ctx.beginPath(); ctx.arc(ex,ey,4,0,Math.PI*2); ctx.fill();
+        ctx.strokeStyle='rgba(255,100,100,0.6)'; ctx.lineWidth=1.5;
+        ctx.beginPath(); ctx.arc(ex,ey,7,0,Math.PI*2); ctx.stroke();
+      }
       const rel=game.getRel(e.faction)||0;
       const isHostile=rel<-20||e.aiState==='engage';
       drawShipTriangle(ex,ey,e.angle,rel<-50?'#ff3333':'#ff8800');
@@ -490,6 +521,27 @@ G.Renderer = class {
       const dx=tx(d)|0,dy=ty(d)|0;
       if(!inBounds(dx,dy)) continue;
       drawShipTriangle(dx,dy,d.angle||0,'#888888',3);
+    }
+
+    // Turrets — red squares when hostile, dim yellow when neutral
+    for(const t of space.turrets||[]) {
+      if(t._dead) continue;
+      const ttx=tx(t)|0, tty=ty(t)|0;
+      if(!inBounds(ttx,tty)) continue;
+      ctx.fillStyle = t.hostile ? '#ff2222' : '#443322';
+      ctx.fillRect(ttx-2,tty-2,4,4);
+      if(t.hostile && blink) {
+        ctx.beginPath(); ctx.arc(ttx,tty,6,0,Math.PI*2);
+        ctx.strokeStyle='#ff0000'; ctx.lineWidth=1.5; ctx.stroke();
+      }
+    }
+
+    // Fleet ships — green friendly triangles
+    for(const fs of space.fleetShips||[]) {
+      if(fs.dead||fs._deathDone) continue;
+      const fx=tx(fs)|0, fy=ty(fs)|0;
+      if(!inBounds(fx,fy)) continue;
+      drawShipTriangle(fx,fy,fs.angle,'#00ff88',4);
     }
 
     // Player — slightly larger triangle
@@ -769,7 +821,13 @@ G.Renderer = class {
         ctx.fillStyle='rgba(200,200,220,0.8)'; ctx.font=(7/_zoom)+'px "Press Start 2P",monospace';
         ctx.fillText(b.name,(b.x+24)|0,(b.y+3)|0);
       } else if(b.type==='comet') {
-        this.drawComet(b.x,b.y,b.r,b.color||'#aaddff');
+        if((b.hp||1) <= 0) continue;
+        this.drawComet(b.x,b.y,b.r,b.color||'#aaddff', b.tailLen||100);
+        if(b.maxHp && b.hp < b.maxHp) {
+          const bw=30, by2=b.y-b.r-8;
+          ctx.fillStyle='#1a2233'; ctx.fillRect((b.x-bw/2)|0,by2|0,bw,3);
+          ctx.fillStyle='#88ccff'; ctx.fillRect((b.x-bw/2)|0,by2|0,(bw*(b.hp/b.maxHp))|0,3);
+        }
       }
     }
 
@@ -813,9 +871,17 @@ G.Renderer = class {
     for(const l of space.floatingLoot) this.drawLoot(l,space.time);
 
     for(const e of space.enemies) {
-      if(e.dead||e.boarded) continue;
+      if(e._deathDone||e.boarded) continue;
       this.drawShip(e.x,e.y,e.angle,e.shapeId||'pirate_fighter',e.color,e.size||1,
-        e.aiState==='engage'&&!e.disabled,false);
+        (e.aiState==='engage'||e._boosting)&&!e.disabled, e._boosting||false);
+      if(e.isFleetFlagship && !e.disabled) {
+        ctx.save();
+        ctx.beginPath(); ctx.arc(e.x,e.y,(e.size||1)*22,0,Math.PI*2);
+        ctx.strokeStyle='rgba(255,180,0,0.45)'; ctx.lineWidth=1.5; ctx.setLineDash([5,3]); ctx.stroke(); ctx.setLineDash([]);
+        ctx.font=(5/_zoom)+'px "Press Start 2P",monospace'; ctx.fillStyle='rgba(255,180,50,0.85)'; ctx.textAlign='center';
+        ctx.fillText('FLAGSHIP',e.x|0,(e.y-(e.size||1)*28)|0); ctx.textAlign='left';
+        ctx.restore();
+      }
       if(e.shields > 0)
         this.drawShieldOutline(e.x, e.y, e.angle, e.shapeId||'pirate_fighter', e.color||'#8899bb', e.size||1,
           e.shields/Math.max(e.maxShields,1), space.time);
@@ -824,7 +890,7 @@ G.Renderer = class {
 
     // NPC ships
     for(const n of space.npcs) {
-      if(n.dead||n.boarded) continue;
+      if(n._deathDone||n.boarded) continue;
       const moving = n.aiState!=='docked';
       if(n.jumpingOut) {
         const t = Math.max(0, n.jumpOutTimer / 0.45);
@@ -833,21 +899,42 @@ G.Renderer = class {
         this.drawShip(n.x,n.y,n.angle,n.shapeId||'shuttle',n.color,n.size||1,true,false,stretch);
         ctx.restore();
       } else {
-        const landScale = n.landingScale != null ? n.landingScale : 1;
-        if(landScale <= 0) continue;
-        const nScale = (n.size||1)*landScale;
-        this.drawShip(n.x,n.y,n.angle,n.shapeId||'shuttle',n.color,nScale,moving,false);
+        const nScale = n.size||1;
+        this.drawShip(n.x,n.y,n.angle,n.shapeId||'shuttle',n.color,nScale,moving,n._boosting||false);
         if(n.shields > 0)
           this.drawShieldOutline(n.x, n.y, n.angle, n.shapeId||'shuttle', n.color||'#8899bb', nScale,
             n.shields/Math.max(n.maxShields,1), space.time);
         if(n.hostile) this.drawEnemyBars(n);
-        if(game.target===n && landScale > 0.5) {
+        if(game.target===n) {
           ctx.save(); ctx.font=(6/_zoom)+'px "Press Start 2P",monospace';
           ctx.fillStyle=n.color; ctx.textAlign='center';
-          ctx.fillText(n.name, n.x, n.y-(n.size||1)*24-8);
+          ctx.fillText(n.name, n.x, n.y-nScale*24-8);
           ctx.textAlign='left'; ctx.restore();
         }
       }
+    }
+
+    // Fleet ships (friendly escorts)
+    for(const fs of space.fleetShips||[]) {
+      if(fs._deathDone) continue;
+      this.drawShip(fs.x, fs.y, fs.angle, fs.shapeId||'shuttle', fs.color, fs.size||1, !fs.disabled, false);
+      if(fs.shields>0)
+        this.drawShieldOutline(fs.x,fs.y,fs.angle,fs.shapeId||'shuttle',fs.color,fs.size||1,fs.shields/Math.max(fs.maxShields,1),space.time);
+      // Health bar
+      const bw=36, bh=3, bx=fs.x-18, by=fs.y-(fs.size||1)*24-12;
+      ctx.fillStyle='#0a1a0a'; ctx.fillRect(bx|0,by|0,bw,bh);
+      const hpF=Math.max(0,fs.hull/fs.maxHull);
+      ctx.fillStyle=hpF>0.5?'#44ff88':hpF>0.25?'#ffcc44':'#ff4444';
+      ctx.fillRect(bx|0,by|0,(bw*hpF)|0,bh);
+      // Name + ring
+      ctx.save();
+      ctx.font=(5/_zoom)+'px "Press Start 2P",monospace';
+      ctx.fillStyle='rgba(0,255,100,0.8)'; ctx.textAlign='center';
+      ctx.fillText(fs.name||'ESCORT',(fs.x)|0,(fs.y-(fs.size||1)*28-16)|0);
+      ctx.textAlign='left';
+      ctx.beginPath(); ctx.arc(fs.x,fs.y,(fs.size||1)*20,0,Math.PI*2);
+      ctx.strokeStyle='rgba(0,255,100,0.22)'; ctx.lineWidth=1; ctx.setLineDash([3,4]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.restore();
     }
 
     for(const p of space.projectiles) this.drawProjectile(p);
@@ -866,15 +953,20 @@ G.Renderer = class {
       this.drawShieldOutline(player.x, player.y, player.angle, shapeId, shipColor, 1,
         player.shields / Math.max(player.maxShields, 1), space.time);
 
-    // Target direction arrow orbiting player ship
+    // Target direction arrow orbiting player ship — colored by faction relation
     if(game.target && !game.target.dead) {
       const tdx = game.target.x - player.x, tdy = game.target.y - player.y;
       const tAng = Math.atan2(tdx, -tdy);
-      const arR = 58; // world units from player center
+      const arR = 58;
       const arX = player.x + Math.sin(tAng)*arR, arY = player.y - Math.cos(tAng)*arR;
+      const tgtRel = game.getRel(game.target.faction||'neutral');
+      const tgtHostile = game.target.type==='enemy' || game.target.hostile || tgtRel < -30;
+      const tgtFriendly = !tgtHostile && tgtRel >= 50;
+      const arFC = tgtHostile ? 'rgba(255,55,55,0.9)' : tgtFriendly ? 'rgba(55,220,100,0.9)' : 'rgba(160,160,180,0.9)';
+      const arSC = tgtHostile ? '#ff2222' : tgtFriendly ? '#22cc44' : '#aaaacc';
       ctx.save();
       ctx.translate(arX|0, arY|0); ctx.rotate(tAng);
-      ctx.fillStyle='rgba(255,55,55,0.9)'; ctx.strokeStyle='#ff2222'; ctx.lineWidth=0.8;
+      ctx.fillStyle=arFC; ctx.strokeStyle=arSC; ctx.lineWidth=0.8;
       ctx.beginPath(); ctx.moveTo(0,-7); ctx.lineTo(4,2); ctx.lineTo(0,0); ctx.lineTo(-4,2); ctx.closePath();
       ctx.fill(); ctx.stroke();
       ctx.restore();
@@ -944,6 +1036,8 @@ G.Game = class {
     G.sound = new G.SoundEngine();
 
     this._prevHostileCount = 0;
+    this.combatLog = [];
+    this.fleet = [];
 
     // Click on game canvas → target the ship under the cursor
     this.canvas.addEventListener('click', e => {
@@ -1015,6 +1109,13 @@ G.Game = class {
       galaxyVisited: [...this.galaxy.visited],
       player:       this.player.getSaveData(),
       playerPos:    { x:this.player.x, y:this.player.y },
+      fleet: this.fleet.map(e => ({
+        id: e.id, fleetName: e.fleetName,
+        combatSpeed: e.combatSpeed, combatTurnSpeed: e.combatTurnSpeed,
+        combatDamage: e.combatDamage, combatFireRate: e.combatFireRate,
+        combatWeaponType: e.combatWeaponType, combatWeaponColor: e.combatWeaponColor,
+        ship: e.ship.getSaveData(),
+      })),
     };
     localStorage.setItem(G.SAVE_KEY, JSON.stringify(save));
     this.ui.addMsg('Game saved.', '#00ffee');
@@ -1045,7 +1146,7 @@ G.Game = class {
     this.player = new G.Ship(sd.templateId || 'shuttle');
     // Overwrite module state directly
     this.player.modules = sd.modules || {};
-    this.player.slots   = sd.slots   || this.player.slots;
+    this.player.slots   = Array.isArray(sd.slots) ? sd.slots : this.player.slots;
     this.player.cargo   = sd.cargo   || {};
     this.player.ammo    = sd.ammo    || {};
     this.player.crew    = sd.crew    || [];
@@ -1061,6 +1162,30 @@ G.Game = class {
     this.player.x = d.playerPos?.x || 600;
     this.player.y = d.playerPos?.y || 400;
 
+    this.fleet = (d.fleet || []).map(fd => {
+      const ship = new G.Ship(fd.ship?.templateId || 'pirate_skiff');
+      if(fd.ship) {
+        ship.modules = fd.ship.modules || {};
+        ship.slots = Array.isArray(fd.ship.slots) ? fd.ship.slots : ship.slots;
+        ship.cargo = fd.ship.cargo || {};
+        ship.crew = fd.ship.crew || [];
+        ship._recompute();
+        ship.hull = fd.ship.hull || ship.maxHull;
+        ship.shields = fd.ship.shields || 0;
+      }
+      return {
+        id: fd.id || 'fleet_'+Date.now(),
+        fleetName: fd.fleetName || 'Fleet Ship',
+        ship,
+        combatSpeed: fd.combatSpeed || 280,
+        combatTurnSpeed: fd.combatTurnSpeed || 2.0,
+        combatDamage: fd.combatDamage || 15,
+        combatFireRate: fd.combatFireRate || 1.0,
+        combatWeaponType: fd.combatWeaponType || 'laser',
+        combatWeaponColor: fd.combatWeaponColor || '#ff8844',
+      };
+    });
+
     // Load space scene
     this.economy._marketCache = {};
     this.space = new G.Space();
@@ -1071,6 +1196,7 @@ G.Game = class {
     this.camZoom=1.0; this._landFade=0; this._landPending=null;
     this.target = null;
     this.state = 'space';
+    this._spawnFleetShips();
 
     const sys = G.SYSTEMS.find(s=>s.id===this.currentSysId);
     if(this.ui.els['system-label']) this.ui.els['system-label'].textContent = (sys?.name||this.currentSysId) + (this.space?.nebula?' ✦ NEBULA':'');
@@ -1088,6 +1214,7 @@ G.Game = class {
     this.startTime= Date.now();
     this.activeMissions=[]; this.completedMissions=[];
     this.relations={ earth:50, rebellion:0, pirate:-50, alien:-100, contested:0, neutral:0 };
+    this.fleet=[];
     this.currentSysId='sol';
     this.target=null;
     this.hyperspaceT=0; this.hyperspaceTarget=null; this._jumpChargeT=0; this._jumpCooldown=0;
@@ -1097,6 +1224,7 @@ G.Game = class {
     this.player.x=800; this.player.y=300;
     this.space = new G.Space();
     this.space.loadSystem('sol');
+    this._spawnFleetShips();
     this.galaxy.visited = new Set();
     this.galaxy.known   = new Set();
     this.galaxy.revealAround('sol');
@@ -1159,6 +1287,7 @@ G.Game = class {
     this.currentSysId = sysId;
     this.galaxy.revealAround(sysId);
     this.space.loadSystem(sysId);
+    this._spawnFleetShips();
 
     // Arrive from edge, ship enters with moderate velocity
     this.player.x  = nx * -2200 + G.CANVAS_W/2;
@@ -1290,9 +1419,9 @@ G.Game = class {
     if(this.input.thrust && Math.random()<0.5) {
       this.particles.engine_trail(p.x,p.y,p.angle,p.vx,p.vy,1);
     }
-    // Extra boost trail
-    if(this.input.thrust && this.input.boost && p.energy>5 && p.boostCharge>0 && Math.random()<0.6) {
-      this.particles.engine_trail(p.x,p.y,p.angle,p.vx,p.vy,1.4);
+    // Boost trail — blue streaks that linger
+    if(this.input.boost && p.energy>5 && p.boostCharge>0) {
+      if(Math.random()<0.7) this.particles.boost_trail(p.x,p.y,p.angle,1.2);
     }
     // Retrograde braking exhaust — particles shoot forward/sideways (RCS effect)
     if(this.input.reverse && Math.random()<0.5) {
@@ -1344,17 +1473,24 @@ G.Game = class {
 
     // Hostile alert sound — fire once when hostiles appear
     const hostileCount =
-      this.space.enemies.filter(e=>!e.dead&&!e.boarded).length +
-      this.space.npcs.filter(n=>!n.dead&&n.hostile).length;
+      this.space.enemies.filter(e=>!e.dead&&!e._deathDone&&!e.boarded&&!e.disabled).length +
+      this.space.npcs.filter(n=>!n.dead&&!n._deathDone&&n.hostile).length;
     if(hostileCount > 0 && this._prevHostileCount === 0) G.sound.hostileAlert();
     this._prevHostileCount = hostileCount;
+
+    // Out-of-energy warning — fires once per depletion event
+    if(p.energy <= 2 && !this._outOfEnergyFired) {
+      G.sound.outOfEnergy?.();
+      this._outOfEnergyFired = true;
+    }
+    if(p.energy > 10) this._outOfEnergyFired = false;
 
     // Count kills + bounty check
     for(const e of this.space.enemies) {
       if(e.dead&&!e._killCounted) {
         e._killCounted=true; this.kills++;
         this.economy.checkBounty(e.faction, this.currentSysId);
-        this.setRel(e.faction, this.getRel(e.faction)+3);
+        this.setRel(e.faction, this.getRel(e.faction)+3, 'enemy ship destroyed');
       }
     }
 
@@ -1381,8 +1517,8 @@ G.Game = class {
       if(nearDis) {
         this.ui.setInteractPrompt('[L] Board disabled ship');
         if(this.input.pressed('KeyL')) {
-          const res=this.space.boardEnemy(nearDis,p);
-          if(res) this.ui.addMsg('Boarded! +'+G.fmtCredits(res.credits)+(res.items.length?' + cargo':''),'#ffcc00');
+          this.ui.showBoardingPopup(nearDis);
+          this.paused = true;
         }
       } else {
         const nearDer=this.space.derelicts.find(d=>!d.looted&&G.v2.dist(p,d)<80);
@@ -1407,8 +1543,13 @@ G.Game = class {
       }
     }
 
-    if(p.disabled && p.hull <= 0) this._playerDied();
-    if(this.target&&(this.target.dead||this.target.boarded||this.target.aiState==='docked')) this.target=null;
+    if(p.disabled && !this._playerDisabledMsgShown) {
+      this._playerDisabledMsgShown = true;
+      this.ui.addMsg('Ship disabled! Hull integrity lost.', '#ff6644');
+    }
+    if(!p.disabled) { this._playerDisabledMsgShown = false; p._disabledSoundPlayed = false; }
+    if(p.disabled && p.hull <= -p.disabledHp) this._playerDied();
+    if(this.target&&(this.target.dead||this.target.boarded)) this.target=null;
   }
 
   _updateJumpChargeTo(sysId, dt) {
@@ -1568,17 +1709,117 @@ G.Game = class {
   }
 
   _playerDied() {
-    this.state='dead';
-    G.sound.explosion();
-    const elapsed=Math.floor((Date.now()-this.startTime)/1000);
-    this.particles.explosion(this.player.x,this.player.y,this.player.vx,this.player.vy,2);
-    if(this.player.escapePods>0) this.ui.addMsg(Math.min(this.player.escapePods,this.player.crew.length)+' crew escaped.','#ffaa00');
-    this.ui.showGameOver({ credits:this.credits, visited:this.galaxy.visited.size, kills:this.kills, time:elapsed });
+    if(this._playerDyingStarted) return;
+    this._playerDyingStarted = true;
+    this.state = 'dead';
+    this.addCombatLog('YOUR SHIP DESTROYED', '#ff4444');
+    this._playerDyingTimer     = 2.5;
+    this._playerDyingInitTimer = 2.5;
+    this._playerDyingNextBang  = 0.15;
     this._hideHUD();
   }
 
+  _updateDyingPlayer(dt) {
+    const p = this.player;
+    if(!p) return;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vx *= 0.98; p.vy *= 0.98;
+    p.angle += 0.4 * dt;
+
+    this._playerDyingTimer    -= dt;
+    this._playerDyingNextBang -= dt;
+
+    if(this._playerDyingNextBang <= 0) {
+      const ox = (Math.random()-0.5)*40, oy = (Math.random()-0.5)*40;
+      this.particles.explosion(p.x+ox, p.y+oy, 0, 0, 0.55);
+      G.sound.explosion();
+      const prog = 1 - Math.max(0, this._playerDyingTimer) / this._playerDyingInitTimer;
+      this._playerDyingNextBang = Math.max(0.07, 0.38 - prog*0.30);
+    }
+
+    if(this._playerDyingTimer <= 0) {
+      this.particles.explosion(p.x, p.y, p.vx, p.vy, 2.5);
+      G.sound.explosion();
+      if(p.escapePods>0) this.ui.addMsg(Math.min(p.escapePods,p.crew.length)+' crew escaped.','#ffaa00');
+      const elapsed = Math.floor((Date.now()-this.startTime)/1000);
+      this._playerDyingTimer    = 0;
+      this._playerDyingStarted  = false;
+      this.ui.showGameOver({ credits:this.credits, visited:this.galaxy.visited.size, kills:this.kills, time:elapsed });
+    }
+  }
+
+  addCombatLog(msg, color='#aabbcc') {
+    G.ui?.addMsg(msg, color);
+  }
+
+  _spawnFleetShips() {
+    if(!this.fleet?.length || !this.space) return;
+    for(const entry of this.fleet) {
+      const fs = new G.FleetShip(entry);
+      const a = Math.random()*Math.PI*2;
+      const r = 150 + Math.random()*100;
+      fs.x = this.player.x + Math.cos(a)*r;
+      fs.y = this.player.y + Math.sin(a)*r;
+      this.space.fleetShips.push(fs);
+    }
+  }
+
+  commandeerShip(enemy) {
+    const playerSize = G.SHIPS[this.player.templateId]?.size || 1.0;
+    const enemyHpScale = (enemy.maxHp || 120) / 120;
+    const enemySize = (enemy.size || 1.0) * enemyHpScale;
+    const chance = G.clamp(0.65 * playerSize / enemySize, 0.06, 0.78);
+
+    if(Math.random() < chance) {
+      if(this.fleet.length >= 5) {
+        return { success: false, reason: 'Fleet at capacity (max 5)', chance };
+      }
+      const templateId = Object.keys(G.SHIPS).find(k=>G.SHIPS[k].shape===enemy.shapeId) || 'pirate_skiff';
+      const capturedShip = new G.Ship(templateId);
+      capturedShip.hull = Math.max(10, enemy.hp || 50);
+      capturedShip._recompute();
+      const facName = (enemy.faction||'enemy').toUpperCase();
+      const shipName = templateId.replace(/_/g,' ').toUpperCase();
+      const entry = {
+        id: 'fleet_'+Date.now(),
+        fleetName: facName+' '+shipName,
+        ship: capturedShip,
+        combatSpeed: enemy.speed || 280,
+        combatTurnSpeed: enemy.turnSpeed || 2.0,
+        combatDamage: enemy.damage || 15,
+        combatFireRate: enemy.fireRate || 1.0,
+        combatWeaponType: enemy.weaponType || 'laser',
+        combatWeaponColor: enemy.projColor || '#ff8844',
+      };
+      this.fleet.push(entry);
+      const fs = new G.FleetShip(entry);
+      fs.x = enemy.x; fs.y = enemy.y;
+      this.space.fleetShips.push(fs);
+      enemy.boarded = true;
+      this.setRel(enemy.faction, this.getRel(enemy.faction)-5, 'captured ship');
+      return { success: true, entry, chance };
+    } else {
+      enemy.dead = true;
+      return { success: false, reason: 'Crew resisted — ship self-destructed', chance };
+    }
+  }
+
+  removeFleetShip(id) {
+    const idx = this.fleet.findIndex(e=>e.id===id);
+    if(idx>=0) this.fleet.splice(idx,1);
+  }
+
   getRel(faction){return this.relations[faction]||0;}
-  setRel(faction,val){this.relations[faction]=G.clamp(val,-100,100);}
+  setRel(faction, val, reason='') {
+    const old = this.relations[faction] || 0;
+    this.relations[faction] = G.clamp(val, -100, 100);
+    const diff = Math.round(this.relations[faction] - old);
+    if(diff !== 0 && reason && G.ui) {
+      const col = diff > 0 ? '#44ff88' : '#ff6644';
+      const facName = G.FACTIONS[faction]?.name || faction;
+      G.ui.addMsg(`${facName} rep ${diff>0?'+':''}${diff}: ${reason}`, col);
+    }
+  }
 
   quitToMenu() {
     ['spaceport-overlay','galaxy-overlay','inventory-overlay','mission-log-overlay',
@@ -1632,7 +1873,8 @@ G.Game.prototype._loop = function(ts) {
 
   const _inSpace = this.state==='space'||this.state==='dead'||this.state==='landing'||this.state==='launching';
   if(_inSpace) {
-    if(this.state==='space' && !this.paused) this._updateSpace(dt, ts/1000);
+    if((this.state==='space'||this.state==='dead') && !this.paused) this._updateSpace(dt, ts/1000);
+    if(this.state==='dead' && this._playerDyingTimer > 0) this._updateDyingPlayer(dt);
     if(!this.paused) this.particles.update(dt);
     this.renderer.renderSpace(this);
     if(this.player && !this.paused) {
@@ -1714,14 +1956,47 @@ G.Game.prototype._loop = function(ts) {
     this.ui.updateHUD(this.player, this.space, this.target);
     this.ui.updateJumpRouteHUD(this.player, this.galaxy, this._jumpCooldown);
   }
+
+  this._updateMusic(dt);
   this.input.flush();
+};
+
+// Drive the adaptive music engine: intensity from on-screen threat,
+// muffle ("next door") while in menus or docked at port.
+G.Game.prototype._updateMusic = function(dt) {
+  const snd = G.sound;
+  if(!snd) return;
+
+  // Muffle in menus / spaceport / death screen / options overlay / descent.
+  const optsOpen = !document.getElementById('options-overlay')?.classList.contains('hidden');
+  const muffle = this.state==='menu' || this.state==='landed' || this.state==='dead'
+              || this.state==='landing' || optsOpen;
+  snd.musicMuffle(muffle);
+
+  // Intensity from live combat. Exploration = 0 → quiet atmospheric bed.
+  let intensity = 0;
+  if(this.state==='space' && this.space) {
+    const enemies = this.space.enemies.filter(e=>!e.dead&&!e.boarded&&!e.disabled);
+    const hostNpc = this.space.npcs.filter(n=>!n.dead&&n.hostile);
+    const hostTur = (this.space.turrets||[]).filter(t=>!t._dead&&t.hostile);
+    const n = enemies.length + hostNpc.length + hostTur.length;
+    if(n > 0) {
+      // Light combat baseline that climbs with the size of the fight.
+      intensity = 0.42 + Math.min(0.26, (n-1)*0.09);
+      // Actively engaging enemies push it harder (the fight is "hot").
+      if(enemies.some(e=>e.aiState==='engage' && !e.disabled)) intensity += 0.08;
+      // Boss-tier: a swarm or a large/elite hostile → top band (rescore to boss).
+      const boss = n >= 4 || enemies.some(e=>(e.size||1) >= 1.6);
+      if(boss) intensity = Math.max(intensity, 0.80 + Math.min(0.18, (n-4)*0.05));
+    }
+  }
+  snd.musicIntensity(G.clamp(intensity, 0, 1));
 };
 
 // ── Bootstrap ─────────────────────────────────────────────
 window.addEventListener('load', () => {
   document.fonts.ready.then(()=>{
     const g = new G.Game();
-    // Rebind _loop now that the override is in place
     g._loop = g._loop.bind(g);
     requestAnimationFrame(g._loop);
   }).catch(()=>{
@@ -1729,4 +2004,8 @@ window.addEventListener('load', () => {
     g._loop = g._loop.bind(g);
     requestAnimationFrame(g._loop);
   });
+});
+
+document.addEventListener('visibilitychange', () => {
+  G.sound?.backgroundMuffle(document.hidden);
 });
