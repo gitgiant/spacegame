@@ -214,7 +214,7 @@ G.Renderer = class {
     ctx.save();
     // Tail points away from star (star is always at origin)
     const tailAngle = Math.atan2(y, x);
-    tailLen = tailLen || (50 + r * 7);
+    tailLen = (tailLen || (50 + r * 7)) * 4;
     // Tail gradient
     const tx = x + Math.cos(tailAngle)*tailLen;
     const ty = y + Math.sin(tailAngle)*tailLen;
@@ -222,12 +222,12 @@ G.Renderer = class {
     tg.addColorStop(0,'rgba(160,210,255,0.55)');
     tg.addColorStop(1,'rgba(0,80,180,0)');
     ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(tx,ty);
-    ctx.strokeStyle=tg; ctx.lineWidth=r*1.8; ctx.lineCap='round'; ctx.stroke();
+    ctx.strokeStyle=tg; ctx.lineWidth=r*7.2; ctx.lineCap='round'; ctx.stroke();
     // Coma glow
-    const cg = ctx.createRadialGradient(x,y,0,x,y,r*3);
+    const cg = ctx.createRadialGradient(x,y,0,x,y,r*12);
     cg.addColorStop(0,'rgba(200,230,255,0.35)');
     cg.addColorStop(1,'rgba(0,60,160,0)');
-    ctx.beginPath(); ctx.arc(x,y,r*3,0,Math.PI*2);
+    ctx.beginPath(); ctx.arc(x,y,r*12,0,Math.PI*2);
     ctx.fillStyle=cg; ctx.fill();
     // Nucleus
     ctx.beginPath(); ctx.arc(x|0,y|0,r,0,Math.PI*2);
@@ -1416,7 +1416,7 @@ G.Game = class {
     p.update(dt, this.input);
 
     // Engine trail at correct exhaust point (behind ship)
-    if(this.input.thrust && Math.random()<0.5) {
+    if(!p.disabled && this.input.thrust && Math.random()<0.5) {
       this.particles.engine_trail(p.x,p.y,p.angle,p.vx,p.vy,1);
     }
     // Boost trail — blue streaks that linger

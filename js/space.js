@@ -162,13 +162,14 @@ G.Space = class {
       if(b.type !== 'comet' || b.hp <= 0) continue;
       // Tail direction: away from star (origin)
       const tailAngle = Math.atan2(b.y, b.x);
-      const tailLen   = b.tailLen || 100;
+      const tailLen   = (b.tailLen || 100) * 4;
       // Check player
       const tx = b.x + Math.cos(tailAngle) * tailLen * 0.5;
       const ty = b.y + Math.sin(tailAngle) * tailLen * 0.5;
       const pd = Math.hypot(player.x - tx, player.y - ty);
       if(pd < tailLen * 0.55) {
         player.takeDamage(2 * dt, 'projectile');
+        G.sound?.cometHit?.(pd);
         if(particles && Math.random() < 0.3) particles.emit({
           x:player.x, y:player.y, minSpd:20, maxSpd:50,
           life:0.25, r:2, color:'#88ccff', drag:0.9,
@@ -222,7 +223,7 @@ G.Space = class {
       if(e.arriving) e.arriving -= dt;
       if(!e.disabled&&particles) {
         const eRate = e._boosting ? 0.7 : 0.3;
-        if(Math.random()<eRate) {
+        if(!e.disabled && Math.random()<eRate) {
           if(e._boosting) particles.boost_trail(e.x,e.y,e.angle,e.size||1);
           else particles.engine_trail(e.x,e.y,e.angle,e.vx,e.vy,e.size||1);
         }
@@ -236,7 +237,7 @@ G.Space = class {
       if(n.dead){this._updateDying(n,dt,particles,false);continue;}
       n.update(dt, this.bodies, this.npcs, this.enemies, this.projectiles, particles, now);
       if(n.arriving) n.arriving -= dt;
-      if(n.aiState!=='docked'&&particles) {
+      if(n.aiState!=='docked'&&!n.disabled&&particles) {
         const nRate = n._boosting ? 0.6 : 0.2;
         if(Math.random()<nRate) {
           if(n._boosting) particles.boost_trail(n.x,n.y,n.angle,n.size||1);
@@ -524,7 +525,7 @@ G.Space = class {
         continue;
       }
       fs.update(dt, player, G.game?.target, this.projectiles, particles, now);
-      if(particles&&Math.random()<0.25) particles.engine_trail(fs.x,fs.y,fs.angle,fs.vx,fs.vy,fs.size||1);
+      if(!fs.disabled&&particles&&Math.random()<0.25) particles.engine_trail(fs.x,fs.y,fs.angle,fs.vx,fs.vy,fs.size||1);
     }
 
     // Floating loot pickup + magnet attraction
@@ -717,7 +718,15 @@ G.Space = class {
     for(const t of targets) {
       if(!t||t.dead||t.boarded) continue;
       const d=G.v2.dist({x:proj.x,y:proj.y},{x:t.x,y:t.y});
-      if(d<proj.splash) { const f=1-d/proj.splash; t.takeDamage(proj.damage*f*0.5,proj.type); hit=true; }
+      if(d<proj.splash) {
+        const f=1-d/proj.splash;
+        t.takeDamage(proj.damage*f,proj.type);
+        const knock = 600 * f;
+        const ang = Math.atan2(t.y-proj.y, t.x-proj.x);
+        t.vx += Math.cos(ang) * knock * 0.016;
+        t.vy += Math.sin(ang) * knock * 0.016;
+        hit=true;
+      }
     }
     if(hit&&particles) particles.explosion(proj.x,proj.y,0,0,0.5);
   }
@@ -832,16 +841,30 @@ G.Space = class {
       G.sound?.explosion(dFin);
       // Shockwave: damage nearby ships
       const shockR = 140 + sz * 120;
-      const shockDmg = 15 + sz * 30;
+      const shockDmg = 40 + sz * 80;
       for(const other of [...this.npcs, ...this.enemies]) {
         if(other===ship||other.dead||other.boarded) continue;
         const d = Math.hypot(other.x-ship.x, other.y-ship.y);
-        if(d < shockR) other.takeDamage?.(shockDmg*(1-d/shockR), 'projectile');
+        if(d < shockR) {
+          const dmg = shockDmg*(1-d/shockR);
+          other.takeDamage?.(dmg, 'projectile');
+          const knock = 800 * (1-d/shockR);
+          const ang = Math.atan2(other.y-ship.y, other.x-ship.x);
+          other.vx += Math.cos(ang) * knock * 0.016;
+          other.vy += Math.sin(ang) * knock * 0.016;
+        }
       }
       const pl = G.game?.player;
       if(pl) {
         const dp = Math.hypot(pl.x-ship.x, pl.y-ship.y);
-        if(dp < shockR) pl.takeDamage(shockDmg*0.35*(1-dp/shockR), 'projectile');
+        if(dp < shockR) {
+          const dmg = shockDmg*0.35*(1-dp/shockR);
+          pl.takeDamage(dmg, 'projectile');
+          const knock = 600 * (1-dp/shockR);
+          const ang = Math.atan2(pl.y-ship.y, pl.x-ship.x);
+          pl.vx += Math.cos(ang) * knock * 0.016;
+          pl.vy += Math.sin(ang) * knock * 0.016;
+        }
       }
       ship._deathDone = true;
     }

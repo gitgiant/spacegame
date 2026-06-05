@@ -729,6 +729,23 @@ G.SoundEngine = class {
     });
   }
 
+  cometHit(distance) {
+    if (!this.enabled) return;
+    const ac  = this._ctx();
+    const now = ac.currentTime;
+    const dist = Math.min(distance || 0, 2000);
+    const volume = Math.max(0.02, 0.15 * (1 - dist / 2000));
+    const osc = ac.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(320, now);
+    osc.frequency.exponentialRampToValueAtTime(180, now + 0.22);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(volume, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+    osc.connect(g); g.connect(this._master);
+    osc.start(now); osc.stop(now + 0.23);
+  }
+
   // ── Target lock ──────────────────────────────────────────
   targetLock() {
     if (!this.enabled) return;
