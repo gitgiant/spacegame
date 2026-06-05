@@ -543,7 +543,14 @@ G.Space = class {
       }
       l.x+=l.vx*dt; l.y+=l.vy*dt; l.vx*=0.96; l.vy*=0.96;
       const cr=player.tractorRange>0?player.tractorRange+40:50;
-      if(d<cr && this._collectLoot(l,player)){this.floatingLoot.splice(i,1);}
+      if(d<cr) {
+        const collected = this._collectLoot(l,player);
+        if(collected) {
+          this.floatingLoot.splice(i,1);
+        } else if(l.type==='item' && l.ttl < 45) {
+          l.ttl = 45;
+        }
+      }
     }
   }
 
