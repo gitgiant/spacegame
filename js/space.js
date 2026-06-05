@@ -782,7 +782,17 @@ G.Space = class {
       if(!isEnemy) {
         const typeName = ship.name || (ship.faction||'').toUpperCase()+' SHIP';
         const atkId = ship._lastAttackerId;
-        const atkName = atkId === 'player' ? 'YOU' : atkId ? atkId.toUpperCase() : 'UNKNOWN';
+        let atkName = 'UNKNOWN';
+        if(atkId === 'player') atkName = 'YOU';
+        else if(atkId === 'turret') atkName = 'TURRET';
+        else if(atkId) {
+          const enemy = this.enemies.find(e => e.id === atkId);
+          const npc = this.npcs.find(n => n.id === atkId);
+          const fleetShip = this.fleetShips.find(f => f.id === atkId);
+          if(enemy) atkName = enemy.name || (enemy.faction||'ENEMY').toUpperCase()+' SHIP';
+          else if(npc) atkName = npc.name || (npc.faction||'NPC').toUpperCase()+' SHIP';
+          else if(fleetShip) atkName = fleetShip.name || 'ESCORT SHIP';
+        }
         G.game?.addCombatLog(typeName.toUpperCase()+' DESTROYED BY '+atkName, '#ff4444');
       }
       if(!isEnemy && ship.faction !== 'independent' && !ship.jumpingOut) {
