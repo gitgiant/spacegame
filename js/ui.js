@@ -401,9 +401,14 @@ G.UI = class {
         const tShip  = target.name || tpl?.name || 'SHIP';
         const tFac   = target.faction||'?';
         const facColor = G.FACTIONS[tFac]?.color || '#888888';
-        const isHostile = target.hostile || (target.faction && (G.game?.getRel(target.faction)||0) < -30 && target !== G.game?.player);
-        const hostileTag = isHostile ? ' <span style="color:#ff3333">■ HOSTILE</span>' : ' <span style="color:#44ff88">■ NEUTRAL</span>';
-        e['tgt-name'].innerHTML = tShip.toUpperCase() + ' <span style="color:' + facColor + '">■ ' + tFac.toUpperCase() + '</span>' + hostileTag;
+        let statusTag = '';
+        if(target.disabled) {
+          statusTag = ' <span style="color:#ff6600">■ DISABLED</span>';
+        } else {
+          const isHostile = target.hostile || (target.faction && (G.game?.getRel(target.faction)||0) < -30 && target !== G.game?.player);
+          statusTag = isHostile ? ' <span style="color:#ff3333">■ HOSTILE</span>' : ' <span style="color:#44ff88">■ NEUTRAL</span>';
+        }
+        e['tgt-name'].innerHTML = tShip.toUpperCase() + ' <span style="color:' + facColor + '">■ ' + tFac.toUpperCase() + '</span>' + statusTag;
       }
       if(target.disabled && (target.disabledHp !== undefined)) {
         if(e['tgt-hull-bar']) { e['tgt-hull-bar'].style.width=G.pct(Math.max(0,target.disabledHp),50)+'%'; e['tgt-hull-bar'].style.background='#ff6600'; }

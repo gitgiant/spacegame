@@ -516,6 +516,8 @@ G.NPCShip = class {
         tracking: false,
         sourceId: this.id,
       });
+      const playerDist = G.game?.player ? Math.hypot(this.x - G.game.player.x, this.y - G.game.player.y) : 0;
+      G.sound?.weaponFire(playerDist);
     }
   }
 
@@ -728,6 +730,8 @@ G.FleetShip = class {
           x: this.x+Math.sin(this.angle)*16, y: this.y-Math.cos(this.angle)*16,
           minSpd:20, maxSpd:60, life:0.15, r:2, color:this.weaponColor,
         });
+        const playerDist = Math.hypot(this.x - player.x, this.y - player.y);
+        G.sound?.weaponFire(playerDist);
       }
     } else {
       const dx = player.x - this.x, dy = player.y - this.y;

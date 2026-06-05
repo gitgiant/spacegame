@@ -1474,7 +1474,7 @@ G.Game = class {
     // Hostile alert sound — fire once when hostiles appear
     const hostileCount =
       this.space.enemies.filter(e=>!e.dead&&!e._deathDone&&!e.boarded&&!e.disabled).length +
-      this.space.npcs.filter(n=>!n.dead&&!n._deathDone&&n.hostile).length;
+      this.space.npcs.filter(n=>!n.dead&&!n._deathDone&&n.hostile&&!n.disabled).length;
     if(hostileCount > 0 && this._prevHostileCount === 0) G.sound.hostileAlert();
     this._prevHostileCount = hostileCount;
 
@@ -1977,7 +1977,7 @@ G.Game.prototype._updateMusic = function(dt) {
   let intensity = 0;
   if(this.state==='space' && this.space) {
     const enemies = this.space.enemies.filter(e=>!e.dead&&!e.boarded&&!e.disabled);
-    const hostNpc = this.space.npcs.filter(n=>!n.dead&&n.hostile);
+    const hostNpc = this.space.npcs.filter(n=>!n.dead&&n.hostile&&!n.disabled);
     const hostTur = (this.space.turrets||[]).filter(t=>!t._dead&&t.hostile);
     const n = enemies.length + hostNpc.length + hostTur.length;
     if(n > 0) {
