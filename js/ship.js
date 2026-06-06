@@ -193,7 +193,7 @@ G.Ship = class {
       // Determine shape and facing from adjacency
       let shape, facing;
       if(innerDirs.length >= 3) {
-        shape = 'convex'; facing = 0;
+        shape = 'concave'; facing = 0;
       } else if(innerDirs.length === 2) {
         shape = 'quarterround';
         const has = {};

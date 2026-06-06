@@ -207,7 +207,7 @@ html, body {
 }
 #minimap-wrap.hidden { display: none; }
 #minimap-wrap.collapsed #minimap { display: none; }
-#minimap { display: block; background: transparent; }
+#minimap { display: block; background: transparent; clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%); }
 #minimap-toggle-btn {
   display: block; width: 100%; padding: 2px 4px;
   background: none; border: none; border-bottom: 1px solid var(--col-border);

@@ -392,7 +392,7 @@ G.MODULES = {
   },
 
   // Hull panels — outer structural casing around inner modules, required for flight
-  // Instance properties: color (hex string), shape ('square'|'triangle'|'right_triangle'|'quarterround'|'convex'), facing (0-7)
+  // Instance properties: color (hex string), shape ('square'|'triangle'|'right_triangle'|'quarterround'|'concave'), facing (0-7)
   hull_panel: {
     id:'hull_panel', name:'Hull Panel', slot:'hull',
     stats:{ maxHull:+12, armor:+1, mass:+15 },

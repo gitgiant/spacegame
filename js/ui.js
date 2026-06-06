@@ -1483,9 +1483,9 @@ G.UI = class {
       const shape   = inst.shape || 'square';
       const canRemove = p.canRemoveModule(instId);
       const COLORS = ['#8899bb','#4488ff','#ff6600','#cc3322','#00ff88','#ffcc00','#aa44ff','#44aaff','#ff88cc','#ffffff','#aaaaaa','#667799'];
-      const SHAPES = ['square','triangle','right_triangle','quarterround','convex'];
-      const SHAPE_ICONS = { square:'▪', triangle:'▲', right_triangle:'◣', quarterround:'◜', convex:'◉' };
-      const SHAPE_LABELS = { square:'SQUARE', triangle:'EQUIL TRI', right_triangle:'RT TRI', quarterround:'QTR RND', convex:'CONVEX' };
+      const SHAPES = ['square','triangle','right_triangle','quarterround','concave'];
+      const SHAPE_ICONS = { square:'▪', triangle:'▲', right_triangle:'◣', quarterround:'◜', concave:'◉' };
+      const SHAPE_LABELS = { square:'SQUARE', triangle:'EQUIL TRI', right_triangle:'RT TRI', quarterround:'QTR RND', concave:'CONCAVE' };
       const FACING_LABELS = ['0°','90°','180°','270°','◤ NW','◥ NE','◢ SE','◣ SW'];
       const facingLabel = FACING_LABELS[inst.facing || 0];
       let controls = '';
@@ -1544,7 +1544,7 @@ G.UI = class {
 
   // Shape icon for hull panels
   _hullShapeIcon(shape) {
-    return { square:'▪', triangle:'▲', right_triangle:'◣', quarterround:'◜', convex:'◉' }[shape] || '▪';
+    return { square:'▪', triangle:'▲', right_triangle:'◣', quarterround:'◜', concave:'◉' }[shape] || '▪';
   }
 
   _buildShipBuilderHTML() {
@@ -1583,10 +1583,10 @@ G.UI = class {
         const sel  = this._builderSel === instId;
         if(isHull){
           const hullCol = inst.color || '#667799';
-          const shapeIcon = this._hullShapeIcon(inst.shape || 'square');
+          const hullIcon = G.Sprites.getHull(inst.shape||'square', inst.facing||0, hullCol, 32).toDataURL();
           cells += `<div class="bcell filled bcell-hull hull-locked${sel?' sel':''}" data-cell="${i}" data-instid="${instId}"
             style="border-color:${hullCol};background:${hullCol}28;${sel?'box-shadow:0 0 0 2px #fff inset;':''}" title="Hull Panel (${inst.shape||'square'}) — click to edit">
-            <span class="bcell-hull-icon" style="color:${hullCol}">${shapeIcon}</span>
+            <img src="${hullIcon}" class="bcell-icon" draggable="false">
           </div>`;
         } else {
           const col  = G.SLOT_RING[mod?.slot]?.color || '#33556a';
@@ -3714,6 +3714,12 @@ G.UI = class {
       wrap.addEventListener('click', () => {
         shipId = s.id;
         shipGrid.querySelectorAll('.char-ship-wrap').forEach((w, j) => w.classList.toggle('selected', j === si));
+      });
+      wrap.addEventListener('dblclick', () => {
+        shipId = s.id;
+        const name = nameInput.value.trim() || 'Commander';
+        overlay.classList.add('hidden');
+        onConfirm({ name, sex, faceIdx, factionId, shipId });
       });
       shipGrid.appendChild(wrap);
     });
