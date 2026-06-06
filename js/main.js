@@ -240,7 +240,7 @@ G.Renderer = class {
   // Draw module/weapon tiles centered at (x,y) in world space.
   // entries: [{ col, row, visual, slot, broken }] — use builder cell coords for player,
   // compact grid for enemies/NPCs.
-  drawShipTileDisplay(x, y, scale, entries, angle=0, gridCenter=null, overrideCtx=null) {
+  drawShipTileDisplay(x, y, scale, entries, angle=0, gridCenter=null, overrideCtx=null, turnDir=0) {
     if(!entries || entries.length === 0) return;
     const ctx = overrideCtx || this.ctx;
     const sc = scale || 1;
@@ -285,6 +285,24 @@ G.Renderer = class {
       ctx.strokeStyle = slotCol;
       ctx.lineWidth = 0.5;
       ctx.strokeRect(tx + 0.5, ty + 0.5, TILE - 1, TILE - 1);
+    }
+    // Rear thruster flames when turning
+    if(turnDir !== 0) {
+      const thrustX = turnDir > 0 ? 8 : -8;
+      const flameLen = 12 + Math.random() * 6;
+      const flameW = 3;
+      const grad = ctx.createLinearGradient(thrustX, -12, thrustX, -12 - flameLen);
+      grad.addColorStop(0, '#ffaa22');
+      grad.addColorStop(0.5, 'rgba(255,140,20,0.5)');
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(thrustX - flameW, -12);
+      ctx.lineTo(thrustX + flameW, -12);
+      ctx.lineTo(thrustX + flameW*0.3, -12 - flameLen);
+      ctx.lineTo(thrustX - flameW*0.3, -12 - flameLen);
+      ctx.closePath();
+      ctx.fill();
     }
     ctx.restore();
   }
@@ -1324,9 +1342,10 @@ G.Renderer = class {
     const thrusting = !player.disabled && game.input.thrust;
     const boosting  = !player.disabled && game.input.boost && (superBoost || (player.energy > 5 && player.boostCharge > 0));
     const strafeDir = player.disabled ? 0 : game.input.strafeR ? 1 : game.input.strafeL ? -1 : 0;
+    const turnDir = player.disabled ? 0 : game.input.turnR ? 1 : game.input.turnL ? -1 : 0;
     const shipColor = G.SHIPS[player.templateId]?.color || '#8899bb';
     const shapeId   = G.SHIPS[player.templateId]?.shape || 'shuttle';
-    this.drawShipTileDisplay(player.x, player.y, 1, this._playerTileEntries(player), player.angle, [4, 4]);
+    this.drawShipTileDisplay(player.x, player.y, 1, this._playerTileEntries(player), player.angle, [4, 4], null, turnDir);
     const playerTurretSlots = player.weaponSlots.filter(s => s.turret);
     if(playerTurretSlots.length) this.drawTurretOverlay(player.x,player.y,player.angle,shapeId,1,player.angle,playerTurretSlots);
     if((player._frozenTimer||0) > 0) {
