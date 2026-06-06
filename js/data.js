@@ -1465,4 +1465,16 @@ G.ABILITIES = {
     cooldown: 3, energyCost: 8, range: 0,
     color: '#44ddff', icon: '⌖', npcUsable: false,
   },
+  missile_lock: {
+    id: 'missile_lock', name: 'Missile Lock',
+    desc: 'Begin 3-second lock-on sequence on targeted ship. Granted by a missile launcher.',
+    cooldown: 0, energyCost: 0, range: 0,
+    color: '#ff8800', icon: '◎', npcUsable: false,
+  },
+  missile_launch: {
+    id: 'missile_launch', name: 'Missile Launch',
+    desc: 'Launch guided missile at locked target.',
+    cooldown: 0, energyCost: 0, range: 0,
+    color: '#ff4400', icon: '▲', npcUsable: false,
+  },
 };

@@ -162,5 +162,4 @@ G.Input = class {
   get boost()    { return this.is('ShiftLeft') || this.is('ShiftRight'); }
   get fire()     { return this.is('Space'); }
   get fireTap()  { return this.pressed('Space'); }
-  get altFire()  { return this.pressed('KeyX'); }
 };

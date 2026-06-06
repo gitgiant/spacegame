@@ -2412,33 +2412,61 @@ G.Game = class {
       }
     }
 
-    // Lock-on tracking: hold target for 3s to acquire missile lock
+    // Missile lock-on — only active after missile_lock ability is used
     this._lockT ??= 0; this._locked ??= false; this._lockBeepT ??= 0;
-    const _hasMissile = p.weaponSlots.some(s => s && G.WEAPONS[s.weaponId]?.type === 'missile');
-    const _lockedTarget = _hasMissile && this.target && !this.target.dead ? this.target : null;
-    if(_lockedTarget !== this._lockTarget) {
-      if(this._locked) G.sound?.missileLockOff?.();
-      this._lockTarget = _lockedTarget;
-      this._lockT = 0;
-      this._locked = false;
-      this._lockBeepT = 0;
-    }
-    if(_lockedTarget && !this._locked) {
-      this._lockT = Math.min(this._lockT + dt, 3.0);
-      if(this._lockT >= 3.0) {
-        this._locked = true;
-        G.sound?.missileLockOn?.();
+    if(this._missileLocking) {
+      if(!this._lockTarget || this._lockTarget.dead) {
+        // Target lost while locking
+        this._missileLocking = false;
+        this._lockTarget = null;
+        this._lockT = 0;
+        this._lockBeepT = 0;
+        this.ui.addMsg('Missile lock lost — target gone', '#ff8800');
+      } else {
+        this._lockT = Math.min(this._lockT + dt, 3.0);
+        if(this._lockT >= 3.0) {
+          this._locked = true;
+          this._missileLocking = false;
+          G.sound?.missileLockOn?.();
+          // Swap missile_lock → missile_launch in abilities
+          const _aidx = (p.abilities||[]).indexOf('missile_lock');
+          if(_aidx >= 0) {
+            p.abilities = [...p.abilities];
+            p.abilities[_aidx] = 'missile_launch';
+            this.ui.updateAbilityBar(p);
+          }
+        }
+        this._lockBeepT -= dt;
+        if(this._lockBeepT <= 0) {
+          const progress = this._lockT / 3.0;
+          this._lockBeepT = 0.8 - progress * 0.65;
+          G.sound?.missileBeep?.();
+        }
       }
-      this._lockBeepT -= dt;
-      if(this._lockBeepT <= 0) {
-        const progress = this._lockT / 3.0;
-        this._lockBeepT = 0.8 - progress * 0.65;
-        G.sound?.missileBeep?.();
+    }
+    // If locked but target gone → cancel lock and revert ability
+    if(this._locked && (!this._lockTarget || this._lockTarget.dead)) {
+      G.sound?.missileLockOff?.();
+      this._locked = false; this._lockTarget = null; this._lockT = 0;
+      const _aidx = (p.abilities||[]).indexOf('missile_launch');
+      if(_aidx >= 0) {
+        p.abilities = [...p.abilities];
+        p.abilities[_aidx] = 'missile_lock';
+        this.ui.updateAbilityBar(p);
       }
     }
-    if(!_lockedTarget) {
-      if(this._locked) G.sound?.missileLockOff?.();
-      this._lockT = 0; this._locked = false; this._lockBeepT = 0;
+    // When missile_launch cooldown expires → revert ability slot to missile_lock
+    if((p.abilities||[]).includes('missile_launch') && !this._locked && !this._missileLocking) {
+      const _launchCd = (p.abilityCooldowns||{})['missile_launch'] || 0;
+      if(_launchCd === 0) {
+        const _aidx = p.abilities.indexOf('missile_launch');
+        if(_aidx >= 0) {
+          p.abilities = [...p.abilities];
+          p.abilities[_aidx] = 'missile_lock';
+          p.abilityCooldowns['missile_lock'] = 0;
+          this.ui.updateAbilityBar(p);
+        }
+      }
     }
 
     // Frozen player: suppress controls, decelerate
@@ -2524,32 +2552,6 @@ G.Game = class {
         if(projs) {
           const arr = Array.isArray(projs) ? projs : [projs];
           arr.forEach(pr => this.space.projectiles.push(pr));
-          G.sound.weapon(wDef.type);
-        }
-      }
-    }
-
-    // C (alt fire): missiles (dormant launch)
-    if(this.input.altFire && !p.disabled) {
-      const isLocked = this._locked && this._lockTarget && !this._lockTarget.dead;
-      const aim = this.target ? this._interceptPoint(this.target, p) : null;
-      const tx = aim?.x ?? this.target?.x, ty = aim?.y ?? this.target?.y;
-      for(let wIdx = 0; wIdx < p.weaponSlots.length; wIdx++) {
-        const wDef = p.weaponSlots[wIdx] ? G.WEAPONS[p.weaponSlots[wIdx].weaponId] : null;
-        if(!wDef || wDef.type !== 'missile') continue;
-        const projs = p.fireWeapon(wIdx, tx, ty);
-        if(projs) {
-          const arr = Array.isArray(projs) ? projs : [projs];
-          arr.forEach(pr => {
-            pr.dormant = true;
-            pr.dormantT = 2.0;
-            pr.ttl += 2.0;
-            pr.tracking = isLocked;
-            pr.angle = p.angle;
-            pr.vx = p.vx;
-            pr.vy = p.vy;
-            this.space.projectiles.push(pr);
-          });
           G.sound.weapon(wDef.type);
         }
       }
@@ -2819,7 +2821,7 @@ G.Game = class {
     if(this._playerDyingStarted) return;
     this._playerDyingStarted = true;
     G.sound?.missileLockOff?.();
-    this._locked = false; this._lockTarget = null; this._lockT = 0;
+    this._locked = false; this._lockTarget = null; this._lockT = 0; this._missileLocking = false;
     this.state = 'dead';
     this.addCombatLog('YOUR SHIP DESTROYED', '#ff4444');
     this._playerDyingTimer     = 2.5;
@@ -2895,7 +2897,18 @@ G.Game = class {
           });
         }, _bi * 100);
       }
-      if(this._locked) { G.sound?.missileLockOff?.(); this._lockT=0; this._locked=false; }
+      if(this._locked || this._missileLocking) {
+        G.sound?.missileLockOff?.();
+        this._locked = false; this._missileLocking = false; this._lockT = 0; this._lockTarget = null;
+        // Revert missile_launch → missile_lock if needed
+        const _caidx = (ship.abilities||[]).indexOf('missile_launch');
+        if(_caidx >= 0) {
+          ship.abilities = [...ship.abilities];
+          ship.abilities[_caidx] = 'missile_lock';
+          ship.abilityCooldowns['missile_lock'] = 0;
+          this.ui.updateAbilityBar(ship);
+        }
+      }
       this.addCombatLog('Chaff launched ×10!', '#ffcc44');
 
     } else if(abilityId === 'quantum_brake') {
@@ -2916,6 +2929,57 @@ G.Game = class {
       const nm = tgt.name || G.SHIPS[tgt.templateId||tgt.shapeId]?.name || 'target';
       this.ui.addMsg('Scan complete — '+nm, '#44ddff');
       this.addCombatLog('Scanned '+nm, '#44ddff');
+
+    } else if(abilityId === 'missile_lock') {
+      if(!this.target || this.target.dead) {
+        this.ui.addMsg('Missile Lock: no target selected', '#ff8800');
+        ship.abilityCooldowns['missile_lock'] = 0;
+        return;
+      }
+      this._missileLocking = true;
+      this._lockT = 0;
+      this._locked = false;
+      this._lockTarget = this.target;
+      this._lockBeepT = 0;
+      this.addCombatLog('Missile lock initiated...', '#ff8800');
+
+    } else if(abilityId === 'missile_launch') {
+      if(!this._locked || !this._lockTarget || this._lockTarget.dead) {
+        this.ui.addMsg('Missile Launch: no lock on target', '#ff4400');
+        ship.abilityCooldowns['missile_launch'] = 0;
+        return;
+      }
+      const _ltgt = this._lockTarget;
+      const aim = this._interceptPoint(_ltgt, ship);
+      const tx = aim?.x ?? _ltgt.x, ty = aim?.y ?? _ltgt.y;
+      let launchCd = 0;
+      let fired = false;
+      for(let wIdx = 0; wIdx < ship.weaponSlots.length; wIdx++) {
+        const wDef = ship.weaponSlots[wIdx] ? G.WEAPONS[ship.weaponSlots[wIdx].weaponId] : null;
+        if(!wDef || wDef.type !== 'missile') continue;
+        const projs = ship.fireWeapon(wIdx, tx, ty);
+        if(projs) {
+          const arr = Array.isArray(projs) ? projs : [projs];
+          arr.forEach(pr => {
+            pr.dormant = true; pr.dormantT = 2.0; pr.ttl += 2.0;
+            pr.tracking = true; pr.trackTarget = _ltgt;
+            pr.angle = ship.angle; pr.vx = ship.vx; pr.vy = ship.vy;
+            this.space.projectiles.push(pr);
+          });
+          G.sound.weapon(wDef.type);
+          fired = true;
+          launchCd = Math.max(launchCd, 1.0 / (wDef.fireRate || 0.45));
+        }
+      }
+      if(fired) {
+        G.sound?.missileLockOff?.();
+        this._locked = false; this._lockTarget = null; this._lockT = 0;
+        ship.abilityCooldowns['missile_launch'] = launchCd;
+        this.addCombatLog('Missile launched!', '#ff4400');
+      } else {
+        this.ui.addMsg('No missiles — out of ammo?', '#ff4400');
+        ship.abilityCooldowns['missile_launch'] = 0;
+      }
     }
     this.ui.updateAbilityBar(ship);
   }
@@ -3070,7 +3134,7 @@ G.Game = class {
     });
     this.ui.els['galaxy-overlay']?.classList.add('hidden');
     G.sound?.missileLockOff?.();
-    this._locked = false; this._lockTarget = null; this._lockT = 0;
+    this._locked = false; this._lockTarget = null; this._lockT = 0; this._missileLocking = false;
     this._hideHUD();
     this.state = 'menu';
     this.renderer._menuStars = null;
