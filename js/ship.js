@@ -490,6 +490,16 @@ G.Ship = class {
     // Non-mutating so a shared template ability array is never corrupted.
     if(this.canScan && !_hasScan)       this.abilities = [...this.abilities, 'scan'];
     else if(!this.canScan && _hasScan)  this.abilities = this.abilities.filter(a => a !== 'scan');
+
+    // A missile launcher grants missile_lock; keep in sync with weapon slots.
+    const _hasML = this.weaponSlots.some(w => G.WEAPONS[w.weaponId]?.type === 'missile');
+    const _hasMLock   = this.abilities.includes('missile_lock');
+    const _hasMLaunch = this.abilities.includes('missile_launch');
+    if(_hasML && !_hasMLock && !_hasMLaunch) {
+      this.abilities = [...this.abilities, 'missile_lock'];
+    } else if(!_hasML && (_hasMLock || _hasMLaunch)) {
+      this.abilities = this.abilities.filter(a => a !== 'missile_lock' && a !== 'missile_launch');
+    }
   }
 
   // ── Physics update ───────────────────────────────────
