@@ -1773,10 +1773,18 @@ G.Game = class {
     this._autopilot=false;
     this._bgEnabled=true;
 
-    // Mobile touch controls: default ON when a phone/tablet is detected,
-    // otherwise follow the saved preference (toggle in Options).
-    const _mobSaved = localStorage.getItem('nullpunkt_mobile_controls');
-    this._mobileControls = _mobSaved == null ? G.isMobileDevice() : _mobSaved === '1';
+    // Control scheme selector. 'auto' resolves each frame to:
+    //   gamepad (if a controller is connected) > touch (mobile device) > keyboard.
+    // The player can pin a specific scheme from the Options menu. A legacy
+    // mobile-controls flag migrates to a 'touch' pin.
+    let _scheme = localStorage.getItem('nullpunkt_control_scheme');
+    if(!_scheme){
+      const _legacy = localStorage.getItem('nullpunkt_mobile_controls');
+      _scheme = _legacy === '1' ? 'touch' : (_legacy === '0' ? 'keyboard' : 'auto');
+    }
+    this._controlScheme = _scheme;     // 'auto' | 'keyboard' | 'touch' | 'gamepad'
+    this._mobileControls = false;      // derived: effective scheme === 'touch'
+    this._lastEffScheme  = null;       // for detecting auto-swaps
 
     // FPS counter
     this._fpsEl = document.getElementById('fps-counter');
@@ -1804,14 +1812,9 @@ G.Game = class {
     G.ui    = this.ui;
     G.sound = new G.SoundEngine();
 
-    // Reflect detected/saved mobile-control state into the Options toggle now
-    // that G.game exists (UI was constructed before this assignment).
-    const _mcChk = document.getElementById('opt-mobile-enabled');
-    if(_mcChk){
-      _mcChk.checked = this._mobileControls;
-      const _mcLbl = document.getElementById('opt-mobile-label');
-      if(_mcLbl) _mcLbl.textContent = this._mobileControls ? 'ON' : 'OFF';
-    }
+    // Reflect the saved control scheme into the Options selector now that
+    // G.game exists (UI was constructed before this assignment).
+    this.ui.refreshControlScheme?.();
     this._updateMobileControls();
 
     this._prevHostileCount = 0;
@@ -3034,14 +3037,34 @@ G.Game = class {
     document.getElementById('jump-route-hud')?.classList.add('hidden');
     document.getElementById('jump-charge-hud')?.classList.add('hidden');
   }
-  _saveMobilePref(on) {
-    this._mobileControls = !!on;
-    try { localStorage.setItem('nullpunkt_mobile_controls', on ? '1' : '0'); } catch(e){}
+  // Resolve the active control scheme. 'auto' picks the best available input:
+  // a connected controller wins, then a touch device, otherwise keyboard.
+  _effectiveScheme() {
+    const s = this._controlScheme || 'auto';
+    if(s !== 'auto') return s;
+    if(this.input && this.input.hasGamepad()) return 'gamepad';
+    if(G.isMobileDevice()) return 'touch';
+    return 'keyboard';
+  }
+  // Pin (or auto) the control scheme from the Options menu.
+  setControlScheme(s) {
+    this._controlScheme = s;
+    try { localStorage.setItem('nullpunkt_control_scheme', s); } catch(e){}
+    this.ui.refreshControlScheme?.();
     this._updateMobileControls();
   }
-  // Show the on-screen pad only while flying or on the galaxy map, and never
-  // behind a full-screen menu overlay.
+  // Show the on-screen pad only when touch controls are active, while flying
+  // or on the galaxy map, and never behind a full-screen menu overlay.
   _updateMobileControls() {
+    const eff = this._effectiveScheme();
+    this._mobileControls = (eff === 'touch');
+    // Announce an automatic swap to the controller when one is plugged in.
+    if(eff !== this._lastEffScheme){
+      if(this._lastEffScheme != null && eff === 'gamepad' && this._controlScheme === 'auto')
+        this.ui.addMsg?.('Controller connected — gamepad controls active', '#44ffcc');
+      this._lastEffScheme = eff;
+      this.ui.refreshControlScheme?.();
+    }
     const el = document.getElementById('mobile-controls');
     if(!el) return;
     const show = this._mobileControls && !this.input._menuOpen()
@@ -3061,6 +3084,11 @@ G.Game.prototype._loop = function(ts) {
   requestAnimationFrame(this._loop);
   const dt=Math.min((ts-this._last)/1000, 0.05);
   this._last=ts;
+
+  // Poll the gamepad before any input is read this frame. Only apply it when
+  // the controller is the active scheme so keyboard/touch players aren't
+  // affected by a plugged-in pad.
+  this.input.pollGamepad(this._effectiveScheme() === 'gamepad');
 
   // FPS counter
   if(this._fpsEl) {
