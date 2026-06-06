@@ -288,7 +288,7 @@ G.Renderer = class {
     }
     // Rear thruster flames when turning
     if(turnDir !== 0) {
-      const thrustX = turnDir > 0 ? 8 : -8;
+      const thrustX = turnDir > 0 ? -8 : 8;
       const flameLen = 12 + Math.random() * 6;
       const flameW = 3;
       const grad = ctx.createLinearGradient(thrustX, 12, thrustX, 12 + flameLen);
