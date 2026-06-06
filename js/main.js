@@ -244,8 +244,8 @@ G.Renderer = class {
     if(!entries || entries.length === 0) return;
     const ctx = overrideCtx || this.ctx;
     const sc = scale || 1;
-    const STEP = 12 * sc, TILE = 10 * sc;
-    const PAD = (STEP - TILE) / 2;
+    const STEP = 12 * sc, TILE = STEP;
+    const PAD = 0;
     let centerC, centerR;
     if(gridCenter) {
       centerC = gridCenter[0]; centerR = gridCenter[1];
