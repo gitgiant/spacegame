@@ -225,6 +225,24 @@ G.Particles = class {
       life:0.3, maxLife:0.3, color:'#aa88ff', vx:0, vy:0, fade:true });
   }
 
+  radar_pulse(x, y, range) {
+    // Three concentric rings at slightly different speeds to simulate a propagating wavefront
+    const dur = range / 700;
+    this.active.push({ type:'ring', x, y, r:20, maxR:range,
+      life:dur, maxLife:dur, color:'#33aaff', vx:0, vy:0, fade:true, expandRate:range/dur });
+    this.active.push({ type:'ring', x, y, r:10, maxR:range*0.88,
+      life:dur*0.88, maxLife:dur*0.88, color:'#66bbff', vx:0, vy:0, fade:true, expandRate:range*0.88/(dur*0.88) });
+    this.active.push({ type:'ring', x, y, r:5, maxR:range*0.5,
+      life:dur*0.5, maxLife:dur*0.5, color:'#aaddff', vx:0, vy:0, fade:true, expandRate:range*0.5/(dur*0.5) });
+    for(let i=0;i<40;i++) {
+      const ang = (i/40)*Math.PI*2;
+      this.emit({ x, y, angle:ang, spread:0.1,
+        minSpd:80, maxSpd:range*0.3,
+        life:dur*0.5+Math.random()*dur*0.3, r:1+Math.random()*1.5,
+        color:Math.random()<0.5?'#33aaff':'#88ccff', drag:0.97, fade:true });
+    }
+  }
+
   warp_effect(x, y) {
     for(let i=0;i<30;i++) {
       const ang = (i/30)*Math.PI*2;

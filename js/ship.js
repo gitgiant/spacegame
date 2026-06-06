@@ -362,8 +362,9 @@ G.Ship = class {
     this.autoRepair = 0;
     this.canCraft   = false;
     this.tractorRange=0;
-    this.sensorRange= 600;
-    this.canScan    = false;
+    this.sensorRange   = 600;
+    this.canScan       = false;
+    this.canRadarScan  = false;
     this.canJump        = false;
     this.jumpRange      = 0;
     this.jumpChargeTime = 99; // set from module
@@ -433,8 +434,9 @@ G.Ship = class {
       if(s.autoRepair)      this.autoRepair  += s.autoRepair;
       if(s.canCraft)        this.canCraft     = true;
       if(s.tractorRange)    this.tractorRange+= s.tractorRange;
-      if(s.sensorRange)     this.sensorRange += s.sensorRange;
-      if(s.canScan)         this.canScan      = true;
+      if(s.sensorRange)     this.sensorRange  += s.sensorRange;
+      if(s.canScan)         this.canScan       = true;
+      if(s.canRadarScan)    this.canRadarScan  = true;
       if(s.canJump)         this.canJump      = true;
       if(s.jumpRange)       this.jumpRange   += s.jumpRange;
       if(s.jumpChargeTime !== undefined) this.jumpChargeTime = Math.min(this.jumpChargeTime, s.jumpChargeTime);
@@ -490,6 +492,10 @@ G.Ship = class {
     // Non-mutating so a shared template ability array is never corrupted.
     if(this.canScan && !_hasScan)       this.abilities = [...this.abilities, 'scan'];
     else if(!this.canScan && _hasScan)  this.abilities = this.abilities.filter(a => a !== 'scan');
+
+    const _hasRadarScan = this.abilities.includes('radar_scan');
+    if(this.canRadarScan && !_hasRadarScan)       this.abilities = [...this.abilities, 'radar_scan'];
+    else if(!this.canRadarScan && _hasRadarScan)  this.abilities = this.abilities.filter(a => a !== 'radar_scan');
 
     // A missile launcher grants missile_lock; keep in sync with weapon slots.
     const _hasML = this.weaponSlots.some(w => G.WEAPONS[w.weaponId]?.type === 'missile');

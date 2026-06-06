@@ -75,6 +75,7 @@ G.UI = class {
       if (s.jumpRange)      rows.push(['RANGE',   '+' + s.jumpRange + ' sys']);
       if (s.sensorRange)    rows.push(['SENSOR',  '+' + s.sensorRange]);
       if (s.detectCloaked)  rows.push(['UNCLOAK', '✓']);
+      if (s.canRadarScan)   rows.push(['RADAR',   '✓']);
       if (s.autoRepair)     rows.push(['REPAIR',  '+' + s.autoRepair + '/s']);
       if (s.canCraft)       rows.push(['CRAFT',   '✓']);
       if (s.tractorRange)   rows.push(['TRACTOR', '+' + s.tractorRange]);
