@@ -493,7 +493,6 @@ G.SHIPS = {
     startWeapons:['turret'],
     startCells:[31,40,57,59,58,41,39,48,50,22],
     shape:'shuttle', color:'#8899bb', size:1.0,
-    expansionLimit:3,
     stats:'HULL:100  SHIELDS:80  CARGO:8',
   },
   earth_shuttle: {
@@ -507,7 +506,6 @@ G.SHIPS = {
     startWeapons:['turret'],
     startCells:[31,40,57,59,58,41,39,48,50,32,22],
     shape:'earth_shuttle', color:'#4488ff', size:1.1,
-    expansionLimit:3,
     stats:'HULL:190  CARGO:10  GOV',
   },
   rebel_runner: {
@@ -521,7 +519,6 @@ G.SHIPS = {
     startWeapons:['turret'],
     startCells:[31,40,57,59,58,41,39,48,50,22],
     shape:'rebel_fighter', color:'#ff6600', size:0.85,
-    expansionLimit:3,
     stats:'HULL:140  CARGO:8  FAST',
   },
   pirate_skiff: {
@@ -535,7 +532,6 @@ G.SHIPS = {
     startWeapons:['turret'],
     startCells:[31,40,57,59,58,41,39,48,22],
     shape:'pirate_fighter', color:'#cc3322', size:0.85,
-    expansionLimit:2,
     stats:'HULL:120  FAST  SCRAPPY',
   },
   alien_pod: {
@@ -549,7 +545,6 @@ G.SHIPS = {
     startWeapons:['turret'],
     startCells:[31,40,57,59,58,41,39,48,22],
     shape:'alien_fighter', color:'#00ff88', size:0.85,
-    expansionLimit:2,
     stats:'HULL:160  ALIEN TECH  FAST',
   },
 
@@ -565,7 +560,6 @@ G.SHIPS = {
     startWeapons:['mining_laser_wpn','turret','turret','turret','turret'],
     startCells:[31,40,57,59,58,41,39,48,50,22],
     shape:'miner', color:'#aa9966', size:1.4,
-    expansionLimit:4,
     stats:'HULL:280  CARGO:20  MINER',
   },
   earth_miner: {
@@ -579,7 +573,6 @@ G.SHIPS = {
     startWeapons:['laser_cannon','mining_laser_wpn','turret','turret','turret','turret'],
     startCells:[31,40,57,59,58,41,39,48,50,32,21,23],
     shape:'earth_shuttle', color:'#4477cc', size:1.3,
-    expansionLimit:4,
     stats:'HULL:280  CARGO:24  SURVEY',
   },
   rebel_miner: {
@@ -593,7 +586,6 @@ G.SHIPS = {
     startWeapons:['autocannon','mining_laser_wpn','turret','turret','turret','turret'],
     startCells:[31,40,57,59,58,41,39,48,50,21,23,22],
     shape:'rebel_hauler', color:'#cc5500', size:1.3,
-    expansionLimit:4,
     stats:'HULL:260  CARGO:22  ARMED',
   },
 
@@ -609,7 +601,6 @@ G.SHIPS = {
     startWeapons:['autocannon','turret','turret','turret','turret'],
     startCells:[31,40,57,59,58,41,39,47,49,51,22],
     shape:'freighter', color:'#778855', size:2.5,
-    expansionLimit:6,
     stats:'HULL:300  CARGO:50  SLOW',
   },
   earth_hauler: {
@@ -623,7 +614,6 @@ G.SHIPS = {
     startWeapons:['autocannon','turret','turret','turret','turret'],
     startCells:[31,40,57,59,58,41,39,47,49,51,30,22],
     shape:'freighter', color:'#3366aa', size:2.6,
-    expansionLimit:6,
     stats:'HULL:380  CARGO:55  ARMORED',
   },
   rebel_hauler: {
@@ -637,7 +627,6 @@ G.SHIPS = {
     startWeapons:['laser_cannon','autocannon','turret','turret','turret','turret'],
     startCells:[31,40,57,59,58,41,39,47,49,51,38,21,23],
     shape:'rebel_hauler', color:'#ff6600', size:1.6,
-    expansionLimit:5,
     stats:'HULL:280  CARGO:28  ARMED',
   },
 
@@ -653,7 +642,6 @@ G.SHIPS = {
     startWeapons:['autocannon','turret','turret','turret','turret'],
     startCells:[31,40,57,59,58,41,39,38,42,49,22],
     shape:'tanker', color:'#886644', size:2.4,
-    expansionLimit:5,
     stats:'HULL:260  FUEL:400  HAULER',
   },
   earth_tanker: {
@@ -667,7 +655,6 @@ G.SHIPS = {
     startWeapons:['autocannon','turret','turret','turret','turret'],
     startCells:[31,40,57,59,58,41,39,38,42,49,30,22],
     shape:'tanker', color:'#335599', size:2.5,
-    expansionLimit:5,
     stats:'HULL:320  FUEL:500  GOV',
   },
 
@@ -684,7 +671,6 @@ G.SHIPS = {
     startCells:[31,40,57,59,58,51,47,41,39,21,23],
     startAmmo:{ missiles:8 },
     shape:'fighter', color:'#8899cc', size:1.0,
-    expansionLimit:3,
     stats:'HULL:100  CARGO:2  MISSILES  FAST',
   },
   earth_fighter: {
@@ -698,7 +684,6 @@ G.SHIPS = {
     startWeapons:['heavy_laser','laser_cannon'],
     startCells:[31,40,57,59,58,51,47,41,42,39,21,23],
     shape:'fighter', color:'#4488ff', size:1.0,
-    expansionLimit:3,
     stats:'HULL:280  SHIELDS  GUNS:2',
   },
   rebel_fighter: {
@@ -712,7 +697,6 @@ G.SHIPS = {
     startWeapons:['laser_cannon','autocannon','autocannon'],
     startCells:[31,40,57,59,58,51,47,41,39,21,22,23],
     shape:'fighter', color:'#ff6600', size:0.95,
-    expansionLimit:3,
     stats:'HULL:220  FASTEST  GUNS:3',
   },
   pirate_fighter: {
@@ -721,12 +705,11 @@ G.SHIPS = {
     price:13000,
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:22000, baseTurn:0, baseCargoSpace:0,
-    slots:12,
+    slots:13,
     startModules:['core_pirate_fighter',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor','jump_drive'],
     startWeapons:['autocannon','autocannon','autocannon'],
     startCells:[31,40,57,59,58,51,47,41,39,21,22,23],
     shape:'fighter', color:'#cc3322', size:0.9,
-    expansionLimit:2,
     stats:'HULL:200  GUNS:3  SCRAPPY',
   },
   alien_fighter: {
@@ -740,7 +723,6 @@ G.SHIPS = {
     startWeapons:['laser_cannon','laser_cannon'],
     startCells:[31,40,57,59,58,51,47,41,42,39,21,23],
     shape:'fighter', color:'#00ff88', size:0.9,
-    expansionLimit:3,
     stats:'HULL:260  ALIEN  FASTEST',
   },
 
@@ -756,7 +738,6 @@ G.SHIPS = {
     startWeapons:['autocannon','turret','turret','turret','turret'],
     startCells:[31,40,57,59,58,41,39,49,38,42,22],
     shape:'carrier', color:'#ccbbaa', size:3.2,
-    expansionLimit:5,
     stats:'HULL:500  CREW  LUXURY',
   },
   earth_liner: {
@@ -770,7 +751,6 @@ G.SHIPS = {
     startWeapons:['autocannon','turret','turret','turret','turret'],
     startCells:[31,40,57,59,58,41,39,49,38,42,50,22,21],
     shape:'carrier', color:'#4488ff', size:3.4,
-    expansionLimit:5,
     stats:'HULL:600  CREW  SHIELDED',
   },
 
@@ -786,7 +766,6 @@ G.SHIPS = {
     startWeapons:['laser_cannon','autocannon','missile_launcher','turret','turret','turret','turret'],
     startCells:[31,40,56,60,58,51,47,41,38,39,49,21,22,23],
     shape:'corvette', color:'#7799cc', size:1.8,
-    expansionLimit:4,
     stats:'HULL:360  GUNS:2  BALANCED',
   },
   earth_corvette: {
@@ -800,7 +779,6 @@ G.SHIPS = {
     startWeapons:['laser_cannon','laser_cannon','autocannon','missile_launcher','turret','turret','turret','turret'],
     startCells:[31,40,56,60,58,51,47,41,38,39,20,21,23,24],
     shape:'earth_patrol', color:'#4488ff', size:1.0,
-    expansionLimit:4,
     stats:'HULL:360  SHIELDS  PATROL',
   },
   rebel_corvette: {
@@ -814,7 +792,6 @@ G.SHIPS = {
     startWeapons:['laser_cannon','autocannon','autocannon','missile_launcher','turret','turret','turret','turret'],
     startCells:[31,40,56,60,58,51,47,41,38,39,21,22,23,24],
     shape:'rebel_fighter', color:'#ff6600', size:0.9,
-    expansionLimit:4,
     stats:'HULL:320  FAST  GUNS',
   },
   pirate_corvette: {
@@ -828,7 +805,6 @@ G.SHIPS = {
     startWeapons:['laser_cannon','autocannon','autocannon','missile_launcher','turret','turret','turret','turret'],
     startCells:[31,40,56,60,58,51,47,41,39,21,22,23,20],
     shape:'pirate_fighter', color:'#cc3322', size:0.95,
-    expansionLimit:3,
     stats:'HULL:280  FASTEST  GUNS',
   },
 
@@ -844,7 +820,6 @@ G.SHIPS = {
     startWeapons:['heavy_laser','autocannon','autocannon','missile_launcher','turret','turret','turret','turret','turret'],
     startCells:[31,40,56,60,58,51,47,41,38,39,49,20,22,24,13],
     shape:'frigate', color:'#8899cc', size:1.0,
-    expansionLimit:5,
     stats:'HULL:500  SHIELDS  GUNS',
   },
   earth_patrol: {
@@ -858,7 +833,6 @@ G.SHIPS = {
     startWeapons:['heavy_laser','laser_cannon','autocannon','missile_launcher','turret','turret','turret','turret','turret'],
     startCells:[31,40,56,60,58,51,47,41,38,39,20,22,24,13],
     shape:'frigate', color:'#4488ff', size:1.0,
-    expansionLimit:5,
     stats:'HULL:520  SHIELDS  FAST',
   },
   rebel_frigate: {
@@ -872,7 +846,6 @@ G.SHIPS = {
     startWeapons:['heavy_laser','autocannon','autocannon','missile_launcher','turret','turret','turret','turret','turret'],
     startCells:[31,40,56,60,58,51,47,41,38,39,20,22,24,13],
     shape:'frigate', color:'#ff6600', size:1.0,
-    expansionLimit:5,
     stats:'HULL:480  GUNS  REBEL',
   },
   pirate_raider: {
@@ -886,7 +859,6 @@ G.SHIPS = {
     startWeapons:['autocannon','autocannon','autocannon','missile_launcher','turret','turret','turret','turret','turret'],
     startCells:[31,40,56,60,58,51,47,41,38,39,49,20,22,24,13],
     shape:'frigate', color:'#cc2200', size:1.0,
-    expansionLimit:5,
     stats:'HULL:420  CARGO:12  GUNS',
   },
   alien_scout: {
@@ -900,7 +872,6 @@ G.SHIPS = {
     startWeapons:['laser_cannon','laser_cannon','missile_launcher','turret','turret','turret','turret','turret'],
     startCells:[31,40,56,60,58,51,47,41,38,39,21,23,13],
     shape:'frigate', color:'#00ff88', size:1.0,
-    expansionLimit:4,
     stats:'HULL:460  ALIEN  FAST',
   },
 
@@ -916,7 +887,6 @@ G.SHIPS = {
     startWeapons:['heavy_laser','autocannon','autocannon','autocannon','missile_launcher','turret','turret','turret','turret','turret','turret'],
     startCells:[31,40,56,60,58,51,47,41,38,39,42,37,20,21,23,24,13],
     shape:'gunboat', color:'#8877aa', size:1.8,
-    expansionLimit:5,
     stats:'HULL:560  GUNS:4  SLOW',
   },
   earth_bomber: {
@@ -930,7 +900,6 @@ G.SHIPS = {
     startWeapons:['heavy_laser','heavy_laser','autocannon','missile_launcher','turret','turret','turret','turret','turret','turret'],
     startCells:[31,40,56,60,58,51,47,41,38,39,37,20,24,22,13],
     shape:'gunboat', color:'#336699', size:1.8,
-    expansionLimit:5,
     stats:'HULL:600  ARMOR  STRIKE',
   },
   rebel_bomber: {
@@ -944,7 +913,6 @@ G.SHIPS = {
     startWeapons:['heavy_laser','autocannon','autocannon','missile_launcher','turret','turret','turret','turret','turret','turret'],
     startCells:[31,40,56,60,58,51,47,41,38,39,20,22,24,13],
     shape:'gunboat', color:'#ff6600', size:1.7,
-    expansionLimit:5,
     stats:'HULL:540  MISSILES  GUNS',
   },
   pirate_marauder: {
@@ -958,7 +926,6 @@ G.SHIPS = {
     startWeapons:['autocannon','autocannon','autocannon','autocannon','missile_launcher','turret','turret','turret','turret','turret','turret'],
     startCells:[31,40,56,60,58,51,47,41,38,39,49,20,21,23,24,13],
     shape:'gunboat', color:'#bb2200', size:1.8,
-    expansionLimit:5,
     stats:'HULL:500  CARGO:14  GUNS',
   },
 
@@ -974,7 +941,6 @@ G.SHIPS = {
     startWeapons:['heavy_laser','heavy_laser','autocannon','missile_launcher','turret','turret','turret','turret','turret','turret'],
     startCells:[31,40,56,60,58,51,47,41,38,42,39,37,12,14,22,4,13],
     shape:'corvette', color:'#6688aa', size:2.0,
-    expansionLimit:5,
     stats:'HULL:700  SHIELDS  ESCORT',
   },
   earth_destroyer: {
@@ -988,7 +954,6 @@ G.SHIPS = {
     startWeapons:['heavy_laser','heavy_laser','autocannon','missile_launcher','turret','turret','turret','turret','turret','turret'],
     startCells:[31,40,56,60,58,51,47,41,38,42,39,43,12,14,22,4,13],
     shape:'corvette', color:'#4488ff', size:2.0,
-    expansionLimit:5,
     stats:'HULL:720  SHIELDS  NAVY',
   },
   rebel_destroyer: {
@@ -1002,7 +967,6 @@ G.SHIPS = {
     startWeapons:['heavy_laser','heavy_laser','railgun','autocannon','missile_launcher','turret','turret','turret','turret','turret','turret'],
     startCells:[31,40,56,60,58,51,47,41,38,42,39,12,14,22,21,13],
     shape:'corvette', color:'#ff6600', size:2.0,
-    expansionLimit:5,
     stats:'HULL:680  RAILGUN  REBEL',
   },
   pirate_destroyer: {
@@ -1016,7 +980,6 @@ G.SHIPS = {
     startWeapons:['heavy_laser','autocannon','autocannon','missile_launcher','turret','turret','turret','turret','turret','turret'],
     startCells:[31,40,56,60,58,51,47,41,38,39,49,12,22,14,4,13],
     shape:'gunboat', color:'#993311', size:2.0,
-    expansionLimit:5,
     stats:'HULL:650  CARGO:12  GUNS',
   },
 
@@ -1032,7 +995,6 @@ G.SHIPS = {
     startWeapons:['heavy_laser','heavy_laser','railgun','missile_launcher','turret','turret','turret','turret','turret','turret','turret','turret'],
     startCells:[31,40,65,69,67,52,46,41,38,39,37,12,14,22,4,13],
     shape:'battlecruiser', color:'#5577aa', size:3.3,
-    expansionLimit:6,
     stats:'HULL:1600  FORTRESS  GUNS',
   },
   earth_cruiser: {
@@ -1046,7 +1008,6 @@ G.SHIPS = {
     startWeapons:['heavy_laser','heavy_laser','railgun','missile_launcher','turret','turret','turret','turret','turret','turret','turret','turret'],
     startCells:[31,40,65,69,67,52,46,41,38,42,39,37,11,15,22,3,5,13],
     shape:'battlecruiser', color:'#336699', size:3.5,
-    expansionLimit:6,
     stats:'HULL:1900  SHIELDS  NAVY',
   },
   rebel_cruiser: {
@@ -1060,7 +1021,6 @@ G.SHIPS = {
     startWeapons:['heavy_laser','railgun','railgun','missile_launcher','turret','turret','turret','turret','turret','turret','turret','turret'],
     startCells:[31,40,65,69,67,52,46,41,38,39,37,12,13,14,4,22],
     shape:'battlecruiser', color:'#ff6600', size:3.4,
-    expansionLimit:6,
     stats:'HULL:1750  RAILGUNS  REBEL',
   },
   pirate_battleship: {
@@ -1074,7 +1034,6 @@ G.SHIPS = {
     startWeapons:['heavy_laser','autocannon','autocannon','missile_launcher','turret','turret','turret','turret','turret','turret','turret','turret'],
     startCells:[31,40,65,69,67,52,46,41,38,39,37,12,22,14,4,13],
     shape:'battlecruiser', color:'#882200', size:3.4,
-    expansionLimit:6,
     stats:'HULL:1600  CARGO:18  SAVAGE',
   },
   alien_warship: {
@@ -1088,7 +1047,6 @@ G.SHIPS = {
     startWeapons:['heavy_laser','heavy_laser','laser_cannon','missile_launcher','turret','turret','turret','turret','turret','turret','turret','turret'],
     startCells:[31,40,65,69,67,52,46,41,38,42,39,12,14,22,4,13],
     shape:'alien_cruiser', color:'#00ff88', size:3.5,
-    expansionLimit:6,
     stats:'HULL:2200  ALIEN TECH  FAST',
   },
 
@@ -1104,7 +1062,6 @@ G.SHIPS = {
     startWeapons:['railgun','missile_launcher','turret','turret','turret','turret','turret','turret','turret','turret','turret','turret'],
     startCells:[31,40,65,69,67,41,38,39,37,43,30,32,4,3,5,13],
     shape:'carrier', color:'#996633', size:4.2,
-    expansionLimit:7,
     stats:'HULL:2400  DRONES  FORTRESS',
   },
   earth_carrier: {
@@ -1118,7 +1075,6 @@ G.SHIPS = {
     startWeapons:['railgun','railgun','missile_launcher','turret','turret','turret','turret','turret','turret','turret','turret','turret','turret'],
     startCells:[31,40,65,69,67,41,38,42,39,37,43,36,30,32,12,14,3,5,4],
     shape:'carrier', color:'#4488ff', size:4.5,
-    expansionLimit:7,
     stats:'HULL:2800  DRONES  NAVY',
   },
   rebel_carrier: {
@@ -1132,7 +1088,6 @@ G.SHIPS = {
     startWeapons:['railgun','railgun','missile_launcher','turret','turret','turret','turret','turret','turret','turret','turret','turret','turret'],
     startCells:[31,40,65,69,67,41,38,39,37,43,30,12,14,3,5,4],
     shape:'dreadnought', color:'#ff6600', size:4.5,
-    expansionLimit:7,
     stats:'HULL:2600  DRONES  REBEL',
   },
 };

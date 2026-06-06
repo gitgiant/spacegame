@@ -109,6 +109,15 @@ G.Ship = class {
       sorted.forEach(([,inst], i) => { if(tpl.startCells[i] != null) inst.cell = tpl.startCells[i]; });
     }
 
+    // Fighter-class hulls ship with a sensor array as standard kit, granting
+    // the Scan ability out of the box. Installed after the start kit so the
+    // startCells alignment is untouched, and placed on a free hull cell
+    // before hull panels are generated so the plating wraps it cleanly.
+    if(tpl.class === 'fighter' && !this.canScan) {
+      const sInst = this.installModule('basic_sensors');
+      if(sInst) this.modules[sInst].cell = this._freeBuilderCell();
+    }
+
     this._addHullPanels(tpl);
 
     this._recompute();
@@ -132,6 +141,21 @@ G.Ship = class {
 
     this._recompute();
     return instId;
+  }
+
+  // Pick a free grid cell orthogonally adjacent to an existing module — used
+  // to auto-place a module that wasn't given an explicit startCell.
+  _freeBuilderCell() {
+    const COLS = 9;
+    const used = new Set();
+    for(const inst of Object.values(this.modules)) if(inst.cell != null) used.add(inst.cell);
+    for(const c of used) {
+      const neigh = [c - COLS, c + COLS];
+      if(c % COLS !== 0)        neigh.push(c - 1);
+      if(c % COLS !== COLS - 1) neigh.push(c + 1);
+      for(const n of neigh) if(n >= 0 && !used.has(n)) return n;
+    }
+    return used.size ? Math.max(...used) + 1 : 0;
   }
 
   // Install into a specific slot index (used by the ship builder drag-and-drop)
