@@ -293,18 +293,12 @@ G.UI = class {
       document.getElementById('opt-bg-label').textContent = on ? 'ON' : 'OFF';
       if(G.game) G.game._bgEnabled = on;
     });
-    const mobChk = document.getElementById('opt-mobile-enabled');
-    if(mobChk){
-      const on0 = !!G.game?._mobileControls;
-      mobChk.checked = on0;
-      const lbl = document.getElementById('opt-mobile-label');
-      if(lbl) lbl.textContent = on0 ? 'ON' : 'OFF';
-      mobChk.addEventListener('change', e=>{
-        const on = e.target.checked;
-        if(lbl) lbl.textContent = on ? 'ON' : 'OFF';
-        G.game?._saveMobilePref(on);
+    document.querySelectorAll('#opt-control-scheme .scheme-btn').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        G.game?.setControlScheme(btn.dataset.scheme);
       });
-    }
+    });
+    this.refreshControlScheme();
     document.getElementById('continue-btn')?.addEventListener('click',()=>{
       const save=localStorage.getItem(G.SAVE_KEY);
       if(save) G.game.loadGame(save);
@@ -328,6 +322,21 @@ G.UI = class {
       }
       if(nearest) { G.game.target=nearest; G.sound?.targetLock(); }
     });
+  }
+
+  // Highlight the active scheme button and show what 'auto' currently
+  // resolves to, so the player can see which controls are live.
+  refreshControlScheme() {
+    const g = G.game;
+    const sel = g ? g._controlScheme : 'auto';
+    const btns = document.querySelectorAll('#opt-control-scheme .scheme-btn');
+    btns.forEach(b=> b.classList.toggle('active', b.dataset.scheme === sel));
+    const hint = document.getElementById('opt-control-hint');
+    if(hint){
+      const eff = g ? g._effectiveScheme() : 'keyboard';
+      const NAMES = { keyboard:'KEYBOARD', touch:'TOUCH', gamepad:'CONTROLLER' };
+      hint.textContent = sel === 'auto' ? ('AUTO → ' + (NAMES[eff]||eff)) : '';
+    }
   }
 
   // ── Mobile touch controls ────────────────────────────────
@@ -3203,11 +3212,33 @@ G.UI = class {
       { name: 'OPTIONS', keys: 'ESC' },
     ];
 
+    const gamepad = [
+      { name: 'MOVE / TURN', keys: 'L-STICK / D-PAD' },
+      { name: 'STRAFE', keys: 'R-STICK ◄►' },
+      { name: 'FIRE', keys: 'RT' },
+      { name: 'BOOST', keys: 'LT' },
+      { name: 'MISSILE', keys: 'LB' },
+      { name: 'CYCLE WEAPON', keys: 'RB' },
+      { name: 'LAND / BOARD', keys: 'A' },
+      { name: 'NEAREST TARGET', keys: 'B' },
+      { name: 'CYCLE TARGET', keys: 'R3' },
+      { name: 'COMMS', keys: 'X' },
+      { name: 'HYPERSPACE JUMP', keys: 'Y (hold)' },
+      { name: 'AUTOPILOT', keys: 'L3' },
+      { name: 'GALAXY MAP', keys: 'BACK' },
+      { name: 'OPTIONS', keys: 'START' },
+    ];
+
     let html = '';
+    html += `<div style="color:#ffaa44;margin-bottom:8px;letter-spacing:1px">KEYBOARD</div>`;
     for(const ctrl of controls) {
       html += `<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>${ctrl.name}</span><span style="color:#ffaa44">${ctrl.keys}</span></div>`;
     }
-    html += '<div style="margin-top:12px;font-size:5px;color:#667788">Remapping coming soon!</div>';
+    html += `<div style="color:#44ffcc;margin:14px 0 8px;letter-spacing:1px">CONTROLLER</div>`;
+    for(const ctrl of gamepad) {
+      html += `<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>${ctrl.name}</span><span style="color:#44ffcc">${ctrl.keys}</span></div>`;
+    }
+    html += '<div style="margin-top:12px;font-size:5px;color:#667788">Touch & controller controls can be selected in Options. Remapping coming soon!</div>';
     list.innerHTML = html;
     overlay.classList.remove('hidden');
   }

@@ -11,6 +11,10 @@ G.Input = class {
     this._prev = {};
     this.justPressed = {};
     this.justReleased = {};
+    // Gamepad: virtual key codes the pad is holding, kept separate from
+    // `keys` so the controller never clobbers physical keyboard state.
+    this.padKeys = {};
+    this.gamepadIndex = null;
     this._bind();
   }
 
@@ -52,6 +56,78 @@ G.Input = class {
     window.addEventListener('mouseup', e => {
       if(e.button===0){ this.mouseDown=false; this.mouseJustUp=true; }
     });
+    window.addEventListener('gamepadconnected', e => {
+      if(this.gamepadIndex == null) this.gamepadIndex = e.gamepad.index;
+    });
+    window.addEventListener('gamepaddisconnected', e => {
+      if(e.gamepad.index === this.gamepadIndex){
+        this.gamepadIndex = null;
+        this._releaseAllPad();
+      }
+    });
+  }
+
+  // True when at least one gamepad is connected (and has reported input —
+  // browsers only expose pads after the first button press).
+  hasGamepad() {
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    for(const p of pads){ if(p && p.connected) return true; }
+    return false;
+  }
+
+  // Set/clear a virtual pad key, mirroring the just-pressed/released edges so
+  // `pressed()` works for controller buttons exactly like keyboard keys.
+  _padSet(code, down) {
+    const was = !!this.padKeys[code];
+    if(down === was) return;
+    this.padKeys[code] = down;
+    if(down){ if(!this.keys[code]) this.justPressed[code] = true; }
+    else { this.justReleased[code] = true; }
+  }
+  _releaseAllPad() {
+    for(const code in this.padKeys){ if(this.padKeys[code]) this._padSet(code, false); }
+  }
+
+  // Poll the active gamepad once per frame and translate its buttons/sticks
+  // into the same virtual key codes the rest of the game already reads.
+  // `active` gates application so an unplugged-but-present pad (or a player
+  // who chose keyboard/touch) is ignored. Standard mapping layout assumed.
+  pollGamepad(active) {
+    if(!active){ this._releaseAllPad(); return; }
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    let gp = (this.gamepadIndex != null) ? pads[this.gamepadIndex] : null;
+    if(!gp || !gp.connected){
+      gp = null;
+      for(const p of pads){ if(p && p.connected){ gp = p; this.gamepadIndex = p.index; break; } }
+    }
+    if(!gp){ this._releaseAllPad(); return; }
+
+    const DZ = 0.30;
+    const btn = i => !!(gp.buttons[i] && gp.buttons[i].pressed);
+    const ax  = i => gp.axes[i] || 0;
+    const lx = ax(0), ly = ax(1), rx = ax(2);
+
+    // Movement — left stick or D-pad (rotate-to-turn flight model).
+    this._padSet('KeyW', ly < -DZ || btn(12));  // thrust
+    this._padSet('KeyS', ly >  DZ || btn(13));  // brake / reverse
+    this._padSet('KeyA', lx < -DZ || btn(14));  // turn left
+    this._padSet('KeyD', lx >  DZ || btn(15));  // turn right
+    this._padSet('KeyQ', rx < -DZ);             // strafe left  (right stick)
+    this._padSet('KeyE', rx >  DZ);             // strafe right (right stick)
+    // Combat — triggers/bumpers + face buttons.
+    this._padSet('Space',        btn(7));       // RT  → fire
+    this._padSet('ShiftLeft',    btn(6));       // LT  → boost
+    this._padSet('BracketRight', btn(5));       // RB  → cycle weapon
+    this._padSet('KeyX',         btn(4));       // LB  → missile
+    this._padSet('KeyL',         btn(0));       // A   → land / board
+    this._padSet('KeyR',         btn(1));       // B   → target nearest
+    this._padSet('KeyV',         btn(2));       // X   → comms
+    this._padSet('KeyJ',         btn(3));       // Y   → hyperspace jump (hold)
+    // Menus / misc.
+    this._padSet('KeyM',  btn(8));              // Back/Select → galaxy map
+    this._padSet('Escape',btn(9));              // Start       → options menu
+    this._padSet('KeyP',  btn(10));             // L3 → autopilot toggle
+    this._padSet('KeyT',  btn(11));             // R3 → cycle target
   }
 
   // Programmatic key press/release — used by on-screen mobile controls so
@@ -67,7 +143,7 @@ G.Input = class {
     this.justReleased[code] = true;
   }
 
-  is(code) { return !!this.keys[code]; }
+  is(code) { return !!this.keys[code] || !!this.padKeys[code]; }
   pressed(code) { return !!this.justPressed[code]; }
 
   flush() {

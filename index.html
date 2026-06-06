@@ -224,14 +224,16 @@
           <span id="opt-bg-label" style="font-size:6px;color:#88ccff;font-family:'Press Start 2P',monospace">ON</span>
         </label>
       </div>
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
-        <span style="font-size:6px;color:#aabbcc;font-family:'Press Start 2P',monospace;min-width:48px">TOUCH</span>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="opt-mobile-enabled" style="accent-color:#44ffcc;width:13px;height:13px">
-          <span id="opt-mobile-label" style="font-size:6px;color:#44ffcc;font-family:'Press Start 2P',monospace">OFF</span>
-        </label>
-        <span style="font-size:5px;color:#556677;font-family:'Press Start 2P',monospace">on-screen controls</span>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <span style="font-size:6px;color:#aabbcc;font-family:'Press Start 2P',monospace;min-width:48px">CONTROL</span>
+        <div id="opt-control-scheme" style="display:flex;gap:4px;flex-wrap:wrap">
+          <button class="btn scheme-btn" data-scheme="auto">AUTO</button>
+          <button class="btn scheme-btn" data-scheme="keyboard">KEYS</button>
+          <button class="btn scheme-btn" data-scheme="touch">TOUCH</button>
+          <button class="btn scheme-btn" data-scheme="gamepad">PAD</button>
+        </div>
       </div>
+      <div id="opt-control-hint" style="font-size:5px;color:#44ffcc;font-family:'Press Start 2P',monospace;text-align:right;margin-bottom:12px;min-height:7px"></div>
       <button class="btn btn-big" id="opt-controls-btn" style="border-color:#ffaa44;color:#ffaa44">CONTROLS</button>
       <button class="btn btn-big" id="opt-save-btn">SAVE GAME</button>
       <button class="btn btn-big" id="opt-load-btn" style="border-color:#00ffee;color:#00ffee">LOAD GAME</button>
