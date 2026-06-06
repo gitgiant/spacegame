@@ -291,16 +291,16 @@ G.Renderer = class {
       const thrustX = turnDir > 0 ? 8 : -8;
       const flameLen = 12 + Math.random() * 6;
       const flameW = 3;
-      const grad = ctx.createLinearGradient(thrustX, -12, thrustX, -12 - flameLen);
+      const grad = ctx.createLinearGradient(thrustX, 12, thrustX, 12 + flameLen);
       grad.addColorStop(0, '#ffaa22');
       grad.addColorStop(0.5, 'rgba(255,140,20,0.5)');
       grad.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.moveTo(thrustX - flameW, -12);
-      ctx.lineTo(thrustX + flameW, -12);
-      ctx.lineTo(thrustX + flameW*0.3, -12 - flameLen);
-      ctx.lineTo(thrustX - flameW*0.3, -12 - flameLen);
+      ctx.moveTo(thrustX - flameW, 12);
+      ctx.lineTo(thrustX + flameW, 12);
+      ctx.lineTo(thrustX + flameW*0.3, 12 + flameLen);
+      ctx.lineTo(thrustX - flameW*0.3, 12 + flameLen);
       ctx.closePath();
       ctx.fill();
     }
