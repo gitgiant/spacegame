@@ -896,6 +896,16 @@ G.Renderer = class {
       drawShipTriangle(fx,fy,fs.angle,'#00ff88',4);
     }
 
+    // Radar-revealed contacts — pulsing cyan rings on minimap
+    const _radarPulse = Math.sin(Date.now() * 0.008) * 0.5 + 0.5;
+    for(const _rr of [...space.enemies, ...space.npcs, ...(space.fleetShips||[])]) {
+      if(!(_rr._radarRevealedTimer > 0) || _rr.dead || _rr._deathDone) continue;
+      const rrx = tx(_rr)|0, rry = ty(_rr)|0;
+      if(!inBounds(rrx, rry)) continue;
+      ctx.beginPath(); ctx.arc(rrx, rry, 5 + _radarPulse * 3, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(51,170,255,${0.4 + _radarPulse * 0.5})`; ctx.lineWidth = 1.2; ctx.stroke();
+    }
+
     // Missiles — small diamonds, orange for enemy, cyan for player
     for(const proj of space.projectiles) {
       if(proj.type !== 'missile' || proj.dormant) continue;
@@ -1423,6 +1433,39 @@ G.Renderer = class {
       ctx.closePath();
       ctx.stroke();
       ctx.setLineDash([]);
+      ctx.restore();
+    }
+
+    // Radar-revealed ship brackets — corner brackets mark all revealed contacts
+    const _rrShips = [...space.enemies, ...space.npcs, ...(space.fleetShips||[])];
+    for(const rs of _rrShips) {
+      if(!(rs._radarRevealedTimer > 0) || rs.dead || rs._deathDone) continue;
+      const fade = Math.min(1, rs._radarRevealedTimer / 5);
+      const pulse = 0.55 + 0.45 * Math.sin(space.time * 3 + rs.x * 0.005);
+      const sz = (rs.size||1) * 20 + 10;
+      const bLen = Math.max(5, sz * 0.35);
+      ctx.save();
+      ctx.globalAlpha = fade * pulse;
+      ctx.strokeStyle = '#33aaff';
+      ctx.lineWidth = 1.2 / _zoom;
+      ctx.beginPath();
+      // top-left corner
+      ctx.moveTo(rs.x - sz + bLen, rs.y - sz); ctx.lineTo(rs.x - sz, rs.y - sz); ctx.lineTo(rs.x - sz, rs.y - sz + bLen);
+      // top-right corner
+      ctx.moveTo(rs.x + sz - bLen, rs.y - sz); ctx.lineTo(rs.x + sz, rs.y - sz); ctx.lineTo(rs.x + sz, rs.y - sz + bLen);
+      // bottom-left corner
+      ctx.moveTo(rs.x - sz + bLen, rs.y + sz); ctx.lineTo(rs.x - sz, rs.y + sz); ctx.lineTo(rs.x - sz, rs.y + sz - bLen);
+      // bottom-right corner
+      ctx.moveTo(rs.x + sz - bLen, rs.y + sz); ctx.lineTo(rs.x + sz, rs.y + sz); ctx.lineTo(rs.x + sz, rs.y + sz - bLen);
+      ctx.stroke();
+      // Label with ship type and remaining reveal time
+      ctx.globalAlpha = fade * 0.75;
+      ctx.fillStyle = '#33aaff';
+      ctx.font = (5 / _zoom) + 'px "Press Start 2P",monospace';
+      ctx.textAlign = 'center';
+      const rsName = rs.name || G.SHIPS[rs.templateId||rs.shapeId]?.name || 'CONTACT';
+      ctx.fillText(rsName.toUpperCase(), rs.x, rs.y - sz - (4 / _zoom));
+      ctx.textAlign = 'left';
       ctx.restore();
     }
 
@@ -2295,6 +2338,11 @@ G.Game = class {
     // Tick superboost
     if((p._superboostTimer||0) > 0) p._superboostTimer = Math.max(0, p._superboostTimer - dt);
 
+    // Tick radar reveal timers on all ships
+    for(const _rs of [...(this.space?.enemies||[]), ...(this.space?.npcs||[]), ...(this.space?.fleetShips||[])]) {
+      if((_rs._radarRevealedTimer||0) > 0) _rs._radarRevealedTimer = Math.max(0, _rs._radarRevealedTimer - dt);
+    }
+
     // M: toggle galaxy map
     if(this.input.pressed('KeyM')) {
       if(this.state==='space') this.openGalaxy();
@@ -2929,6 +2977,20 @@ G.Game = class {
       const nm = tgt.name || G.SHIPS[tgt.templateId||tgt.shapeId]?.name || 'target';
       this.ui.addMsg('Scan complete — '+nm, '#44ddff');
       this.addCombatLog('Scanned '+nm, '#44ddff');
+
+    } else if(abilityId === 'radar_scan') {
+      this.particles.radar_pulse(px, py, range);
+      G.sound?.targetLock?.();
+      let revealed = 0;
+      const _rsTargets = [...this.space.enemies, ...this.space.npcs, ...(this.space.fleetShips||[])];
+      for(const s of _rsTargets) {
+        if(s.dead || s._deathDone) continue;
+        if(Math.hypot(s.x - px, s.y - py) <= range) {
+          s._radarRevealedTimer = 30;
+          revealed++;
+        }
+      }
+      this.addCombatLog(`Radar Scan — ${revealed} contact${revealed !== 1 ? 's' : ''} detected`, '#33aaff');
 
     } else if(abilityId === 'missile_lock') {
       if(!this.target || this.target.dead) {

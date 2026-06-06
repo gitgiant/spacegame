@@ -346,6 +346,13 @@ G.MODULES = {
     desc:'Detects cloaked ships. Unlocks the Scan ability to read targeted ships.',
     visual:'sensor',
   },
+  radar_module: {
+    id:'radar_module', name:'Radar Array', slot:'sensor',
+    stats:{ sensorRange:+600, canRadarScan:true, mass:+20 },
+    energyDraw:20, hp:45, price:12000, rarity:'r',
+    desc:'Active phased-array radar. High power draw. Unlocks Radar Scan — emits a pulse that reveals all ships in a 6-hex radius for 30 seconds.',
+    visual:'sensor',
+  },
   // Special
   escape_pod: {
     id:'escape_pod', name:'Escape Pod', slot:'special',
@@ -1464,6 +1471,12 @@ G.ABILITIES = {
     desc: 'Read a targeted ship — hull, shields, armament, cargo and intel. Granted by a sensor module.',
     cooldown: 3, energyCost: 8, range: 0,
     color: '#44ddff', icon: '⌖', npcUsable: false,
+  },
+  radar_scan: {
+    id: 'radar_scan', name: 'Radar Scan',
+    desc: 'Emit a radar pulse that reveals all ships in a 6-hex radius for 30 seconds. Granted by a Radar Array.',
+    cooldown: 45, energyCost: 80, range: 9000,
+    color: '#33aaff', icon: '◉', npcUsable: false,
   },
   missile_lock: {
     id: 'missile_lock', name: 'Missile Lock',
