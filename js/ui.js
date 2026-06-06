@@ -356,6 +356,22 @@ G.UI = class {
       // Block the synthetic click/contextmenu that long-press can raise.
       btn.addEventListener('contextmenu', e=>e.preventDefault());
     });
+
+    // Tappable ability slots — the bar is re-rendered every frame, so use a
+    // single delegated handler that reads data-aid off the tapped slot. This
+    // lets touch players fire abilities that otherwise need the 1-0 number row.
+    const abar = document.getElementById('ability-bar');
+    if(abar){
+      abar.addEventListener('pointerdown', e=>{
+        const slot = e.target.closest?.('.ability-slot');
+        if(!slot || !slot.dataset.aid) return;
+        e.preventDefault();
+        const g = G.game;
+        if(!g || g.state!=='space' || !g.player || g.player.disabled) return;
+        g._useAbility(slot.dataset.aid, g.player);
+      });
+      abar.addEventListener('contextmenu', e=>e.preventDefault());
+    }
   }
 
   // ── HUD ──────────────────────────────────────────────────
@@ -388,7 +404,7 @@ G.UI = class {
       const def = aid ? G.ABILITIES?.[aid] : null;
       if(!def) continue;
       const cd = cds[aid] || 0;
-      html += `<div class="ability-slot" style="border-color:${def.color}88;box-shadow:0 0 6px ${def.color}33">
+      html += `<div class="ability-slot" data-aid="${aid}" style="border-color:${def.color}88;box-shadow:0 0 6px ${def.color}33">
         <div class="ability-slot-num">${LABELS[i]}</div>
         <div class="ability-slot-icon-wrap">
           <div class="ability-slot-icon" style="color:${def.color}">${def.icon}</div>
@@ -3184,7 +3200,6 @@ G.UI = class {
       { name: 'INVENTORY', keys: 'I' },
       { name: 'MISSION LOG', keys: 'N' },
       { name: 'COMMS', keys: 'V' },
-      { name: 'REQUEST FUEL', keys: 'F' },
       { name: 'OPTIONS', keys: 'ESC' },
     ];
 
