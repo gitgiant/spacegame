@@ -45,6 +45,7 @@ html, body {
   top: 0; left: 0;
   width: 100%; height: 100%;
   image-rendering: pixelated;
+  will-change: transform;
 }
 
 /* ── Floating top HUD ───────────────────────────────────── */
@@ -1078,8 +1079,8 @@ html, body {
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: none;
-  width: 84px;
-  height: 84px;
+  width: 126px;
+  height: 126px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1087,7 +1088,7 @@ html, body {
   border: 2px solid #2a6a8a;
   border-radius: 9px;
   color: #aeeeff;
-  font-size: 20px;
+  font-size: 30px;
   font-family: 'Press Start 2P', monospace;
 }
 .mbtn.held, .mbtn:active {
@@ -1095,7 +1096,7 @@ html, body {
   border-color: #7fdfff;
   color: #fff;
 }
-.mbtn-sm { width: auto; min-width: 66px; height: 45px; font-size: 11px; padding: 0 11px; }
+.mbtn-sm { width: auto; min-width: 99px; height: 68px; font-size: 17px; padding: 0 17px; }
 .mc-actions {
   position: absolute;
   /* right inset clears the minimap (top-right); left inset clears the FPS
@@ -1106,11 +1107,11 @@ html, body {
 }
 .mc-move {
   position: absolute;
-  left: 14px; bottom: 16px;
+  left: 120px; bottom: 16px;
   display: grid;
-  grid-template-columns: repeat(3, 84px);
-  grid-template-rows: repeat(2, 84px);
-  gap: 11px;
+  grid-template-columns: repeat(3, 126px);
+  grid-template-rows: repeat(2, 126px);
+  gap: 17px;
   grid-template-areas: "q up e" "l dn r";
 }
 .mc-combat {
@@ -1126,11 +1127,11 @@ html, body {
   justify-items: end;
 }
 .mbtn-fire {
-  width: 126px; height: 126px;
+  width: 189px; height: 189px;
   border-radius: 50%;
   border-color: #aa3322;
   color: #ff8866;
-  font-size: 17px;
+  font-size: 26px;
   background: rgba(60, 15, 10, 0.5);
   order: 3;          /* fire sits lowest, under thumb */
 }
@@ -1151,4 +1152,32 @@ html, body {
   color: #44ffcc;
   background: rgba(40, 120, 110, 0.25);
   box-shadow: 0 0 6px #44ffcc55;
+}
+#mc-joystick {
+  position: absolute;
+  left: 120px; bottom: 16px;
+  width: 290px; height: 290px;
+  border-radius: 50%;
+  background: rgba(10, 25, 40, 0.45);
+  border: 2px solid #2a6a8a;
+  touch-action: none;
+  pointer-events: auto;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#mc-joystick.hidden { display: none; }
+#mc-joy-knob {
+  position: absolute;
+  width: 96px; height: 96px;
+  border-radius: 50%;
+  background: rgba(40, 120, 170, 0.65);
+  border: 2px solid #7fdfff;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: background 0.05s;
+}
+#mc-joystick.active #mc-joy-knob {
+  background: rgba(40, 160, 220, 0.85);
 }

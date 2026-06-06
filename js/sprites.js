@@ -99,6 +99,52 @@ G.Sprites = {
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
+
+    // ── Panel surface detail ────────────────────────────────
+    if(SZ >= 12) {
+      ctx.save();
+      ctx.clip(); // clip to the filled shape
+      const p  = Math.max(1, (SZ / 16) | 0);
+      const hi = this._sh(color, 60);
+      const sh = this._sh(color, -60);
+
+      // Raised bevel: bright top-left edge, dark bottom-right edge
+      ctx.lineCap     = 'butt';
+      ctx.lineWidth   = p;
+      ctx.globalAlpha = 0.5;
+      ctx.strokeStyle = hi;
+      ctx.beginPath();
+      ctx.moveTo(-h + p, h - p * 2); ctx.lineTo(-h + p, -h + p); ctx.lineTo(h - p * 2, -h + p);
+      ctx.stroke();
+      ctx.strokeStyle = sh;
+      ctx.beginPath();
+      ctx.moveTo(h - p, -h + p * 2); ctx.lineTo(h - p, h - p); ctx.lineTo(-h + p * 2, h - p);
+      ctx.stroke();
+
+      // Horizontal panel seam + rivets on flat square tiles only
+      const isFlat = !isCorner && shape !== 'right_triangle' && shape !== 'triangle'
+                  && shape !== 'quarterround'  && shape !== 'concave';
+      if(isFlat && SZ >= 16) {
+        const ly = Math.round(-h * 0.28);
+        ctx.strokeStyle = sh;
+        ctx.lineWidth   = Math.max(0.5, p * 0.75);
+        ctx.globalAlpha = 0.4;
+        ctx.beginPath();
+        ctx.moveTo(-h + p * 3, ly); ctx.lineTo(h - p * 3, ly);
+        ctx.stroke();
+        if(SZ >= 20) {
+          ctx.globalAlpha = 0.6;
+          ctx.fillStyle = hi;
+          const rv = p;
+          ctx.fillRect(-h + p * 3,           ly - rv, rv * 2, rv * 2);
+          ctx.fillRect( h - p * 3 - rv * 2,  ly - rv, rv * 2, rv * 2);
+        }
+      }
+
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
     ctx.restore();
     this._cache.set(key, c);
     return c;

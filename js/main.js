@@ -1785,6 +1785,8 @@ G.Game = class {
     this._controlScheme = _scheme;     // 'auto' | 'keyboard' | 'touch' | 'gamepad'
     this._mobileControls = false;      // derived: effective scheme === 'touch'
     this._lastEffScheme  = null;       // for detecting auto-swaps
+    const _steerSaved = localStorage.getItem('nullpunkt_steer_mode');
+    this._joystickMode = _steerSaved === 'joystick';
 
     // FPS counter
     this._fpsEl = document.getElementById('fps-counter');
@@ -1815,6 +1817,12 @@ G.Game = class {
     // Reflect the saved control scheme into the Options selector now that
     // G.game exists (UI was constructed before this assignment).
     this.ui.refreshControlScheme?.();
+    // Reflect saved steer mode into STEER buttons
+    const _joyMode = this._joystickMode;
+    const _dpadBtn = document.getElementById('opt-steer-dpad');
+    const _joyBtn  = document.getElementById('opt-steer-joy');
+    if(_dpadBtn){ _dpadBtn.style.color = _joyMode ? '' : '#44ffcc'; _dpadBtn.style.borderColor = _joyMode ? '' : '#44ffcc'; }
+    if(_joyBtn) { _joyBtn.style.color  = _joyMode ? '#44ffcc' : ''; _joyBtn.style.borderColor  = _joyMode ? '#44ffcc' : ''; }
     this._updateMobileControls();
 
     this._prevHostileCount = 0;
@@ -3102,6 +3110,11 @@ G.Game = class {
     this.ui.refreshControlScheme?.();
     this._updateMobileControls();
   }
+  _saveSteerPref(joystick) {
+    this._joystickMode = !!joystick;
+    try { localStorage.setItem('nullpunkt_steer_mode', joystick ? 'joystick' : 'dpad'); } catch(e){}
+    this._updateMobileControls();
+  }
   // Show the on-screen pad only when touch controls are active, while flying
   // or on the galaxy map, and never behind a full-screen menu overlay.
   _updateMobileControls() {
@@ -3119,6 +3132,8 @@ G.Game = class {
     const show = this._mobileControls && !this.input._menuOpen()
               && (this.state==='space' || this.state==='galaxy');
     el.classList.toggle('hidden', !show);
+    document.getElementById('mc-joystick')?.classList.toggle('hidden', !show || !this._joystickMode);
+    document.querySelector('.mc-move')?.classList.toggle('hidden', !show || !!this._joystickMode);
   }
   toggleMinimap() {
     const wrap = document.getElementById('minimap-wrap');
@@ -3145,7 +3160,8 @@ G.Game.prototype._loop = function(ts) {
     this._fpsFrames++;
     if(ts-this._fpsTime >= 500) {
       const fps = Math.round(this._fpsFrames*1000/(ts-this._fpsTime));
-      document.getElementById('fps-counter-text').textContent = fps + ' FPS';
+      const lpwarn = fps <= 31 && G.isMobileDevice() ? ' (LOW PWR?)' : '';
+      document.getElementById('fps-counter-text').textContent = fps + ' FPS' + lpwarn;
       this._fpsHistory.push(fps);
       if(this._fpsHistory.length > 80) this._fpsHistory.shift();
       if(this._fpsGraphCanvas) {

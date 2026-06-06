@@ -299,6 +299,19 @@ G.UI = class {
       });
     });
     this.refreshControlScheme();
+    const _updateSteerBtns = () => {
+      const joy = !!G.game?._joystickMode;
+      document.getElementById('opt-steer-dpad')?.style.setProperty('color', joy ? '' : '#44ffcc');
+      document.getElementById('opt-steer-dpad')?.style.setProperty('border-color', joy ? '' : '#44ffcc');
+      document.getElementById('opt-steer-joy')?.style.setProperty('color', joy ? '#44ffcc' : '');
+      document.getElementById('opt-steer-joy')?.style.setProperty('border-color', joy ? '#44ffcc' : '');
+    };
+    document.getElementById('opt-steer-dpad')?.addEventListener('click', ()=>{
+      G.game?._saveSteerPref(false); _updateSteerBtns();
+    });
+    document.getElementById('opt-steer-joy')?.addEventListener('click', ()=>{
+      G.game?._saveSteerPref(true); _updateSteerBtns();
+    });
     document.getElementById('continue-btn')?.addEventListener('click',()=>{
       const save=localStorage.getItem(G.SAVE_KEY);
       if(save) G.game.loadGame(save);
@@ -365,6 +378,55 @@ G.UI = class {
       // Block the synthetic click/contextmenu that long-press can raise.
       btn.addEventListener('contextmenu', e=>e.preventDefault());
     });
+
+    // Virtual joystick
+    const joy = document.getElementById('mc-joystick');
+    if(joy){
+      const knob = document.getElementById('mc-joy-knob');
+      const JOY_KEYS = ['KeyW','KeyS','KeyA','KeyD'];
+      let _joyPtr = null;
+      const _joyRelease = ()=>{
+        JOY_KEYS.forEach(k=>G.game?.input.touchUp(k));
+        knob.style.transform = 'translate(-50%, -50%)';
+        joy.classList.remove('active');
+      };
+      const _joyUpdate = e=>{
+        const rect = joy.getBoundingClientRect();
+        const cx = rect.left + rect.width/2;
+        const cy = rect.top  + rect.height/2;
+        const dx = e.clientX - cx;
+        const dy = e.clientY - cy;
+        const dist = Math.hypot(dx, dy);
+        const maxR = rect.width/2 - 12;
+        const clamp = Math.min(dist, maxR);
+        const ang   = Math.atan2(dy, dx);
+        const kx = Math.cos(ang) * clamp;
+        const ky = Math.sin(ang) * clamp;
+        knob.style.transform = `translate(calc(-50% + ${kx}px), calc(-50% + ${ky}px))`;
+        const DEAD = maxR * 0.22;
+        const wW = dy < -DEAD, wS = dy > DEAD, wA = dx < -DEAD, wD = dx > DEAD;
+        const inp = G.game?.input;
+        if(inp){
+          [['KeyW',wW],['KeyS',wS],['KeyA',wA],['KeyD',wD]]
+            .forEach(([k,w])=>w ? inp.touchDown(k) : inp.touchUp(k));
+        }
+      };
+      joy.addEventListener('pointerdown', e=>{
+        e.preventDefault();
+        if(_joyPtr !== null) return;
+        _joyPtr = e.pointerId;
+        try{ joy.setPointerCapture(e.pointerId); }catch(_){}
+        joy.classList.add('active');
+        _joyUpdate(e);
+      });
+      joy.addEventListener('pointermove', e=>{
+        if(e.pointerId !== _joyPtr) return;
+        e.preventDefault();
+        _joyUpdate(e);
+      });
+      joy.addEventListener('pointerup',     e=>{ if(e.pointerId===_joyPtr){ _joyPtr=null; _joyRelease(); }});
+      joy.addEventListener('pointercancel', e=>{ if(e.pointerId===_joyPtr){ _joyPtr=null; _joyRelease(); }});
+    }
 
     // Tappable ability slots — the bar is re-rendered every frame, so use a
     // single delegated handler that reads data-aid off the tapped slot. This

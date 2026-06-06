@@ -16,6 +16,7 @@ G.Particles = class {
 
   // Generic emitter
   emit(opts) {
+    if(this.active.length >= 600) return;
     const p = this._get();
     p.x    = opts.x;
     p.y    = opts.y;
