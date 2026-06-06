@@ -613,7 +613,7 @@ html, body {
   top: 50%; left: 50%;
   transform: translate(-50%, -50%);
 }
-#menu-box { text-align: center; padding-bottom: 48px; opacity: 0; transition: opacity 0.6s; }
+#menu-box { position: absolute; bottom: 15%; left: 50%; transform: translateX(-50%); text-align: center; padding-bottom: 48px; opacity: 0; transition: opacity 0.6s; }
 #menu-box.visible { opacity: 1; }
 #menu-title {
   color: var(--col-bright);
@@ -1061,8 +1061,8 @@ html, body {
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: none;
-  width: 56px;
-  height: 56px;
+  width: 84px;
+  height: 84px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1070,7 +1070,7 @@ html, body {
   border: 2px solid #2a6a8a;
   border-radius: 9px;
   color: #aeeeff;
-  font-size: 13px;
+  font-size: 20px;
   font-family: 'Press Start 2P', monospace;
 }
 .mbtn.held, .mbtn:active {
@@ -1078,7 +1078,7 @@ html, body {
   border-color: #7fdfff;
   color: #fff;
 }
-.mbtn-sm { width: auto; min-width: 44px; height: 30px; font-size: 7px; padding: 0 7px; }
+.mbtn-sm { width: auto; min-width: 66px; height: 45px; font-size: 11px; padding: 0 11px; }
 .mc-actions {
   position: absolute;
   top: 8px; right: 8px;
@@ -1090,9 +1090,9 @@ html, body {
   position: absolute;
   left: 14px; bottom: 16px;
   display: grid;
-  grid-template-columns: repeat(3, 56px);
-  grid-template-rows: repeat(2, 56px);
-  gap: 7px;
+  grid-template-columns: repeat(3, 84px);
+  grid-template-rows: repeat(2, 84px);
+  gap: 11px;
   grid-template-areas: "q up e" "l dn r";
 }
 .mc-combat {
@@ -1102,11 +1102,11 @@ html, body {
   align-items: center; gap: 9px;
 }
 .mbtn-fire {
-  width: 84px; height: 84px;
+  width: 126px; height: 126px;
   border-radius: 50%;
   border-color: #aa3322;
   color: #ff8866;
-  font-size: 11px;
+  font-size: 17px;
   background: rgba(60, 15, 10, 0.5);
   order: 3;          /* fire sits lowest, under thumb */
 }

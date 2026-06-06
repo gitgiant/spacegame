@@ -65,12 +65,14 @@ G.SoundEngine = class {
     this._mMuffled         = false;
     this._mLastTick        = 0;
 
-    // Resume AudioContext on any user interaction
+    // Resume AudioContext on any user interaction (iOS requires creation + resume inside gesture)
     const tryResume = () => {
+      if (!this._ac) this._ctx();
       if (this._ac?.state === 'suspended') this._ac.resume();
     };
-    document.addEventListener('keydown',     tryResume);
+    document.addEventListener('keydown',    tryResume);
     document.addEventListener('pointerdown', tryResume);
+    document.addEventListener('touchstart',  tryResume, { passive: true });
   }
 
   // ── Context bootstrap (lazy, requires user gesture) ─────
