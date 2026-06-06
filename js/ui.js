@@ -1435,7 +1435,6 @@ G.UI = class {
     const tpl=G.SHIPS[p.templateId];
     if(!Array.isArray(p.slots)) p.slots = new Array(tpl.slots).fill(null);
     const mods=G.game.economy.getOutfitter(this._currentSysId);
-    const hasEmpty=p.slots.includes(null);
 
     // Ship stats
     const statHtml=`<div style="font-size:6px;color:#aaa;line-height:2">
@@ -1461,14 +1460,6 @@ G.UI = class {
     });
     if(equipCount===0) equippedHtml+='<div style="font-size:6px;color:#556677">No modules installed</div>';
     equippedHtml+='</div>';
-
-    const slotExpHtml=`<div style="margin-top:10px;border-top:1px solid #1a4a6a;padding-top:8px">
-      <div style="font-size:6px;color:#66aacc">${p.slots.length} module slots installed</div>
-    </div>`;
-
-    // Slots remaining indicator
-    const freeSlots = p.slots.filter(s=>s===null).length;
-    const totalSlots = p.slots.length;
 
     // Modules for sale — BUY into module inventory (install happens in Ship Builder)
     const slotTypes=[...new Set(mods.map(m=>m.slot))].sort();
@@ -1509,13 +1500,12 @@ G.UI = class {
       invHtml += `</div></div>`;
     }
 
-    return `<div class="panel-title">OUTFITTER — ${p.name.toUpperCase()} &nbsp;<span style="font-size:6px;color:${freeSlots===0?'#ff4444':'#44ff88'}">${freeSlots}/${totalSlots} SLOTS FREE</span></div>
+    return `<div class="panel-title">OUTFITTER — ${p.name.toUpperCase()}</div>
     <div style="font-size:5px;color:#66aacc;margin:2px 0 8px">Buy modules to storage and sell here. Install them on your ship in the SHIP BUILDER.</div>
     <div class="outfit-main">
       <div class="outfit-left">
         ${equippedHtml}
         ${statHtml}
-        ${slotExpHtml}
       </div>
       <div class="outfit-right">
         ${filterBtns}
@@ -1689,9 +1679,8 @@ G.UI = class {
     if(!Array.isArray(p.slots)) p.slots = new Array(tpl.slots).fill(null);
     this._ensureBuilderCells(p);
 
-    // Count only non-hull modules for slot usage display
+    // Count installed modules (slots are unlimited; this is informational only)
     const hullInstIds = new Set(Object.keys(p.modules).filter(id => G.MODULES[p.modules[id].moduleId]?.slot === 'hull'));
-    const cap  = tpl.slots;
     const used = Object.keys(p.modules).filter(id => !hullInstIds.has(id)).length;
     const hullCount = hullInstIds.size;
 
@@ -1769,7 +1758,6 @@ G.UI = class {
     const invOpen = !!this._builderInvOpen;
     let invPanel = '';
     if(invOpen) {
-      const hasSlot = p.slots.includes(null);
       let items = inv.length ? inv.map((modId, i) => {
         const m = G.MODULES[modId] || G.WEAPONS[modId];
         if(!m) return '';
@@ -1784,7 +1772,7 @@ G.UI = class {
       }).join('') : `<div style="font-size:6px;color:#556677;padding:8px">No modules in storage.</div>`;
       invPanel = `<div id="builder-inv-panel">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <div style="font-size:6px;color:#aaccdd">INVENTORY — ${inv.length} MODULE${inv.length!==1?'S':''} ${hasSlot?'':'<span style="color:#ff6644">NO FREE SLOTS</span>'}</div>
+          <div style="font-size:6px;color:#aaccdd">INVENTORY — ${inv.length} MODULE${inv.length!==1?'S':''}</div>
           <button class="btn" style="font-size:5px;padding:2px 6px" onclick="G.ui.builderToggleInv()">CLOSE ✕</button>
         </div>
         <div style="font-size:5px;color:#556677;margin-bottom:8px">Drag a module onto a grid cell to install it.</div>
@@ -1820,7 +1808,7 @@ G.UI = class {
       .hull-color-swatch{width:14px;height:14px;border-radius:2px;cursor:pointer;border:1px solid #444;box-sizing:border-box;display:inline-block}
       .hull-color-swatch:hover{transform:scale(1.2)}
     </style>
-    <div class="panel-title">SHIP BUILDER — ${p.name.toUpperCase()} &nbsp;<span style="font-size:6px;color:${flyCol}">${flyTxt}</span> &nbsp;<span style="font-size:6px;color:#66aacc">${used}/${cap} SLOTS USED</span> &nbsp;<span style="font-size:6px;color:#667799">${hullCount} HULL</span>
+    <div class="panel-title">SHIP BUILDER — ${p.name.toUpperCase()} &nbsp;<span style="font-size:6px;color:${flyCol}">${flyTxt}</span> &nbsp;<span style="font-size:6px;color:#66aacc">${used} MODULE${used!==1?'S':''}</span> &nbsp;<span style="font-size:6px;color:#667799">${hullCount} HULL</span>
       &nbsp;<button class="btn" style="font-size:5px;padding:2px 8px;margin-left:8px" onclick="G.ui.builderToggleInv()">${invOpen?'CLOSE INV':'INVENTORY ('+inv.length+')'}</button>
     </div>
     <div style="font-size:5px;color:#66aacc;margin:2px 0 6px">Click module to select (rotate/remove). Click empty cell to install. Drag to move. ${invOpen?'Drag from inventory to install.':''}</div>
@@ -2151,7 +2139,6 @@ G.UI = class {
     const tpl = G.SHIPS[p.templateId];
     if(!Array.isArray(p.slots)) p.slots = new Array(tpl.slots).fill(null);
     const inv = p.moduleInventory || [];
-    const hasSlot = p.slots.includes(null);
     let html = `<div class="panel-title">CARGO & MODULES</div>`;
 
     // Cargo section
@@ -2175,16 +2162,14 @@ G.UI = class {
     // Module inventory section
     html += `<div style="font-size:6px;color:#aaa;margin-bottom:5px">MODULES (${inv.length} stored)</div>`;
     if (!inv.length) {
-      html += `<div style="color:#556677;font-size:6px">No modules in inventory.<br><br>Modules stored when all slots are full.</div>`;
+      html += `<div style="color:#556677;font-size:6px">No modules in inventory.<br><br>Buy or craft modules to store them here, then install them in the Ship Builder.</div>`;
     } else {
-      html += `<div style="font-size:6px;color:#556677;margin-bottom:8px">${hasSlot?' ✓ Free slot available':'⚠ No free slots'}.</div>`;
       html += `<div class="outfit-sale-grid">`;
       inv.forEach((modId, idx) => {
         const mod = G.MODULES[modId] || G.WEAPONS[modId];
         if (!mod) return;
         const actions = `
-          <button class="btn btn-buy" style="margin-top:5px;font-size:5px;width:100%" data-inv-install="${idx}"
-            ${hasSlot?'':'disabled style="opacity:0.35"'}>INSTALL</button>
+          <button class="btn btn-buy" style="margin-top:5px;font-size:5px;width:100%" data-inv-install="${idx}">INSTALL</button>
           <button class="btn" style="margin-top:3px;font-size:5px;width:100%;border-color:#ff6644;color:#ff6644" data-inv-drop="${idx}">DROP</button>`;
         html += `<div class="item-card outfit-sale-item">${this._modCardHTML(mod, actions)}</div>`;
       });
@@ -2207,7 +2192,6 @@ G.UI = class {
     const modId = (p.moduleInventory||[])[idx];
     if (!modId) return;
     const mod = G.MODULES[modId] || G.WEAPONS[modId];
-    if (!p.slots.includes(null)) { this.addMsg('No free module slots!', '#ff4444'); return; }
     const ok = p.installModule(modId);
     if (ok) {
       p.moduleInventory.splice(idx, 1);
@@ -2243,7 +2227,7 @@ G.UI = class {
     const tpl = oldShipDef || {};
     const shapeId = tpl.shape || 'shuttle';
     const shipColor = tpl.color || '#8899bb';
-    const liveStats = `HULL:${Math.ceil(p.maxHull)}  SHIELD:${Math.ceil(p.maxShields)}  CARGO:${p.cargoSpace}  FUEL:${Math.ceil(p.maxFuel)}  ENERGY:${Math.ceil(p.maxEnergy)}  THRUST:${Math.round(p.thrustPower/1000)}k  TURN:${p.turnSpeed.toFixed(1)}  SLOTS:${p.slots}${p.jumpRange>0?'  JUMP:'+p.jumpRange:''}`;
+    const liveStats = `HULL:${Math.ceil(p.maxHull)}  SHIELD:${Math.ceil(p.maxShields)}  CARGO:${p.cargoSpace}  FUEL:${Math.ceil(p.maxFuel)}  ENERGY:${Math.ceil(p.maxEnergy)}  THRUST:${Math.round(p.thrustPower/1000)}k  TURN:${p.turnSpeed.toFixed(1)}${p.jumpRange>0?'  JUMP:'+p.jumpRange:''}`;
     const installedMods = Object.values(p.modules).map(inst=>{
       const m = G.MODULES[inst.moduleId]||G.WEAPONS[inst.moduleId];
       if(!m) return `<span style="color:#aabbcc">${inst.moduleId}</span>`;
@@ -2314,7 +2298,7 @@ G.UI = class {
         }
         const facBadge  = isNeutral ? '' : `<span style="color:${facColor};font-size:5px">${(facDef?.name||shipFac).toUpperCase()}</span>`;
         const _cs = G.MODULES['core_'+ship.id]?.stats || {};
-        const fullStats = `HULL:${_cs.maxHull||0}  CARGO:${_cs.cargoSpace||0}  FUEL:${_cs.maxFuel||0}  ENERGY:${_cs.maxEnergy||0}  THRUST:${Math.round(ship.baseThrust/1000)}k  TURN:${(_cs.turnBase||0).toFixed(1)}  SLOTS:${ship.slots}`;
+        const fullStats = `HULL:${_cs.maxHull||0}  CARGO:${_cs.cargoSpace||0}  FUEL:${_cs.maxFuel||0}  ENERGY:${_cs.maxEnergy||0}  THRUST:${Math.round(ship.baseThrust/1000)}k  TURN:${(_cs.turnBase||0).toFixed(1)}`;
         const startModNames = (ship.startModules||[]).map(id=>{
           const m=G.MODULES[id]; return m?`<span style="color:#aabbcc">${m.name}</span>`:id;
         });
@@ -2587,9 +2571,7 @@ G.UI = class {
       let outputDesc='';
       if(recipe.outputModule) {
         const mod=G.MODULES[recipe.outputModule]||G.WEAPONS[recipe.outputModule];
-        const hasFreeSlot = mod && p.slots.includes(null);
-        outputDesc=`➜ <span style="color:#cc44ff">MODULE: ${mod?.name||recipe.outputModule}</span>`
-          + (hasFreeSlot?'':' <span style="color:#ff4444">[no slot]</span>');
+        outputDesc=`➜ <span style="color:#cc44ff">MODULE: ${mod?.name||recipe.outputModule}</span>`;
       } else {
         const outItem=G.ITEMS[recipe.output?.item];
         outputDesc=`➜ ${recipe.output?.qty||1}x ${outItem?.name||recipe.output?.item||'?'}`;
@@ -2619,7 +2601,6 @@ G.UI = class {
           if(!canCraft){this.addMsg('Workshop required!','#ff4444');return;}
           const hasIng=Object.entries(recipe.inputs).every(([id,qty])=>(p.cargo[id]||0)>=qty);
           if(!hasIng){this.addMsg('Missing materials!','#ff4444');return;}
-          if(!p.slots.includes(null)){this.addMsg('No free module slots!','#ff4444');return;}
           for(const[id,qty]of Object.entries(recipe.inputs)) p.removeCargo(id,qty);
           p.installModule(recipe.outputModule);
           this.addMsg('Crafted and installed: '+mod.name,'#cc44ff');
@@ -3504,7 +3485,6 @@ G.UI = class {
       const hpPct = Math.round(s.hull/Math.max(s.maxHull,1)*100);
       const hpCol = hpPct>60?'#44ff88':hpPct>30?'#ffcc44':'#ff4444';
       const modCount = Object.keys(s.modules||{}).length;
-      const freeSlots = (s.slots||[]).filter(x=>x===null).length;
       html += `<div style="border:1px solid #1a4a6a;padding:10px;margin-bottom:8px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
           <div>
@@ -3515,8 +3495,7 @@ G.UI = class {
         </div>
         <div style="display:flex;gap:12px;margin-bottom:6px">
           <div style="font-size:5px;color:#aabbcc">HULL: <span style="color:${hpCol}">${Math.ceil(s.hull)}/${s.maxHull}</span></div>
-          <div style="font-size:5px;color:#aabbcc">MODS: ${modCount}/${(s.slots||[]).length}</div>
-          <div style="font-size:5px;color:#aabbcc">FREE: ${freeSlots} slots</div>
+          <div style="font-size:5px;color:#aabbcc">MODS: ${modCount}</div>
         </div>
         <button class="btn btn-buy" style="font-size:5px" onclick="G.ui.openFleetShipConfig(${idx})">CONFIGURE MODULES</button>
       </div>`;
@@ -3559,7 +3538,6 @@ G.UI = class {
     if(!hasAny) equippedHtml += '<div style="font-size:6px;color:#556677">No modules installed.</div>';
 
     let inventoryHtml = '<div style="font-size:6px;color:#aaa;margin-top:12px;margin-bottom:5px">YOUR MODULE INVENTORY</div>';
-    const freeSlot = (s.slots||[]).includes(null);
     if(!playerInventory.length) {
       inventoryHtml += '<div style="font-size:6px;color:#556677">No modules in inventory.</div>';
     } else {
@@ -3567,7 +3545,7 @@ G.UI = class {
         const mod = G.MODULES[modId]||G.WEAPONS[modId];
         if(!mod) return;
         const installBtn = `<button class="btn btn-buy" style="font-size:5px;padding:2px 4px;margin-top:3px;width:100%"
-          onclick="G.ui.fleetInstallModule(${fleetIdx},${i})" ${freeSlot?'':'disabled style="opacity:0.4"'}>INSTALL</button>`;
+          onclick="G.ui.fleetInstallModule(${fleetIdx},${i})">INSTALL</button>`;
         inventoryHtml += `<div class="item-card" style="margin-bottom:6px">${this._modCardHTML(mod, installBtn)}</div>`;
       });
     }
