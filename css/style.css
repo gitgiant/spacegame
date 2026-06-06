@@ -1086,10 +1086,11 @@ html, body {
 .mbtn-sm { width: auto; min-width: 44px; height: 30px; font-size: 7px; padding: 0 7px; }
 .mc-actions {
   position: absolute;
-  top: 8px; right: 8px;
+  /* right inset clears the minimap (top-right); left inset clears the FPS
+     counter (top-left). Buttons pack toward the right and wrap leftward. */
+  top: 8px; right: 196px; left: 96px;
   display: flex; gap: 6px;
   flex-wrap: wrap; justify-content: flex-end;
-  max-width: 62vw;
 }
 .mc-move {
   position: absolute;
@@ -1105,6 +1106,12 @@ html, body {
   right: 14px; bottom: 16px;
   display: flex; flex-direction: column;
   align-items: center; gap: 9px;
+}
+.mc-combat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 6px;
+  justify-items: end;
 }
 .mbtn-fire {
   width: 84px; height: 84px;
