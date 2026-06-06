@@ -3200,7 +3200,6 @@ G.UI = class {
       { name: 'INVENTORY', keys: 'I' },
       { name: 'MISSION LOG', keys: 'N' },
       { name: 'COMMS', keys: 'V' },
-      { name: 'REQUEST FUEL', keys: 'F' },
       { name: 'OPTIONS', keys: 'ESC' },
     ];
 
