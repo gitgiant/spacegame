@@ -1906,7 +1906,8 @@ G.UI = class {
     const rgbId = input.dataset.rgb;
     const ch = input.dataset.ch;
     const val = parseInt(input.value);
-    document.getElementById(`${rgbId}_${ch}`)?.textContent = val;
+    const el = document.getElementById(`${rgbId}_${ch}`);
+    if(el) el.textContent = val;
     const rVal = parseInt(document.querySelector(`[data-rgb="${rgbId}"][data-ch="r"]`)?.value || 0);
     const gVal = parseInt(document.querySelector(`[data-rgb="${rgbId}"][data-ch="g"]`)?.value || 0);
     const bVal = parseInt(document.querySelector(`[data-rgb="${rgbId}"][data-ch="b"]`)?.value || 0);
