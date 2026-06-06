@@ -114,7 +114,7 @@ G.UI = class {
   _cacheEls() {
     const ids=['hud','hud-top','galaxy-overlay','spaceport-overlay','inventory-overlay',
       'gameover-overlay','main-menu','system-label','target-panel','tgt-name',
-      'tgt-hull-bar','tgt-shld-bar','tgt-dist','tgt-canvas','tgt-arrow','tgt-hull-val','tgt-shld-val','tgt-intention',
+      'tgt-hull-bar','tgt-shld-bar','tgt-dist','tgt-canvas','tgt-arrow','tgt-hull-val','tgt-shld-val','tgt-intention','tgt-scan',
       'msgs','credits-hud','cargo-hud',
       'speed-hud','weapon-hud','bar-hull','bar-shield','bar-fuel',
       'sp-name','sp-body','sp-credits','sp-cargo','sp-ship',
@@ -622,10 +622,68 @@ G.UI = class {
       if(e['tgt-dist']) e['tgt-dist'].textContent=td+' units'+(target.disabled?' [DISABLED]':'');
       const intention = this._getTargetIntention(target);
       if(e['tgt-intention']) e['tgt-intention'].textContent = intention ? '◆ '+intention : '';
+
+      // Extended scan readout — only once the target has been scanned.
+      const scanEl = e['tgt-scan'];
+      if(scanEl) {
+        if(target._scanned && !isMissileTgt) {
+          scanEl.innerHTML = this._buildScanReadout(target);
+          scanEl.classList.remove('hidden');
+        } else {
+          scanEl.classList.add('hidden');
+        }
+      }
     } else {
       if(e['target-panel']) e['target-panel'].classList.add('hidden');
+      if(e['tgt-scan']) e['tgt-scan'].classList.add('hidden');
       this._tgtPortTarget = null; this._tgtPortEntries = null;
     }
+  }
+
+  // Build the extended scan readout shown in the target panel after a Scan:
+  // armament, cargo/inventory, modules and intel pulled from whatever fields
+  // the target type exposes (enemies, NPCs, fleet ships, derelicts).
+  _buildScanReadout(t) {
+    const rows = [];
+    const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+    // Armament — enemies carry a `weapons` array, NPCs `weaponIds`.
+    const wpnNames = [];
+    if(Array.isArray(t.weapons)) for(const w of t.weapons) wpnNames.push(G.WEAPONS[w.weaponId]?.name || w.weaponId);
+    else if(Array.isArray(t.weaponIds)) for(const id of t.weaponIds) wpnNames.push(G.WEAPONS[id]?.name || id);
+    else if(t.weaponId) wpnNames.push(G.WEAPONS[t.weaponId]?.name || t.weaponId);
+    if(wpnNames.length) rows.push(['ARMS', wpnNames.map(esc).join(', ')]);
+
+    // Modules — installed module list, when the target ship has one.
+    if(t.modules && typeof t.modules === 'object') {
+      const mods = Object.values(t.modules)
+        .map(m => (G.MODULES[m.moduleId]||G.WEAPONS[m.moduleId])?.name)
+        .filter(Boolean);
+      if(mods.length) rows.push(['MODS', mods.slice(0,6).map(esc).join(', ') + (mods.length>6?'…':'')]);
+    }
+
+    // Cargo / inventory — NPCs hold a `cargo` map; enemies/derelicts a count.
+    if(t.cargo && typeof t.cargo === 'object') {
+      const items = Object.entries(t.cargo).filter(([,q])=>q>0)
+        .map(([id,q]) => (G.ITEMS[id]?.name || id) + ' ×' + q);
+      rows.push(['CARGO', items.length ? items.map(esc).join(', ') : 'empty']);
+    } else if(t.cargoDrops != null) {
+      rows.push(['CARGO', t.cargoDrops > 0 ? (t.cargoDrops + ' crate' + (t.cargoDrops>1?'s':'')) : 'empty']);
+    } else if(t.lootQty != null) {
+      rows.push(['SALVAGE', t.lootQty + ' unit' + (t.lootQty>1?'s':'')]);
+    }
+
+    // Intel — credits aboard, top speed, crew.
+    const intel = [];
+    if(t.credits != null) intel.push('◈' + G.fmt(t.credits));
+    if(t.speed != null)   intel.push(Math.round(t.speed) + ' spd');
+    if(Array.isArray(t.crew) && t.crew.length) intel.push(t.crew.length + ' crew');
+    if(intel.length) rows.push(['INTEL', intel.map(esc).join(' · ')]);
+
+    const body = rows.map(([k,v]) =>
+      `<div class="tgt-scan-row"><span class="tgt-scan-k">${k}</span><span class="tgt-scan-v">${v}</span></div>`
+    ).join('');
+    return `<div class="tgt-scan-hdr">⌖ SCAN</div>${body}`;
   }
 
   _getTargetIntention(target) {

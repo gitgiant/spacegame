@@ -334,16 +334,16 @@ G.MODULES = {
   // Sensors
   basic_sensors: {
     id:'basic_sensors', name:'Sensor Array', slot:'sensor',
-    stats:{ sensorRange:+800, mass:+10 },
+    stats:{ sensorRange:+800, canScan:true, mass:+10 },
     energyDraw:5, hp:30, price:700, rarity:'c',
-    desc:'Extends radar range.',
+    desc:'Extends radar range. Unlocks the Scan ability to read targeted ships.',
     visual:'sensor',
   },
   military_sensors: {
     id:'military_sensors', name:'Military Sensors', slot:'sensor',
-    stats:{ sensorRange:+1800, detectCloaked:true, mass:+15 },
+    stats:{ sensorRange:+1800, detectCloaked:true, canScan:true, mass:+15 },
     energyDraw:12, hp:50, price:3000, rarity:'r',
-    desc:'Detects cloaked ships.',
+    desc:'Detects cloaked ships. Unlocks the Scan ability to read targeted ships.',
     visual:'sensor',
   },
   // Special
@@ -1503,5 +1503,11 @@ G.ABILITIES = {
     desc: '5 seconds of unlimited boost — no energy drain, green exhaust',
     cooldown: 30, energyCost: 0, range: 0,
     color: '#00ff88', icon: '⚡', npcUsable: false,
+  },
+  scan: {
+    id: 'scan', name: 'Scan',
+    desc: 'Read a targeted ship — hull, shields, armament, cargo and intel. Granted by a sensor module.',
+    cooldown: 3, energyCost: 8, range: 0,
+    color: '#44ddff', icon: '⌖', npcUsable: false,
   },
 };
