@@ -1497,6 +1497,7 @@ G.UI = class {
       const facingLabel = FACING_LABELS[inst.facing || 0];
       let controls = '';
       if(withControls) {
+        const [r, g, b] = this._hexToRgb(hullCol);
         const swatches = COLORS.map(col =>
           `<div class="hull-color-swatch" style="background:${col};${col===hullCol?'border:2px solid #fff;':''}"
             onclick="G.ui.builderSetHullColor('${instId}','${col}')"></div>`
@@ -1505,9 +1506,14 @@ G.UI = class {
           `<button class="btn" style="font-size:5px;padding:2px 5px;${s===shape?'border-color:#fff;color:#fff;':''}"
             onclick="G.ui.builderSetHullShape('${instId}','${s}')">${SHAPE_ICONS[s]} ${SHAPE_LABELS[s]}</button>`
         ).join('');
+        const rgbId = `rgb_${instId}`;
         controls = `
           <div style="margin-top:6px;font-size:5px;color:#aabbcc;margin-bottom:3px">HULL COLOR</div>
-          <div style="display:flex;gap:2px;flex-wrap:wrap;margin-bottom:6px">${swatches}</div>
+          <div style="display:flex;gap:2px;flex-wrap:wrap;margin-bottom:4px">${swatches}</div>
+          <div style="font-size:5px;color:#556677;margin-bottom:2px">RGB SLIDERS</div>
+          <div style="font-size:5px;margin-bottom:2px">R: <input type="range" min="0" max="255" value="${r}" style="width:70px;vertical-align:middle" data-rgb="${rgbId}" data-ch="r" oninput="G.ui._updateRgbSlider(this,'${instId}')"> <span style="color:#ff8888" id="${rgbId}_r">${r}</span></div>
+          <div style="font-size:5px;margin-bottom:2px">G: <input type="range" min="0" max="255" value="${g}" style="width:70px;vertical-align:middle" data-rgb="${rgbId}" data-ch="g" oninput="G.ui._updateRgbSlider(this,'${instId}')"> <span style="color:#88ff88" id="${rgbId}_g">${g}</span></div>
+          <div style="font-size:5px;margin-bottom:4px">B: <input type="range" min="0" max="255" value="${b}" style="width:70px;vertical-align:middle" data-rgb="${rgbId}" data-ch="b" oninput="G.ui._updateRgbSlider(this,'${instId}')"> <span style="color:#8888ff" id="${rgbId}_b">${b}</span></div>
           <div style="font-size:5px;color:#aabbcc;margin-bottom:3px">HULL SHAPE</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;margin-bottom:6px">${shapeBtns}</div>
           <div style="font-size:5px;color:#aabbcc;margin-bottom:3px">ROTATION  <span style="color:#556677">[Q/E]</span></div>
@@ -1883,6 +1889,33 @@ G.UI = class {
     inst.color = color;
     this._builderSel = instId;
     this.renderSpaceportTab('builder');
+  }
+
+  builderSetHullColorRGB(instId, r, g, b){
+    const inst = G.game.player.modules[instId];
+    if(!inst) return;
+    const rVal = Math.max(0, Math.min(255, parseInt(r)||0));
+    const gVal = Math.max(0, Math.min(255, parseInt(g)||0));
+    const bVal = Math.max(0, Math.min(255, parseInt(b)||0));
+    inst.color = '#' + [rVal, gVal, bVal].map(x => x.toString(16).padStart(2,'0')).join('');
+    this._builderSel = instId;
+    this.renderSpaceportTab('builder');
+  }
+
+  _updateRgbSlider(input, instId){
+    const rgbId = input.dataset.rgb;
+    const ch = input.dataset.ch;
+    const val = parseInt(input.value);
+    document.getElementById(`${rgbId}_${ch}`)?.textContent = val;
+    const rVal = parseInt(document.querySelector(`[data-rgb="${rgbId}"][data-ch="r"]`)?.value || 0);
+    const gVal = parseInt(document.querySelector(`[data-rgb="${rgbId}"][data-ch="g"]`)?.value || 0);
+    const bVal = parseInt(document.querySelector(`[data-rgb="${rgbId}"][data-ch="b"]`)?.value || 0);
+    this.builderSetHullColorRGB(instId, rVal, gVal, bVal);
+  }
+
+  _hexToRgb(hex){
+    const h = hex.replace('#','');
+    return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
   }
 
   builderSetHullShape(instId, shape){
