@@ -67,6 +67,9 @@ G.Sprites = {
         ctx.moveTo(-h, h); ctx.lineTo(h, h);
         ctx.bezierCurveTo(h * 0.5, -h * 0.3, -h * 0.5, -h * 0.3, -h, -h);
         ctx.lineTo(-h, h);
+      } else if(shape === 'quarterround') {
+        ctx.moveTo(-h, h); ctx.lineTo(h, h);
+        ctx.bezierCurveTo(h * 0.5, h * 0.3, -h * 0.5, h * 0.3, -h, -h);
       } else {
         ctx.moveTo(-h, 0);
         ctx.arc(-h, -h, h, Math.PI / 2, 0, true);
@@ -78,9 +81,8 @@ G.Sprites = {
       } else if(shape === 'triangle') {
         ctx.moveTo(-h, h); ctx.lineTo(h, h); ctx.lineTo(0, -h);
       } else if(shape === 'quarterround') {
-        ctx.moveTo(-h, h); ctx.lineTo(h, h); ctx.lineTo(h, 0);
-        ctx.quadraticCurveTo(h, -h, 0, -h);
-        ctx.quadraticCurveTo(-h, -h, -h, 0);
+        ctx.moveTo(-h, h); ctx.lineTo(h, h);
+        ctx.bezierCurveTo(h * 0.5, h * 0.3, -h * 0.5, h * 0.3, -h, -h);
       } else if(shape === 'concave') {
         ctx.moveTo(-h, h); ctx.lineTo(h, h);
         ctx.bezierCurveTo(h * 0.5, -h * 0.3, -h * 0.5, -h * 0.3, -h, -h);
