@@ -1682,7 +1682,7 @@ G.UI = class {
       .bcell-hull{border-width:1px!important;border-style:solid!important}
       .bcell-hull-icon{font-size:9px;pointer-events:none;line-height:1}
       .bcell.drag-over{border-color:#fff!important;background:#1a3a50!important}
-      .bcell-icon{width:74%;height:74%;image-rendering:pixelated;pointer-events:none}
+      .bcell-icon{width:100%;height:100%;image-rendering:pixelated;pointer-events:none}
       .bcell-arrow{position:absolute;top:0;left:50%;margin-left:-4px;font-size:8px;line-height:1;transform-origin:50% 60%;pointer-events:none}
       .builder-card{position:absolute;top:0;right:0;width:155px;background:rgba(8,20,30,0.97);border:1px solid #1a4a6a;border-radius:4px;padding:8px;z-index:5}
       .builder-picker{position:absolute;inset:0;background:rgba(2,8,14,0.94);border:1px solid #1a4a6a;border-radius:4px;padding:14px;overflow:auto;z-index:10}
