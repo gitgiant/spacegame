@@ -138,6 +138,13 @@ G.UI = class {
     document.getElementById('comms-close-btn')?.addEventListener('click',()=>this.closeComms());
     document.getElementById('close-log-btn')?.addEventListener('click',()=>this.hideMissionLog());
     document.getElementById('close-combat-log-btn')?.addEventListener('click',()=>this.hideCombatLog());
+    this.els['comms-overlay']?.addEventListener('keydown', (e) => {
+      if (e.code === 'Escape' && !this.els['comms-overlay']?.classList.contains('hidden')) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.closeComms();
+      }
+    });
     this._commsNPC = null;
   }
 
