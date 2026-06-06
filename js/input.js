@@ -54,6 +54,19 @@ G.Input = class {
     });
   }
 
+  // Programmatic key press/release — used by on-screen mobile controls so
+  // touch buttons drive the exact same code paths as physical keys.
+  touchDown(code) {
+    if(!code) return;
+    if(!this.keys[code]) this.justPressed[code] = true;
+    this.keys[code] = true;
+  }
+  touchUp(code) {
+    if(!code) return;
+    this.keys[code] = false;
+    this.justReleased[code] = true;
+  }
+
   is(code) { return !!this.keys[code]; }
   pressed(code) { return !!this.justPressed[code]; }
 

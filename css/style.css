@@ -1044,3 +1044,73 @@ html, body {
   max-width: 50px;
   text-overflow: ellipsis;
 }
+
+/* ── Mobile touch controls ─────────────────────────────────────────────── */
+#mobile-controls {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  pointer-events: none;       /* container transparent; buttons opt back in */
+  font-family: 'Press Start 2P', monospace;
+  touch-action: none;
+}
+#mobile-controls.hidden { display: none; }
+.mbtn {
+  pointer-events: auto;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 25, 40, 0.5);
+  border: 2px solid #2a6a8a;
+  border-radius: 9px;
+  color: #aeeeff;
+  font-size: 13px;
+  font-family: 'Press Start 2P', monospace;
+}
+.mbtn.held, .mbtn:active {
+  background: rgba(40, 120, 170, 0.78);
+  border-color: #7fdfff;
+  color: #fff;
+}
+.mbtn-sm { width: auto; min-width: 44px; height: 30px; font-size: 7px; padding: 0 7px; }
+.mc-actions {
+  position: absolute;
+  top: 8px; right: 8px;
+  display: flex; gap: 6px;
+  flex-wrap: wrap; justify-content: flex-end;
+  max-width: 62vw;
+}
+.mc-move {
+  position: absolute;
+  left: 14px; bottom: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, 56px);
+  grid-template-rows: repeat(2, 56px);
+  gap: 7px;
+  grid-template-areas: "q up e" "l dn r";
+}
+.mc-combat {
+  position: absolute;
+  right: 14px; bottom: 16px;
+  display: flex; flex-direction: column;
+  align-items: center; gap: 9px;
+}
+.mbtn-fire {
+  width: 84px; height: 84px;
+  border-radius: 50%;
+  border-color: #aa3322;
+  color: #ff8866;
+  font-size: 11px;
+  background: rgba(60, 15, 10, 0.5);
+  order: 3;          /* fire sits lowest, under thumb */
+}
+.mbtn-fire.held, .mbtn-fire:active {
+  background: rgba(180, 40, 30, 0.8);
+  border-color: #ff6644; color: #fff;
+}

@@ -224,6 +224,14 @@
           <span id="opt-bg-label" style="font-size:6px;color:#88ccff;font-family:'Press Start 2P',monospace">ON</span>
         </label>
       </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <span style="font-size:6px;color:#aabbcc;font-family:'Press Start 2P',monospace;min-width:48px">TOUCH</span>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="opt-mobile-enabled" style="accent-color:#44ffcc;width:13px;height:13px">
+          <span id="opt-mobile-label" style="font-size:6px;color:#44ffcc;font-family:'Press Start 2P',monospace">OFF</span>
+        </label>
+        <span style="font-size:5px;color:#556677;font-family:'Press Start 2P',monospace">on-screen controls</span>
+      </div>
       <button class="btn btn-big" id="opt-controls-btn" style="border-color:#ffaa44;color:#ffaa44">CONTROLS</button>
       <button class="btn btn-big" id="opt-save-btn">SAVE GAME</button>
       <button class="btn btn-big" id="opt-load-btn" style="border-color:#00ffee;color:#00ffee">LOAD GAME</button>
@@ -243,6 +251,30 @@
         <button id="ctrl-close-btn" class="btn" style="font-size:6px">CLOSE</button>
       </div>
       <div id="controls-list" style="font-size:6px;color:#aabbcc;line-height:2.4"></div>
+    </div>
+  </div>
+
+  <!-- Mobile touch controls -->
+  <div id="mobile-controls" class="hidden">
+    <div class="mc-actions">
+      <button class="mbtn mbtn-sm" data-key="KeyM">MAP</button>
+      <button class="mbtn mbtn-sm" data-key="KeyR">TGT</button>
+      <button class="mbtn mbtn-sm" data-key="KeyI">INV</button>
+      <button class="mbtn mbtn-sm" data-key="KeyL">LAND</button>
+      <button class="mbtn mbtn-sm" data-key="Escape">MENU</button>
+    </div>
+    <div class="mc-move">
+      <button class="mbtn" data-key="KeyQ" style="grid-area:q">⟲</button>
+      <button class="mbtn" data-key="KeyW" style="grid-area:up">▲</button>
+      <button class="mbtn" data-key="KeyE" style="grid-area:e">⟳</button>
+      <button class="mbtn" data-key="KeyA" style="grid-area:l">◄</button>
+      <button class="mbtn" data-key="KeyS" style="grid-area:dn">▼</button>
+      <button class="mbtn" data-key="KeyD" style="grid-area:r">►</button>
+    </div>
+    <div class="mc-combat">
+      <button class="mbtn mbtn-fire" data-key="Space">FIRE</button>
+      <button class="mbtn" data-key="ShiftLeft">BOOST</button>
+      <button class="mbtn" data-key="KeyJ">JUMP</button>
     </div>
   </div>
 

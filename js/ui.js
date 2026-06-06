@@ -28,6 +28,7 @@ G.UI = class {
     this.els = {};
     this._cacheEls();
     this._bindControls();
+    this._bindMobileControls();
     this._setupMenuNav();
   }
 
@@ -292,6 +293,18 @@ G.UI = class {
       document.getElementById('opt-bg-label').textContent = on ? 'ON' : 'OFF';
       if(G.game) G.game._bgEnabled = on;
     });
+    const mobChk = document.getElementById('opt-mobile-enabled');
+    if(mobChk){
+      const on0 = !!G.game?._mobileControls;
+      mobChk.checked = on0;
+      const lbl = document.getElementById('opt-mobile-label');
+      if(lbl) lbl.textContent = on0 ? 'ON' : 'OFF';
+      mobChk.addEventListener('change', e=>{
+        const on = e.target.checked;
+        if(lbl) lbl.textContent = on ? 'ON' : 'OFF';
+        G.game?._saveMobilePref(on);
+      });
+    }
     document.getElementById('continue-btn')?.addEventListener('click',()=>{
       const save=localStorage.getItem(G.SAVE_KEY);
       if(save) G.game.loadGame(save);
@@ -314,6 +327,34 @@ G.UI = class {
         if(d<nearestD){nearestD=d;nearest=s;}
       }
       if(nearest) { G.game.target=nearest; G.sound?.targetLock(); }
+    });
+  }
+
+  // ── Mobile touch controls ────────────────────────────────
+  // Each .mbtn drives its data-key through Input.touchDown/Up so on-screen
+  // buttons behave exactly like the physical key. Per-pointer capture lets
+  // multiple buttons (e.g. turn + fire) be held at once.
+  _bindMobileControls() {
+    const root = document.getElementById('mobile-controls');
+    if(!root) return;
+    root.querySelectorAll('.mbtn').forEach(btn=>{
+      const code = btn.dataset.key;
+      const down = e=>{
+        e.preventDefault();
+        try { btn.setPointerCapture(e.pointerId); } catch(_){}
+        btn.classList.add('held');
+        G.game?.input.touchDown(code);
+      };
+      const up = e=>{
+        e.preventDefault();
+        btn.classList.remove('held');
+        G.game?.input.touchUp(code);
+      };
+      btn.addEventListener('pointerdown', down);
+      btn.addEventListener('pointerup', up);
+      btn.addEventListener('pointercancel', up);
+      // Block the synthetic click/contextmenu that long-press can raise.
+      btn.addEventListener('contextmenu', e=>e.preventDefault());
     });
   }
 
@@ -1490,9 +1531,9 @@ G.UI = class {
       const shape   = inst.shape || 'square';
       const canRemove = p.canRemoveModule(instId);
       const COLORS = ['#8899bb','#4488ff','#ff6600','#cc3322','#00ff88','#ffcc00','#aa44ff','#44aaff','#ff88cc','#ffffff','#aaaaaa','#667799'];
-      const SHAPES = ['square','triangle','right_triangle','quarterround','concave'];
-      const SHAPE_ICONS = { square:'▪', triangle:'▲', right_triangle:'◣', quarterround:'◜', concave:'◉' };
-      const SHAPE_LABELS = { square:'SQUARE', triangle:'EQUIL TRI', right_triangle:'RT TRI', quarterround:'QTR RND', concave:'CONCAVE' };
+      const SHAPES = ['square','triangle','right_triangle'];
+      const SHAPE_ICONS = { square:'▪', triangle:'▲', right_triangle:'◣' };
+      const SHAPE_LABELS = { square:'SQUARE', triangle:'EQUIL TRI', right_triangle:'RT TRI' };
       const FACING_LABELS = ['0°','90°','180°','270°','◤ NW','◥ NE','◢ SE','◣ SW'];
       const facingLabel = FACING_LABELS[inst.facing || 0];
       let controls = '';
@@ -1516,6 +1557,14 @@ G.UI = class {
           <div style="font-size:5px;margin-bottom:4px">B: <input type="range" min="0" max="255" value="${b}" style="width:70px;vertical-align:middle" data-rgb="${rgbId}" data-ch="b" oninput="G.ui._updateRgbDisplay(this,'${rgbId}')" onchange="G.ui._finalizeRgbSlider(this,'${instId}')"> <span style="color:#8888ff" id="${rgbId}_b">${b}</span></div>
           <div style="font-size:5px;color:#aabbcc;margin-bottom:3px">HULL SHAPE</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;margin-bottom:6px">${shapeBtns}</div>
+          ${shape==='right_triangle' ? `
+          <div style="font-size:5px;color:#aabbcc;margin-bottom:3px">HYPOTENUSE CURVE</div>
+          <div style="display:flex;align-items:center;gap:4px;font-size:5px;margin-bottom:6px">
+            <span style="color:#88aacc">CONCAVE</span>
+            <input type="range" min="-100" max="100" value="${Math.round((inst.curve||0)*100)}" style="flex:1;vertical-align:middle"
+              oninput="G.ui._updateCurveDisplay(this,'${instId}')" onchange="G.ui.builderSetHullCurve('${instId}',this.value)">
+            <span style="color:#88ccaa">CONVEX</span>
+          </div>` : ''}
           <div style="font-size:5px;color:#aabbcc;margin-bottom:3px">ROTATION  <span style="color:#556677">[Q/E]</span></div>
           <div style="display:flex;gap:4px;align-items:center;margin-bottom:4px">
             <button class="btn" style="font-size:6px;padding:3px 6px" onclick="G.ui.builderRotate(-1)">◄</button>
@@ -1527,7 +1576,7 @@ G.UI = class {
             : `<div style="font-size:5px;color:#556677;margin-top:3px;text-align:center">Inner modules adjacent — cannot remove</div>`
           }`;
       } else {
-        controls = `<div style="margin-top:4px;font-size:6px;color:${hullCol};text-align:center">${SHAPE_ICONS[shape]} ${SHAPE_LABELS[shape]}</div>`;
+        controls = `<div style="margin-top:4px;font-size:6px;color:${hullCol};text-align:center">${SHAPE_ICONS[shape]||'▪'} ${SHAPE_LABELS[shape]||'SQUARE'}</div>`;
       }
       return `<div style="font-size:7px;color:#aabbcc;font-weight:bold;margin-bottom:4px">HULL PANEL</div>
         <div style="font-size:5px;color:#667799;margin-bottom:4px">Outer structural plating</div>
@@ -1557,7 +1606,7 @@ G.UI = class {
 
   // Shape icon for hull panels
   _hullShapeIcon(shape) {
-    return { square:'▪', triangle:'▲', right_triangle:'◣', quarterround:'◜', concave:'◉' }[shape] || '▪';
+    return { square:'▪', triangle:'▲', right_triangle:'◣' }[shape] || '▪';
   }
 
   _buildShipBuilderHTML() {
@@ -1596,7 +1645,7 @@ G.UI = class {
         const sel  = this._builderSel === instId;
         if(isHull){
           const hullCol = inst.color || '#667799';
-          const hullIcon = G.Sprites.getHull(inst.shape||'square', inst.facing||0, hullCol, 32).toDataURL();
+          const hullIcon = G.Sprites.getHull(inst.shape||'square', inst.facing||0, hullCol, 32, inst.curve||0).toDataURL();
           cells += `<div class="bcell filled bcell-hull hull-locked${sel?' sel':''}" data-cell="${i}" data-instid="${instId}"
             style="border-color:${hullCol};background:${hullCol}28;${sel?'box-shadow:0 0 0 2px #fff inset;':''}" title="Hull Panel (${inst.shape||'square'}) — click to edit">
             <img src="${hullIcon}" class="bcell-icon" draggable="false">
@@ -1926,6 +1975,25 @@ G.UI = class {
     const inst = G.game.player.modules[instId];
     if(!inst) return;
     inst.shape = shape;
+    if(shape !== 'right_triangle') inst.curve = 0;  // curvature only applies to RT triangle
+    this._builderSel = instId;
+    this.renderSpaceportTab('builder');
+  }
+
+  // Live preview while dragging the hypotenuse-curve slider — repaint only the
+  // affected grid tile so the slider keeps focus (no full tab re-render).
+  _updateCurveDisplay(input, instId){
+    const inst = G.game.player.modules[instId];
+    if(!inst) return;
+    inst.curve = Math.max(-1, Math.min(1, (parseInt(input.value)||0)/100));
+    const cell = document.querySelector(`.bcell-hull[data-instid="${instId}"] .bcell-icon`);
+    if(cell) cell.src = G.Sprites.getHull(inst.shape||'square', inst.facing||0, inst.color||'#667799', 32, inst.curve).toDataURL();
+  }
+
+  builderSetHullCurve(instId, val){
+    const inst = G.game.player.modules[instId];
+    if(!inst) return;
+    inst.curve = Math.max(-1, Math.min(1, (parseInt(val)||0)/100));
     this._builderSel = instId;
     this.renderSpaceportTab('builder');
   }
@@ -2530,26 +2598,59 @@ G.UI = class {
     }
     html+='</div>';
 
-    // ── Equipped modules section ──
-    html+='<div style="font-size:6px;color:#aabbcc;margin:12px 0 6px;letter-spacing:1px">EQUIPPED MODULES</div>';
-    html+='<div class="inv-grid">';
-    let equippedAny=false;
-    p.slots.forEach((instId)=>{
-      if(!instId) return;
+    // ── Installed-module grid (mirrors the Ship Builder layout) ──
+    this._ensureBuilderCells(p);
+    const cellMap={};
+    for(const [id,inst] of Object.entries(p.modules)) if(inst.cell!=null) cellMap[inst.cell]=id;
+    let gridCells='';
+    for(let i=0;i<81;i++){
+      const instId=cellMap[i];
+      if(!instId){ gridCells+='<div class="imod-cell"></div>'; continue; }
       const inst=p.modules[instId];
-      const mod=inst?(G.MODULES[inst.moduleId]||G.WEAPONS[inst.moduleId]):null;
-      if(!mod) return;
-      equippedAny=true;
-      html+=`<div class="inv-item rarity-${mod.rarity||'c'}" style="opacity:0.8">
-        <div class="inv-name" style="font-size:5px">${mod.name}</div>
-        <div style="font-size:5px;color:#556677;margin-top:2px">${G.RARITY[mod.rarity||'c']?.label||mod.rarity||''}</div>
-        <div style="font-size:4px;color:#445566;margin-top:2px">equipped</div>
-      </div>`;
-    });
-    if(!equippedAny) html+='<div style="color:#556677;font-size:7px">No modules equipped</div>';
-    html+='</div>';
+      const mod=G.MODULES[inst.moduleId]||G.WEAPONS[inst.moduleId];
+      if(mod?.slot==='hull'){
+        const hc=inst.color||'#667799';
+        const ic=G.Sprites.getHull(inst.shape||'square',inst.facing||0,hc,32,inst.curve||0).toDataURL();
+        gridCells+=`<div class="imod-cell filled" data-instid="${instId}" style="border-color:${hc};background:${hc}22"><img class="imod-icon" src="${ic}" draggable="false"></div>`;
+      } else {
+        const col=G.SLOT_RING[mod?.slot]?.color||'#33556a';
+        const ic=this._modIconURL(mod?.visual||mod?.slot);
+        const rot=inst.rot||0;
+        gridCells+=`<div class="imod-cell filled" data-instid="${instId}" style="border-color:${col}${inst.broken?';opacity:0.5':''}"><img class="imod-icon" src="${ic}" draggable="false" style="transform:rotate(${rot*90}deg)"></div>`;
+      }
+    }
+    html+=`<div style="font-size:6px;color:#aabbcc;margin:12px 0 6px;letter-spacing:1px">SHIP MODULES <span style="color:#556677;font-size:5px">— hover or click a module for details</span></div>
+    <style>
+      .imod-wrap{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}
+      .imod-grid{display:grid;grid-template-columns:repeat(9,1fr);grid-template-rows:repeat(9,1fr);gap:1px;width:270px;height:270px;flex:0 0 auto}
+      .imod-cell{border:1px solid #16303f;border-radius:1px;background:#0a1722;position:relative;display:flex;align-items:center;justify-content:center;min-width:0;min-height:0}
+      .imod-cell.filled{border-width:1px;border-style:solid;cursor:pointer}
+      .imod-cell.filled:hover{filter:brightness(1.4)}
+      .imod-cell.sel{outline:2px solid #fff;outline-offset:-2px;z-index:2}
+      .imod-icon{width:100%;height:100%;image-rendering:pixelated;pointer-events:none}
+      .imod-card{flex:1;min-width:135px;max-width:180px}
+      .imod-card-empty{color:#556677;font-size:6px;padding:10px}
+    </style>
+    <div class="imod-wrap">
+      <div class="imod-grid" id="imod-grid">${gridCells}</div>
+      <div class="imod-card" id="imod-card"><div class="imod-card-empty">Hover or click a module to see its stats.</div></div>
+    </div>`;
 
     body.innerHTML=html;
+
+    // Bind grid hover/select → render stat card
+    const imodGrid=document.getElementById('imod-grid');
+    const imodCard=document.getElementById('imod-card');
+    if(imodGrid&&imodCard){
+      const showCard=(instId)=>{
+        if(!instId||!p.modules[instId]) return;
+        imodGrid.querySelectorAll('.imod-cell.sel').forEach(c=>c.classList.remove('sel'));
+        imodGrid.querySelector(`.imod-cell[data-instid="${instId}"]`)?.classList.add('sel');
+        imodCard.innerHTML=this._builderCardHTML(instId,false);
+      };
+      imodGrid.addEventListener('mouseover',e=>{ const c=e.target.closest('.imod-cell.filled'); if(c) showCard(c.dataset.instid); });
+      imodGrid.addEventListener('click',e=>{ const c=e.target.closest('.imod-cell.filled'); if(c) showCard(c.dataset.instid); });
+    }
 
     // Bind cargo jettison buttons
     body.querySelectorAll('[data-jettison]').forEach(btn=>{

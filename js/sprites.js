@@ -38,9 +38,11 @@ G.Sprites = {
 
   TSZ: 10, // turret sprite size
 
-  // Pre-rendered hull panel sprite for given shape/facing/color/size
-  getHull(shape, facing, color, tileSize) {
-    const key = `__hull_${shape}_${facing}_${color}_${tileSize | 0}`;
+  // Pre-rendered hull panel sprite for given shape/facing/color/size.
+  // `curve` (right_triangle only): hypotenuse curvature, -1 concave … +1 convex.
+  getHull(shape, facing, color, tileSize, curve = 0) {
+    curve = Math.max(-1, Math.min(1, curve || 0));
+    const key = `__hull_${shape}_${facing}_${color}_${tileSize | 0}_${curve.toFixed(2)}`;
     if(this._cache.has(key)) return this._cache.get(key);
     const SZ = tileSize | 0;
     const c = document.createElement('canvas');
@@ -59,7 +61,9 @@ G.Sprites = {
     ctx.beginPath();
     if(isCorner) {
       if(shape === 'right_triangle') {
-        ctx.moveTo(-h, h); ctx.lineTo(h, h); ctx.lineTo(-h, -h);
+        ctx.moveTo(-h, h); ctx.lineTo(h, h);
+        if(curve) ctx.quadraticCurveTo(curve * h, -curve * h, -h, -h);  // bowed hypotenuse
+        else ctx.lineTo(-h, -h);
       } else if(shape === 'triangle') {
         ctx.moveTo(-h, 0); ctx.lineTo(0, -h);
         ctx.lineTo(h, -h); ctx.lineTo(h, h); ctx.lineTo(-h, h);
@@ -77,7 +81,9 @@ G.Sprites = {
       }
     } else {
       if(shape === 'right_triangle') {
-        ctx.moveTo(-h, h); ctx.lineTo(h, h); ctx.lineTo(-h, -h);
+        ctx.moveTo(-h, h); ctx.lineTo(h, h);
+        if(curve) ctx.quadraticCurveTo(curve * h, -curve * h, -h, -h);  // bowed hypotenuse
+        else ctx.lineTo(-h, -h);
       } else if(shape === 'triangle') {
         ctx.moveTo(-h, h); ctx.lineTo(h, h); ctx.lineTo(0, -h);
       } else if(shape === 'quarterround') {
@@ -924,110 +930,191 @@ G.Sprites = {
   },
 
   // ── Module icon functions (8×8 pixels) ──────────────────
+  // Each glyph is a recognizable silhouette on a dark bg so it reads at a
+  // glance when scaled up into outfitter cards and ship-builder slots.
+  // BG = standard dark backdrop; symbol icons share it, hull fills solid.
   _mods: {
+    // Rocket nozzle firing a long downward flame — thrust/propulsion.
     engine(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
-      r('rgba(0,0,0,0.7)',0,0,8,8);   // dark bg
-      r('#4a6688',1,0,6,3); r('#3a5577',2,3,4,2); r('#2a4466',3,5,2,1);
-      r('#ff9922',2,4,4,2); r('#ffcc44',3,6,2,1); r('#ffee88',3,7,2,1);
+      r('rgba(0,0,0,0.7)',0,0,8,8);
+      r('#6a7a8a',3,0,2,1);            // mount neck
+      r('#8a9aaa',2,1,4,1);            // bell shoulders
+      r('#9fb0c2',1,2,6,1);            // bell rim (widest)
+      r('#c2d0de',1,1,1,2);            // left edge highlight
+      r('#5a6a7a',6,2,1,1);            // right edge shadow
+      r('#ff7a11',1,3,6,1);            // flame mouth (wide, hot orange)
+      r('#ff9c22',2,4,4,1);            // flame body
+      r('#ffc844',2,5,4,1);            // hotter
+      r('#ffec99',3,6,2,1);           // flame core
+      r('#ffffff',3,7,2,1);           // white tip
     },
+    // Heraldic energy crest tapering to a point — deflector shield.
     shield(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
       r('rgba(0,0,0,0.7)',0,0,8,8);
-      r('#3366cc',2,0,4,1); r('#3366cc',1,1,1,4); r('#3366cc',6,1,1,4);
-      r('#2255bb',2,1,4,4); r('#88aaff',2,1,2,2);
-      r('#3366cc',2,5,4,1); r('#3366cc',3,6,2,1); r('#3366cc',4,7,0,1);
+      r('#2f6fd8',1,0,6,1);            // crest top
+      r('#2f6fd8',1,1,6,3);            // upper body
+      r('#2f6fd8',2,4,4,1);
+      r('#2f6fd8',2,5,4,1);
+      r('#2f6fd8',3,6,2,1);            // taper to point
+      r('#5f9bff',2,1,3,3);            // lit face
+      r('#bcd8ff',2,0,2,1);            // top sheen
+      r('#9cc0ff',2,1,1,3);           // left edge light
+      r('#1a4aa0',5,1,1,4);           // right shade
     },
+    // Tall shipping container, cross strapping and corner studs — cargo.
     cargo(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
       r('rgba(0,0,0,0.7)',0,0,8,8);
-      r('#806040',0,2,8,6); r('#604020',0,7,8,1);
-      r('#a07050',1,2,6,1); r('#604020',0,2,1,6); r('#604020',7,2,1,6);
-      r('#a07050',2,4,4,1); r('#604020',4,4,1,3);
+      r('#9a7440',1,0,6,8);            // crate face (full height)
+      r('#be945a',1,0,6,1);            // top-lit edge
+      r('#6a4a22',1,7,6,1);            // base shadow
+      r('#5a3a1a',3,0,2,8);            // vertical strap
+      r('#5a3a1a',1,3,6,2);            // horizontal strap
+      r('#caa468',1,0,1,1); r('#caa468',6,0,1,1);  // corner studs
+      r('#caa468',1,7,1,1); r('#caa468',6,7,1,1);
     },
+    // Pressurised tank with a green fuel-level droplet readout — fuel.
     fuel(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
       r('rgba(0,0,0,0.7)',0,0,8,8);
-      r('#667799',3,0,2,1); r('#556688',2,1,4,1);
-      r('#889dbb',2,2,4,6); r('#556688',2,2,1,6); r('#556688',5,2,1,6);
-      r('#aabbcc',3,2,1,1); r('#556688',2,8,4,1); r('#667799',3,9,2,0);
+      r('#9aaaba',2,0,4,1);            // filler cap
+      r('#808fa0',1,1,6,7);            // tank body
+      r('#b2bece',1,1,1,7);            // left highlight
+      r('#566678',6,1,1,7);            // right shadow
+      r('#3a4654',1,2,6,1);            // top band
+      r('#33cc66',3,3,2,1);            // droplet top
+      r('#33cc66',2,4,4,2);            // droplet body
+      r('#33cc66',3,6,2,1);            // droplet base
+      r('#8fffb8',3,4,1,1);           // droplet shine
     },
+    // Glowing hyperspace ring portal with a collapsing core — jump drive.
     jump(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
       r('rgba(0,0,0,0.7)',0,0,8,8);
-      r('#cc44ff',3,0,2,1); r('#cc44ff',1,2,1,4); r('#cc44ff',6,2,1,4);
-      r('#cc44ff',2,1,4,1); r('#cc44ff',2,6,4,1);
-      r('#8822cc',2,2,4,4); r('#ff88ff',3,3,2,2);
-      r('#cc44ff',3,7,2,1);
+      r('#bb44ee',2,0,4,1); r('#bb44ee',2,7,4,1);  // ring top/bottom
+      r('#bb44ee',0,2,1,4); r('#bb44ee',7,2,1,4);  // ring left/right
+      r('#bb44ee',1,1,1,1); r('#bb44ee',6,1,1,1);  // rounded corners
+      r('#bb44ee',1,6,1,1); r('#bb44ee',6,6,1,1);
+      r('#7722bb',2,1,4,6);            // inner field
+      r('#7722bb',1,2,6,4);
+      r('#e6a6ff',3,3,2,2);           // glowing core
+      r('#ffffff',4,3,1,1);
     },
+    // Forked lightning bolt — energy/reactor output.
     power(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
       r('rgba(0,0,0,0.7)',0,0,8,8);
-      r('#ffff22',5,0,2,3); r('#ffff22',3,3,4,1);
-      r('#ffff22',2,4,5,3); r('#ffff22',1,7,4,1);
-      r('#aaaa00',4,1,1,2); r('#aaaa00',3,4,2,2);
-      r('#ffff88',5,0,1,1);
+      r('#ffe033',4,0,2,2);            // bolt head
+      r('#ffe033',3,2,2,1);            // upper diagonal
+      r('#ffe033',2,3,3,1);            // mid kink
+      r('#ffe033',4,3,1,2);
+      r('#ffe033',3,5,2,1);            // lower diagonal
+      r('#ffe033',2,6,2,2);            // bolt tail
+      r('#fff79a',4,0,1,2);           // spark highlight
+      r('#c9a800',3,3,1,1);           // inner shadow
     },
+    // Round head over broad shoulders — crew quarters/personnel.
     crew(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
       r('rgba(0,0,0,0.7)',0,0,8,8);
-      r('#aabbcc',3,0,2,2); r('#8899aa',3,2,2,1);
-      r('#7788aa',2,3,4,4); r('#556677',1,6,1,1); r('#556677',2,7,1,1);
-      r('#556677',5,7,1,1); r('#556677',6,6,1,1);
-      r('#334455',3,3,2,1);
+      r('#d6dee6',3,0,2,2);            // head
+      r('#eef3f8',3,0,1,1);           // head highlight
+      r('#7d8d9d',2,3,4,4);           // torso
+      r('#8d9dad',1,4,6,2);           // shoulders (wider)
+      r('#9dadbd',2,3,2,1);           // chest light
+      r('#5a6a7a',1,7,6,1);           // base shadow
     },
+    // Dish aimed up with rising signal pips — sensors/detection.
     sensor(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
       r('rgba(0,0,0,0.7)',0,0,8,8);
-      r('#aabbcc',1,4,6,1); r('#aabbcc',2,3,4,1); r('#aabbcc',3,2,2,1); r('#aabbcc',3,1,2,1);
-      r('#8899aa',1,4,6,3); r('#aabbcc',3,7,2,1); r('#aabbcc',3,6,2,1);
-      r('#ccddee',3,1,1,1);
+      r('#44ddff',5,0,1,1);            // signal pips
+      r('#44ddff',6,1,1,1);
+      r('#44ddff',7,2,1,1);
+      r('#c2d2e2',1,3,5,1);            // dish rim
+      r('#a0b2c4',1,4,5,1);           // dish bowl
+      r('#8898aa',2,5,3,1);
+      r('#dce8f4',4,2,1,1);           // feed horn
+      r('#6a7a8a',3,6,1,2);           // mast/base
     },
+    // Toothed cog with hub bore — generic utility/special module.
     special(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
       r('rgba(0,0,0,0.7)',0,0,8,8);
-      r('#ffaa22',3,0,2,1); r('#ffaa22',0,3,1,2); r('#ffaa22',7,3,1,2);
-      r('#ffaa22',1,1,2,2); r('#ffaa22',5,1,2,2);
-      r('#ffaa22',1,5,2,2); r('#ffaa22',5,5,2,2);
-      r('#ffcc66',2,2,4,4); r('#ffaa22',3,7,2,1);
+      r('#ffb733',3,0,2,1);            // top tooth
+      r('#ffb733',3,7,2,1);            // bottom tooth
+      r('#ffb733',0,3,1,2);            // left tooth
+      r('#ffb733',7,3,1,2);            // right tooth
+      r('#ffb733',1,1,1,1); r('#ffb733',6,1,1,1);  // diagonal teeth
+      r('#ffb733',1,6,1,1); r('#ffb733',6,6,1,1);
+      r('#ffd070',2,2,4,4);            // gear ring body
+      r('#ffe0a0',2,2,2,1);           // top-left sheen
+      r('rgba(0,0,0,0.85)',3,3,2,2);  // hub bore
     },
+    // Heavy double-bevelled plate with a ridge and rivets — armour.
     armor(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
       r('rgba(0,0,0,0.7)',0,0,8,8);
-      r('#334455',0,2,8,5); r('#445566',1,3,6,3);
-      r('#556677',1,3,6,1); r('#334455',1,5,6,1);
-      r('#334455',0,2,1,5); r('#334455',7,2,1,5);
-      r('#556677',2,4,4,1);
+      r('#48586a',1,0,6,8);            // plate (full height)
+      r('#6a7c90',1,0,6,1);            // top bevel light
+      r('#6a7c90',1,0,1,8);            // left bevel light
+      r('#28384a',6,0,1,8);           // right shadow
+      r('#28384a',1,7,6,1);           // bottom shadow
+      r('#5a6c80',1,3,6,1);           // mid ridge
+      r('#34465a',1,4,6,1);           // ridge shadow
+      r('#8a9cb0',2,1,1,1); r('#8a9cb0',5,1,1,1);  // rivets
+      r('#8a9cb0',2,5,1,1); r('#8a9cb0',5,5,1,1);
     },
+    // Ship outer hull — full-bleed steel-blue plating whose seams run edge
+    // to edge so panels read as one continuous casing when placed together.
+    // No dark backdrop; matches the ship's structural hull tone.
+    hull(ctx) {
+      const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
+      r('#7d8db0',0,0,8,8);            // full-bleed hull fill
+      r('#94a4c6',0,0,8,1);            // top edge ambient light
+      r('#5a6a8c',0,7,8,1);            // bottom edge shadow
+      r('#8b9bbe',0,2,8,1);            // plating seam highlight (spans width)
+      r('#5a6a8c',0,3,8,1);            // plating seam shadow
+      r('#6f7fa2',0,5,8,1);            // lower micro-seam
+      r('#46567c',2,1,1,1); r('#46567c',5,6,1,1);  // sparse offset rivets
+    },
+    // Fixed forward gun — barrel up with a hot muzzle, breech and mount below.
     weapon(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
       r('rgba(0,0,0,0.7)',0,0,8,8);
-      r('#556677',3,0,2,4); r('#334455',3,4,4,3);
-      r('#223344',3,4,1,3); r('#223344',6,4,1,3);
-      r('#667788',4,4,2,1); r('#ff4444',3,3,2,1);
-      r('#334455',3,7,4,1);
+      r('#8a9aaa',3,0,2,4);            // barrel
+      r('#aab8c6',3,0,1,4);            // barrel highlight
+      r('#cfd8e0',3,0,2,1);            // muzzle
+      r('#ff5544',3,1,2,1);           // muzzle energy glow
+      r('#46586a',2,4,4,3);           // breech body
+      r('#637588',2,4,4,1);           // breech top edge
+      r('#28384a',2,6,4,2);           // mount base
     },
+    // Rotating turret — domed housing with twin barrels on a base.
     turret(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
       r('rgba(0,0,0,0.7)',0,0,8,8);
-      r('#334455',1,3,6,4); r('#445566',2,2,4,5);
-      r('#223344',1,3,1,4); r('#223344',6,3,1,4);
-      r('#445566',3,1,1,3); r('#445566',4,1,1,3);
-      r('#556677',2,2,4,1);
+      r('#3a4a5a',2,0,1,3); r('#3a4a5a',5,0,1,3);  // twin barrels
+      r('#cfd8e0',2,0,1,1); r('#cfd8e0',5,0,1,1);  // barrel tips
+      r('#5a6c7e',2,3,4,2);           // dome
+      r('#8aa0b6',3,3,2,1);           // dome highlight
+      r('#46586a',1,5,6,2);           // base
+      r('#28384a',1,6,6,1);           // base shadow
     },
+    // Missile turret — central barrel flanked by red-tipped missile pods.
     missile_turret(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
       r('rgba(0,0,0,0.7)',0,0,8,8);
-      // turret base plate
-      r('#334455',0,5,8,3); r('#445566',1,4,6,3);
-      r('#223344',0,5,1,3); r('#223344',7,5,1,3);
-      r('#556677',1,4,6,1);
-      // center barrel
-      r('#445566',3,2,2,3); r('#556677',3,2,1,1);
-      // missile pods (orange) flanking barrel
-      r('#ff8800',1,1,2,4); r('#ff8800',5,1,2,4);
-      r('#ffaa44',1,1,1,1); r('#ffaa44',5,1,1,1);
-      r('#cc5500',2,4,1,1); r('#cc5500',6,4,1,1);
+      r('#46586a',1,5,6,2);           // base plate
+      r('#637588',1,4,6,1);           // base top edge
+      r('#28384a',1,6,6,1);           // base shadow
+      r('#5a6c7e',3,2,2,3);           // center barrel
+      r('#8aa0b6',3,2,1,1);           // barrel highlight
+      r('#cc5500',1,1,2,4); r('#cc5500',5,1,2,4);  // missile pods
+      r('#ff8800',1,1,1,4); r('#ff8800',5,1,1,4);  // pod highlight
+      r('#ff4444',1,1,2,1); r('#ff4444',5,1,2,1);  // red warheads
     },
   },
 };

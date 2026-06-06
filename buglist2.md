@@ -1,5 +1,3 @@
-render down assets to files
-
 
 ##fleets
 npc fleets when the capital ship decides to flee and hyperspace jump away have the escort ships either stay and defend or attempt to flee as well.
@@ -37,8 +35,9 @@ character mode
 when landing switch to 2d side scroller style.  
 
 modular ship building
-have the ship be composed of modules.  bought ships are a prebuilt configuration of modules.  modules are rooms in the ship that connect to each other and crew can walk around in.  use modules to construct the ship.  all ships must have a cockpit module.  each module have a power cost, need enough power generator moduels to power the ship. assign crew to a module to increase its stats.  
+  modules are rooms in the ship that connect to each other and crew can walk around in. all ships must have a cockpit module.  each module have a power cost, need enough power generator moduels to power the ship. assign crew to a module to increase its stats.  
 "
+
 
 save and load ship loadouts.
 
@@ -83,7 +82,7 @@ fix nearby ship hyperspace buildup noise
 
 ship menu, name ship, see stats, status, 
 
-status effets, cooldown spells, abilities, grappling hook, tracktor beam, super shield, pushback, emp (disable own shields), 
+status effets, cooldown spells, abilities, grappling hook, tracktor beam, super shield, invuln, pushback, emp (disable own shields), lifesteal, swap, tracktor beam, jammer, hacker, 
 
 TTS make nato alphabet, use aviation lingo.
 
@@ -94,6 +93,9 @@ allow friendly fire to ships in the players fleet but reduce damage to 50% and h
 
 from the fleet menu allow the player to release a ship from duty.  the ship will become an independent faction ship and will fly away.  npc fleets when the$
 
+kamakazee drones, shooting drones, missile drones, 
+
+battlecruisers have big super turret guns that rotate, super long range, huge spalsh damage
 
 
 
@@ -283,6 +285,9 @@ make fuel and jumping very expensive.  make fighters unable to jump.  require fi
 drone like craft which can vector in any direction, no turning. w is up, a is left.. ect
 
 place splitter module in front of directed weapon module > splitter
+silencer
+
+
 have irregular shaped modules. make a puzzle out of it.
 larger ships have "+" shaped core
 
@@ -319,3 +324,60 @@ snare hits + perc hits based on in-game big hits
 PHONE CONTROLS!!!
 
 find out complete datatstructue, build a wiki, document, find out names of datastructures to avoid confusion
+
+pitbull noise
+fox 2
+fox 3 
+magnum 
+rifle
+guns
+
+Tiers
+organize game difficulty to manage player power ramping as they get better loot
+
+setup pecking order between tier 1,2,3,4,5 ships / characters / items /crafting / tech
+
+wood copper iron steel diamond but in space
+
+have tier one generally suck, limited in some way
+get that 'nice ass' tier 2 hauler to make more money (or get a good killin ship)
+full featured ships and abilities start to synergies - small fleet required
+specialization - big fleet
+insane mode (death star/etc) - ridiculous
+
+have tier areas that spawn tiered enemies.  
+
+loot chests
+
+sos ping in a far off hex - mission reward
+
+trapped chests and derelict craft or sos ping - trigger pirate jumps
+
+sensor module allows to see one hex away, but more powerful can see further.
+
+fleet commanders: on comms can negotiate surrender
+
+fuedalist system?  crusader kings system? dynasties?
+
+space windchimes
+space fountains
+pleasant scenery
+
+sensor sweep
+
+radar steering
+
+select targets on radar lock screen, up unto how many radar missiles the FLEET has equiped
+
+far away / jammed comms is distored /breaking up/
+
+SPACE SUBMARINE AND NUKES
+barotrauma but top down? 
+
+have radar lock warning tone
+
+fly by wire missle jammer proof
+fly by TV missle
+cruise missle - route programmable
+all missles can have different payloads - even nukes
+

@@ -398,7 +398,7 @@ G.MODULES = {
     stats:{ maxHull:+12, armor:+1, mass:+15 },
     energyDraw:0, hp:80, price:0, rarity:'c',
     desc:'Outer structural hull plating. Required to enclose inner modules for flight.',
-    visual:'armor',
+    visual:'hull',
   },
 
   // ── Class Core Modules ────────────────────────────────────

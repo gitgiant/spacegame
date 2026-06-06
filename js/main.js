@@ -268,7 +268,7 @@ G.Renderer = class {
       if(e.slot !== 'hull') continue;
       const tx = (e.col * STEP - offX + PAD) | 0;
       const ty = (e.row * STEP - offY + PAD) | 0;
-      this._drawHullTile(ctx, tx, ty, TILE, e.hullColor || '#667799', e.hullShape || 'square', e.hullFacing || 0);
+      this._drawHullTile(ctx, tx, ty, TILE, e.hullColor || '#667799', e.hullShape || 'square', e.hullFacing || 0, e.hullCurve || 0);
     }
     // Draw inner modules on top
     for(const e of entries) {
@@ -324,6 +324,7 @@ G.Renderer = class {
         entry.hullColor  = inst.color  || '#667799';
         entry.hullShape  = inst.shape  || 'square';
         entry.hullFacing = inst.facing || 0;
+        entry.hullCurve  = inst.curve  || 0;
       }
       entries.push(entry);
     }
@@ -331,8 +332,8 @@ G.Renderer = class {
   }
 
   // Draw a single hull panel tile with color and shape onto canvas
-  _drawHullTile(ctx, tx, ty, TILE, color, shape, facing) {
-    const sprite = G.Sprites.getHull(shape || 'square', facing || 0, color || '#667799', TILE);
+  _drawHullTile(ctx, tx, ty, TILE, color, shape, facing, curve = 0) {
+    const sprite = G.Sprites.getHull(shape || 'square', facing || 0, color || '#667799', TILE, curve || 0);
     ctx.drawImage(sprite, tx | 0, ty | 0, TILE, TILE);
   }
 
@@ -475,7 +476,7 @@ G.Renderer = class {
       if(inst) {
         const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
         if(mod?.slot === 'hull') {
-          this._drawHullTile(ctx, cx, cy, CELL - 1, inst.color || '#667799', inst.shape || 'square', inst.facing || 0);
+          this._drawHullTile(ctx, cx, cy, CELL - 1, inst.color || '#667799', inst.shape || 'square', inst.facing || 0, inst.curve || 0);
         } else {
           const slotCol = G.SLOT_RING[mod?.slot]?.color || '#334455';
           ctx.fillStyle = slotCol + '33'; ctx.fillRect(cx, cy, CELL - 1, CELL - 1);
@@ -1772,6 +1773,11 @@ G.Game = class {
     this._autopilot=false;
     this._bgEnabled=true;
 
+    // Mobile touch controls: default ON when a phone/tablet is detected,
+    // otherwise follow the saved preference (toggle in Options).
+    const _mobSaved = localStorage.getItem('nullpunkt_mobile_controls');
+    this._mobileControls = _mobSaved == null ? G.isMobileDevice() : _mobSaved === '1';
+
     // FPS counter
     this._fpsEl = document.getElementById('fps-counter');
     this._fpsHistory = [];
@@ -1797,6 +1803,16 @@ G.Game = class {
     G.game  = this;
     G.ui    = this.ui;
     G.sound = new G.SoundEngine();
+
+    // Reflect detected/saved mobile-control state into the Options toggle now
+    // that G.game exists (UI was constructed before this assignment).
+    const _mcChk = document.getElementById('opt-mobile-enabled');
+    if(_mcChk){
+      _mcChk.checked = this._mobileControls;
+      const _mcLbl = document.getElementById('opt-mobile-label');
+      if(_mcLbl) _mcLbl.textContent = this._mobileControls ? 'ON' : 'OFF';
+    }
+    this._updateMobileControls();
 
     this._prevHostileCount = 0;
     this.combatLog = [];
@@ -3018,6 +3034,20 @@ G.Game = class {
     document.getElementById('jump-route-hud')?.classList.add('hidden');
     document.getElementById('jump-charge-hud')?.classList.add('hidden');
   }
+  _saveMobilePref(on) {
+    this._mobileControls = !!on;
+    try { localStorage.setItem('nullpunkt_mobile_controls', on ? '1' : '0'); } catch(e){}
+    this._updateMobileControls();
+  }
+  // Show the on-screen pad only while flying or on the galaxy map, and never
+  // behind a full-screen menu overlay.
+  _updateMobileControls() {
+    const el = document.getElementById('mobile-controls');
+    if(!el) return;
+    const show = this._mobileControls && !this.input._menuOpen()
+              && (this.state==='space' || this.state==='galaxy');
+    el.classList.toggle('hidden', !show);
+  }
   toggleMinimap() {
     const wrap = document.getElementById('minimap-wrap');
     if(!wrap) return;
@@ -3175,6 +3205,7 @@ G.Game.prototype._loop = function(ts) {
     this.ui.updateJumpRouteHUD(this.player, this.galaxy, this._jumpCooldown);
     this.ui.updateAbilityBar(this.player);
   }
+  this._updateMobileControls();
 
   this._updateMusic(dt);
   this.input.flush();

@@ -13,6 +13,13 @@ G.v2 = {
   fromAngle:(a) => ({x:Math.sin(a), y:-Math.cos(a)}),
 };
 
+// Phone/tablet detection — touch capable AND a mobile user-agent.
+G.isMobileDevice = () => {
+  const touch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+  const ua = /Mobi|Android|iPhone|iPad|iPod|IEMobile|BlackBerry|Opera Mini/i.test(navigator.userAgent || '');
+  return touch && ua;
+};
+
 G.lerp = (a,b,t) => a + (b-a)*t;
 G.clamp = (v,mn,mx) => Math.max(mn,Math.min(mx,v));
 G.rand = (a,b) => a + Math.random()*(b-a);
