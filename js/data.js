@@ -721,7 +721,7 @@ G.SHIPS = {
     price:13000,
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:22000, baseTurn:0, baseCargoSpace:0,
-    slots:12,
+    slots:13,
     startModules:['core_pirate_fighter',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor','jump_drive'],
     startWeapons:['autocannon','autocannon','autocannon'],
     startCells:[31,40,57,59,58,51,47,41,39,21,22,23],
