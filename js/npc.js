@@ -647,6 +647,7 @@ G.NPCShip = class {
 
     // Combat mode
     if(this.hostile && this.combatTarget) {
+      if(this._scanState) this._endScanEncounter(false); // drop any in-progress inspection
       const ct = this.combatTarget;
       if(ct.dead||ct.boarded) {
         this.hostile=false; this.combatTarget=null;
@@ -659,6 +660,14 @@ G.NPCShip = class {
         this._updateCombat(dt, projectiles, particles, now);
         this.x+=this.vx*dt; this.y+=this.vy*dt; return;
       }
+    }
+
+    // Patrol inspection demands (only in faction-owned systems, when calm).
+    this._maybeStartScanDemand(dt);
+    if(this._scanState && this._tickScanEncounter(dt)) {
+      this._applyDrag(dt);
+      this.x += this.vx*dt; this.y += this.vy*dt;
+      return;
     }
 
     // Autonomous behavior
@@ -696,6 +705,118 @@ G.NPCShip = class {
         }
       }
     }
+  }
+
+  // ── Patrol scan demands ──────────────────────────────────
+  // A faction patrol policing its own system may demand to scan ships,
+  // including the player. Comply (hold position to be scanned) and you're
+  // waved through; flee and the patrol turns hostile with a faction hit.
+  _isPatrol() {
+    const g = G.game;
+    if(!g || this.hostile || this.dead || this.disabled || this.jumpingOut) return false;
+    if(this.faction !== 'earth' && this.faction !== 'rebellion') return false; // governments police space
+    // Only patrols that are actually out flying — not docked or jumping away.
+    if(['docked','parking','transit_to_jump','charging_jump'].includes(this.aiState)) return false;
+    const sys = G.SYSTEMS.find(s => s.id === this.sysId);
+    if(!sys || sys.faction !== this.faction) return false;                     // only their own territory
+    const rel = g.getRel(this.faction);
+    return rel > -30 && rel < 60; // already-hostile or trusted-ally pilots aren't stopped
+  }
+
+  _maybeStartScanDemand(dt) {
+    if(this._scanState) return;
+    const g = G.game, player = g?.player;
+    if(!player || player.dead) return;
+    if((g._scanDemandReadyAt || 0) > performance.now()/1000) return; // global pacing
+    const active = g._scanDemandActive;
+    if(active && active._scanState && !active.dead && !active.hostile) return; // one demand at a time
+    if(active) g._scanDemandActive = null;                                     // clear stale holder
+    if(!this._isPatrol()) return;
+    this._scanCheckTimer = (this._scanCheckTimer != null ? this._scanCheckTimer : 5 + Math.random()*8) - dt;
+    if(this._scanCheckTimer > 0) return;
+    this._scanCheckTimer = 8 + Math.random()*12;
+    if(Math.hypot(this.x - player.x, this.y - player.y) > 1800) return;
+    if(Math.random() < 0.5) this._startScanDemand();
+  }
+
+  _startScanDemand() {
+    const g = G.game;
+    this._scanState = 'demanding';
+    this._scanTimer = 15;       // seconds of patience before it's treated as fleeing
+    this._scanProgress = 0;
+    g._scanDemandActive = this;
+    const facCol = G.FACTIONS[this.faction]?.color || '#88ccee';
+    const bank = G.COMMS_LINES[this.faction] || G.COMMS_LINES.independent;
+    const facName = (G.FACTIONS[this.faction]?.name || this.faction);
+    const lines = bank.scan_demand || [
+      facName + ' patrol — cut your engines and hold for inspection.',
+      'Routine scan of all vessels in this system. Hold position, pilot.',
+      'This is a ' + facName + ' patrol. Power down and submit to a scan.',
+    ];
+    G.ui?.addMsg('['+this.name+']: "'+lines[Math.floor(Math.random()*lines.length)]+'"', facCol);
+    G.ui?.addMsg('PATROL: Hold position to be scanned — fleeing is treated as hostile.', '#ffcc44');
+    G.sound?.commsPing?.();
+  }
+
+  // Returns true while it is driving this ship's movement.
+  _tickScanEncounter(dt) {
+    const g = G.game, player = g?.player;
+    if(!player || player.dead || this.dead) { this._endScanEncounter(false); return false; }
+    if(this._scanState !== 'demanding') return false;
+
+    this._scanTimer -= dt;
+    const dist = Math.hypot(this.x - player.x, this.y - player.y);
+
+    // Intercept: close on the player and hold just off their hull.
+    this._steerTo(player.x, player.y, dt);
+    if(dist > 340) this._thrust(dt);
+
+    if(dist > 3000) { this._failScan('fled'); return true; }          // bolted out of range
+    if(this._scanTimer <= 0) { this._failScan('refused'); return true; } // ran out the clock
+
+    if(dist < 540) {
+      const before = this._scanProgress;
+      this._scanProgress += dt;
+      if(before < 0.05) G.ui?.addMsg('['+this.name+']: "Scanning your vessel — hold still."', G.FACTIONS[this.faction]?.color||'#88ccee');
+      if(this._scanProgress >= 3.0) { this._passScan(); return true; }
+    } else {
+      this._scanProgress = Math.max(0, this._scanProgress - dt * 0.5);
+    }
+    return true;
+  }
+
+  _passScan() {
+    G.ui?.addMsg('['+this.name+']: "Scan complete — you\'re clean. Safe travels."', G.FACTIONS[this.faction]?.color||'#88ccee');
+    G.sound?.commsPing?.();
+    this._endScanEncounter(true);
+  }
+
+  _failScan(reason) {
+    const g = G.game;
+    const facCol = '#ff5544';
+    const msg = reason === 'fled'
+      ? 'Evading inspection?! You\'re flagged hostile.'
+      : 'Non-compliance noted. Opening fire.';
+    G.ui?.addMsg('['+this.name+']: "'+msg+'"', facCol);
+    g?.setRel?.(this.faction, (g.getRel(this.faction)||0) - 12, '(evaded patrol scan)');
+    // This patrol and nearby faction-mates turn hostile.
+    this.hostile = true; this.combatTarget = g.player;
+    for(const n of (g.space?.npcs || [])) {
+      if(n === this || n.dead || n.faction !== this.faction) continue;
+      if(Math.hypot(n.x - this.x, n.y - this.y) < 1200) { n.hostile = true; n.combatTarget = g.player; }
+    }
+    G.ui?.openCommsHostile?.(this, msg);
+    this._endScanEncounter(false);
+  }
+
+  _endScanEncounter(/*success*/) {
+    const g = G.game;
+    if(g) {
+      if(g._scanDemandActive === this) g._scanDemandActive = null;
+      g._scanDemandReadyAt = performance.now()/1000 + 45 + Math.random()*60; // pace the next demand anywhere
+    }
+    this._scanState = null;
+    this._scanProgress = 0;
   }
 
   _updateAutonomous(dt, particles) {

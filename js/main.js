@@ -1862,6 +1862,37 @@ G.Game = class {
       }
     });
 
+    // Double-click a ship or planet → open its comms channel
+    this.canvas.addEventListener('dblclick', e => {
+      if(this.state !== 'space') return;
+      const rect = this.canvas.getBoundingClientRect();
+      const ratio = G.CANVAS_W / rect.width;
+      const cx = (e.clientX - rect.left) * ratio;
+      const cy = (e.clientY - rect.top)  * ratio;
+      const zoom = this.camZoom || 1;
+      const wx = (cx - G.CANVAS_W / 2) / zoom + this.camX + G.CANVAS_W / 2;
+      const wy = (cy - G.CANVAS_H / 2) / zoom + this.camY + G.CANVAS_H / 2;
+      const CLICK_RADIUS = 48 / zoom;
+      // Prefer a hailable ship, then a planet/station, under the cursor.
+      let best = null, bestD = CLICK_RADIUS;
+      for(const ship of this.space.allTargets()) {
+        if(ship.type === 'derelict' || ship.type === 'turret') continue;
+        const d = Math.hypot(ship.x - wx, ship.y - wy);
+        if(d < bestD) { bestD = d; best = ship; }
+      }
+      if(!best) {
+        for(const b of this.space.bodies) {
+          if(b.type !== 'planet' && b.type !== 'station') continue;
+          const d = Math.hypot(b.x - wx, b.y - wy);
+          if(d < Math.max(b.r + 8/zoom, CLICK_RADIUS)) { best = b; break; }
+        }
+      }
+      if(best) {
+        this.target = best;
+        this.ui.openComms(best);
+      }
+    });
+
     // Mouse-wheel zoom while flying; zoom past minimum → enter hex map
     this._zoomManual = 0;
     this.canvas.addEventListener('wheel', e => {
@@ -2789,9 +2820,19 @@ G.Game = class {
     this._hideHUD();
   }
 
+  // Can this object be read by the Scan ability?
+  _isScannable(t) {
+    return t && !t.dead && !t._deathDone &&
+      (t.type==='enemy' || t.type==='npc' || t.type==='derelict' || t.isFleetShip);
+  }
   _useAbility(abilityId, ship) {
     const def = G.ABILITIES?.[abilityId];
     if(!def) return;
+    // Scan needs a locked ship — check before spending energy/cooldown.
+    if(abilityId === 'scan' && !(ship === this.player && this._isScannable(this.target))) {
+      this.ui.addMsg('Scan: lock onto a ship first', '#ffaa44');
+      return;
+    }
     ship.abilityCooldowns = ship.abilityCooldowns || {};
     if((ship.abilityCooldowns[abilityId]||0) > 0) {
       const rem = Math.ceil(ship.abilityCooldowns[abilityId]);
@@ -2859,6 +2900,14 @@ G.Game = class {
       ship._superboostTimer = 5.0;
       G.sound?.boost?.();
       this.addCombatLog('Superboost!', '#00ff88');
+
+    } else if(abilityId === 'scan') {
+      const tgt = this.target;
+      tgt._scanned = true;
+      G.sound?.targetLock?.();
+      const nm = tgt.name || G.SHIPS[tgt.templateId||tgt.shapeId]?.name || 'target';
+      this.ui.addMsg('Scan complete — '+nm, '#44ddff');
+      this.addCombatLog('Scanned '+nm, '#44ddff');
     }
     this.ui.updateAbilityBar(ship);
   }

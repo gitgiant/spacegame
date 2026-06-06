@@ -339,6 +339,7 @@ G.Ship = class {
     this.canCraft   = false;
     this.tractorRange=0;
     this.sensorRange= 600;
+    this.canScan    = false;
     this.canJump        = false;
     this.jumpRange      = 0;
     this.jumpChargeTime = 99; // set from module
@@ -409,6 +410,7 @@ G.Ship = class {
       if(s.canCraft)        this.canCraft     = true;
       if(s.tractorRange)    this.tractorRange+= s.tractorRange;
       if(s.sensorRange)     this.sensorRange += s.sensorRange;
+      if(s.canScan)         this.canScan      = true;
       if(s.canJump)         this.canJump      = true;
       if(s.jumpRange)       this.jumpRange   += s.jumpRange;
       if(s.jumpChargeTime !== undefined) this.jumpChargeTime = Math.min(this.jumpChargeTime, s.jumpChargeTime);
@@ -456,6 +458,14 @@ G.Ship = class {
     this.fuel    = Math.min(this.fuel,    this.maxFuel);
 
     this._totalEnergyDraw = totalEnergyDraw;
+
+    // A sensor module grants the Scan ability; keep the ability list in sync
+    // so it appears/disappears with the module (self-heals on load too).
+    this.abilities = this.abilities || [];
+    const _hasScan = this.abilities.includes('scan');
+    // Non-mutating so a shared template ability array is never corrupted.
+    if(this.canScan && !_hasScan)       this.abilities = [...this.abilities, 'scan'];
+    else if(!this.canScan && _hasScan)  this.abilities = this.abilities.filter(a => a !== 'scan');
   }
 
   // ── Physics update ───────────────────────────────────

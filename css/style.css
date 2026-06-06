@@ -178,6 +178,18 @@ html, body {
 #tgt-arrow.hidden { display: none; }
 #tgt-dist { color: var(--col-dim); font-size: 5px; margin-top: 1px; }
 
+#tgt-scan {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(68,221,255,0.25);
+  max-width: 200px;
+}
+#tgt-scan.hidden { display: none; }
+.tgt-scan-hdr { color: #44ddff; font-size: 5px; letter-spacing: 1px; margin-bottom: 3px; }
+.tgt-scan-row { display: flex; gap: 5px; font-size: 5px; line-height: 1.6; }
+.tgt-scan-k { color: #557788; min-width: 30px; flex-shrink: 0; }
+.tgt-scan-v { color: #aaccdd; word-break: break-word; }
+
 #msgs {
   display: flex;
   flex-direction: column;
