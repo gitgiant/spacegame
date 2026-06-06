@@ -1511,9 +1511,9 @@ G.UI = class {
           <div style="margin-top:6px;font-size:5px;color:#aabbcc;margin-bottom:3px">HULL COLOR</div>
           <div style="display:flex;gap:2px;flex-wrap:wrap;margin-bottom:4px">${swatches}</div>
           <div style="font-size:5px;color:#556677;margin-bottom:2px">RGB SLIDERS</div>
-          <div style="font-size:5px;margin-bottom:2px">R: <input type="range" min="0" max="255" value="${r}" style="width:70px;vertical-align:middle" data-rgb="${rgbId}" data-ch="r" oninput="G.ui._updateRgbSlider(this,'${instId}')"> <span style="color:#ff8888" id="${rgbId}_r">${r}</span></div>
-          <div style="font-size:5px;margin-bottom:2px">G: <input type="range" min="0" max="255" value="${g}" style="width:70px;vertical-align:middle" data-rgb="${rgbId}" data-ch="g" oninput="G.ui._updateRgbSlider(this,'${instId}')"> <span style="color:#88ff88" id="${rgbId}_g">${g}</span></div>
-          <div style="font-size:5px;margin-bottom:4px">B: <input type="range" min="0" max="255" value="${b}" style="width:70px;vertical-align:middle" data-rgb="${rgbId}" data-ch="b" oninput="G.ui._updateRgbSlider(this,'${instId}')"> <span style="color:#8888ff" id="${rgbId}_b">${b}</span></div>
+          <div style="font-size:5px;margin-bottom:2px">R: <input type="range" min="0" max="255" value="${r}" style="width:70px;vertical-align:middle" data-rgb="${rgbId}" data-ch="r" oninput="G.ui._updateRgbDisplay(this,'${rgbId}')" onchange="G.ui._finalizeRgbSlider(this,'${instId}')"> <span style="color:#ff8888" id="${rgbId}_r">${r}</span></div>
+          <div style="font-size:5px;margin-bottom:2px">G: <input type="range" min="0" max="255" value="${g}" style="width:70px;vertical-align:middle" data-rgb="${rgbId}" data-ch="g" oninput="G.ui._updateRgbDisplay(this,'${rgbId}')" onchange="G.ui._finalizeRgbSlider(this,'${instId}')"> <span style="color:#88ff88" id="${rgbId}_g">${g}</span></div>
+          <div style="font-size:5px;margin-bottom:4px">B: <input type="range" min="0" max="255" value="${b}" style="width:70px;vertical-align:middle" data-rgb="${rgbId}" data-ch="b" oninput="G.ui._updateRgbDisplay(this,'${rgbId}')" onchange="G.ui._finalizeRgbSlider(this,'${instId}')"> <span style="color:#8888ff" id="${rgbId}_b">${b}</span></div>
           <div style="font-size:5px;color:#aabbcc;margin-bottom:3px">HULL SHAPE</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;margin-bottom:6px">${shapeBtns}</div>
           <div style="font-size:5px;color:#aabbcc;margin-bottom:3px">ROTATION  <span style="color:#556677">[Q/E]</span></div>
@@ -1902,12 +1902,15 @@ G.UI = class {
     this.renderSpaceportTab('builder');
   }
 
-  _updateRgbSlider(input, instId){
-    const rgbId = input.dataset.rgb;
+  _updateRgbDisplay(input, rgbId){
     const ch = input.dataset.ch;
     const val = parseInt(input.value);
     const el = document.getElementById(`${rgbId}_${ch}`);
     if(el) el.textContent = val;
+  }
+
+  _finalizeRgbSlider(input, instId){
+    const rgbId = input.dataset.rgb;
     const rVal = parseInt(document.querySelector(`[data-rgb="${rgbId}"][data-ch="r"]`)?.value || 0);
     const gVal = parseInt(document.querySelector(`[data-rgb="${rgbId}"][data-ch="g"]`)?.value || 0);
     const bVal = parseInt(document.querySelector(`[data-rgb="${rgbId}"][data-ch="b"]`)?.value || 0);
