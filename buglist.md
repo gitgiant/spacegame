@@ -6,16 +6,15 @@ all ships in a fleet share cargo space, and update all cargo space indicators to
 
 metoeors, flying with fire around them and hurt the player on impact. comets, damaging trail,
 
-when player creates new game have them create a new main character, with name, sex, and avatar. For now generate 1 male and 1 female avatar for each faction, and make their clothes the color of that faction. all ships have an internal character captain with their own avatar (name, sex, faction, etc).  When a ship is communicating on comms show their avatar.  
 
 when a comms message is being displayed, have the message appear letter by letter, and when a letter appears have the animal crossing style animalese effect play the letter sound to do a simple text to speech effect.  Have the ships captains avatar appear next to the message.  have male voices deeper than female ones. once the message is spelt out have it remain on screen for a few seconds then fade away.  Have voice sound option in options menu.  when player sends comms to other ship and the comms menu opens, draw that ships avatar and have them speak the responses.
 
-when the player lands somewhere, have a comms message from space traffic control welcoming the player.  Have the intial screen on the menu be artwork depicting the place.  Have each menu in the port have a comms pop up and welcome message from the shopowner that is placed only once.  
+when the player lands somewhere, have a comms message from space traffic control welcoming the player to that place.  Have the intial screen on the menu be artwork depicting the place.  Have each menu in the port have a comms pop up and welcome message from the shopowner that is placed only once.  
 
 
 main menu music, game over music, faction sector music
 
-have small chance that events will spawn, either when player arrives in system or during their stay in the system.  Some examples of events are a small/medium/large fleet arriving, or mutliple small/medium/large fleets arriving and fighting (doesnt have to have equal fleet size), merchant fleet arriving, merchant fleet being persued by pirates, etc.
+have small chance that events will spawn, either when player arrives in system or during their stay in the system.  Some examples of events are a small/medium/large fleet arriving, or mutliple small/medium/large fleets arriving and fighting (doesnt have to have equal fleet size), merchant fleet arriving, merchant fleet being persued by pirates, etc.  when events are triggered write down info in the log.
 
 character mode
 when landing switch to 2d side scroller style.  
@@ -31,6 +30,8 @@ ship abilities/ cooldowns.
 have ships have somewhat varied equipment (different weapons) bigger ships have multiple weeapons.
 
 have projectiles of bigger ships come out of their weapons, not the front nose
+
+turret-ed versions of weapons can turn 360. aimed versions of weapons? aimed abilities
 
 make the ships into 2d grids and built out of modules.  modules become "rooms" in the in person mode of the game.
 
@@ -65,7 +66,7 @@ fix nearby ship hyperspace buildup noise
 
 ship menu, name ship, see stats, status, 
 
-status effets, cooldown spells, abilities, grappling hook, tracktor beam, super shield, pushback, emp (disable own shields), 
+status effets, cooldown spells, abilities, grappling hook, tracktor beam, super shield, pushback, emp (disable own shields), damage, silience, slow, freeze, fire, 
 
 TTS make nato alphabet, use aviation lingo.
 
@@ -119,4 +120,40 @@ have various lock on noises as well as lock on warning.
 
 have nebulas/space clouds to block vision
 
-"dungeons" giant structures to fly into
+"dungeons" giant structures to fly into 
+
+solar panels
+batteries
+
+ship builder
+
+only allow selling of modules and purchasing of expansion slots at the outfitter.  remove installation of modules at the outfitter.  
+
+for installation of modules have the ship builder at port.  inside the shipbuilder show a grid representing the ship.  add cockpit module which all ships require to be equiped on the ship to make it flyable. allow the player to drag and drop module tiles from their module inventory onto the ship grid.  only allow the player to install as many modules as slots are available on the ship.  
+
+
+
+allow rotation of modules.  
+
+ship physics now have new rules for pupulsion.
+increase all ship max slots +4
+
+require a ship to have thruster modules equiped to provide thrust.  at least 2 rear pointed thrusters are needed to be able to push the ship forward and transpose left and right (decrease thruster on the side you want to turn).  at least one forward pointed thruster is required to back up.  for strafing, thrusters to the left and right are required.  calculate the actual thrust applied to ship based upon the thruster modules it has equipped. the direction they are pointing, and the ships weight. have all ships start with at least 2 rear pointed thrusters, and at least one forward pointed thrusters.  
+
+all ships require at least 1 reactor
+
+
+lock on speed determined by radar, signal module, distance
+
+turreted weapons have different arcs
+
+
+
+have a bank to loan player money after ship is destroyed.
+
+have map be procedurally generated
+
+but need tutorial zone, level 1, 2, 3, 4, 5
+
+irrregular shaped modules/
+tetris that bitch

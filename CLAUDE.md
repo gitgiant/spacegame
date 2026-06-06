@@ -59,7 +59,7 @@ galaxy.js → ui.js → sound.js → main.js
 
 **Ship stats** are stored as base values on the template (`G.SHIPS[id]`) then recomputed from installed modules by `ship._recompute()`. Always call `_recompute()` after installing or removing a module.
 
-**Save/load** uses `localStorage` key `starfarer_save_v2`. `G.game.saveGame()` / `G.game.loadGame(data)`.
+**Save/load** uses `localStorage` key `nullpunkt_save_v2`. `G.game.saveGame()` / `G.game.loadGame(data)`.
 
 **Camera** lives on `G.game` (`camX`, `camY`, `camZoom`). World coordinates are centered; the renderer translates to `(CANVAS_W/2, CANVAS_H/2)` then offsets by `-(camX + CANVAS_W/2)`.
 

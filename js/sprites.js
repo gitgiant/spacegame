@@ -36,6 +36,95 @@ G.Sprites = {
     return c;
   },
 
+  TSZ: 10, // turret sprite size
+
+  // Pre-rendered hull panel sprite for given shape/facing/color/size
+  getHull(shape, facing, color, tileSize) {
+    const key = `__hull_${shape}_${facing}_${color}_${tileSize | 0}`;
+    if(this._cache.has(key)) return this._cache.get(key);
+    const SZ = tileSize | 0;
+    const c = document.createElement('canvas');
+    c.width = c.height = SZ;
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    const h = SZ / 2;
+    const isCorner = facing >= 4;
+    const rot = (isCorner ? facing - 4 : (facing || 0)) * Math.PI / 2;
+    ctx.save();
+    ctx.translate(h, h);
+    if(rot) ctx.rotate(rot);
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 0.75;
+    ctx.beginPath();
+    if(isCorner) {
+      if(shape === 'right_triangle') {
+        ctx.moveTo(-h, h); ctx.lineTo(h, h); ctx.lineTo(-h, -h);
+      } else if(shape === 'triangle') {
+        ctx.moveTo(-h, 0); ctx.lineTo(0, -h);
+        ctx.lineTo(h, -h); ctx.lineTo(h, h); ctx.lineTo(-h, h);
+      } else if(shape === 'convex') {
+        const r = h * 0.65;
+        ctx.moveTo(-h + r, -h); ctx.lineTo(h, -h);
+        ctx.lineTo(h, h); ctx.lineTo(-h, h); ctx.lineTo(-h, -h + r);
+        ctx.quadraticCurveTo(-h, -h, -h + r, -h);
+      } else {
+        ctx.moveTo(-h, 0);
+        ctx.arc(-h, -h, h, Math.PI / 2, 0, true);
+        ctx.lineTo(h, -h); ctx.lineTo(h, h); ctx.lineTo(-h, h);
+      }
+    } else {
+      if(shape === 'right_triangle') {
+        ctx.moveTo(-h, h); ctx.lineTo(h, h); ctx.lineTo(-h, -h);
+      } else if(shape === 'triangle') {
+        ctx.moveTo(-h, h); ctx.lineTo(h, h); ctx.lineTo(0, -h);
+      } else if(shape === 'quarterround') {
+        ctx.moveTo(-h, h); ctx.lineTo(h, h); ctx.lineTo(h, 0);
+        ctx.quadraticCurveTo(h, -h, 0, -h);
+        ctx.quadraticCurveTo(-h, -h, -h, 0);
+      } else if(shape === 'convex') {
+        ctx.moveTo(-h, h); ctx.lineTo(h, h); ctx.lineTo(h, -h * 0.15);
+        ctx.bezierCurveTo(h * 0.85, -h, -h * 0.85, -h, -h, -h * 0.15);
+      } else {
+        ctx.rect(-h, -h, SZ, SZ);
+      }
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+    this._cache.set(key, c);
+    return c;
+  },
+
+  getTurret() {
+    const key = '__turret';
+    if(this._cache.has(key)) return this._cache.get(key);
+    const TSZ = this.TSZ;
+    const c = document.createElement('canvas');
+    c.width = c.height = TSZ;
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    const cx = TSZ / 2, cy = TSZ / 2;
+    // Mounting ring base
+    ctx.fillStyle = '#2a2a2a';
+    ctx.beginPath(); ctx.arc(cx, cy + 1, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#484848';
+    ctx.beginPath(); ctx.arc(cx, cy + 1, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#5a5a5a';
+    ctx.beginPath(); ctx.arc(cx, cy + 1, 1.5, 0, Math.PI * 2); ctx.fill();
+    // Barrel (points up = toward y=0, which is ship-forward)
+    ctx.fillStyle = '#3a3a3a';
+    ctx.fillRect(cx - 1, 0, 2, cy);
+    ctx.fillStyle = '#606060';
+    ctx.fillRect(cx - 1, 0, 1, cy - 1); // left highlight
+    // Barrel tip
+    ctx.fillStyle = '#888888';
+    ctx.fillRect(cx - 1, 0, 2, 2);
+    this._cache.set(key, c);
+    return c;
+  },
+
   // ── Colour helpers ──────────────────────────────────────
   _sh(hex, d) {
     const cl = v => v < 0 ? 0 : v > 255 ? 255 : v|0;
@@ -974,16 +1063,19 @@ G.ShipImages = {
 
   _process(img, preAlpha = false) {
     const TARGET = 128;
-    const srcSize = Math.min(img.naturalWidth, img.naturalHeight);
-    if (!srcSize) return null;
-    const offX = ((img.naturalWidth  - srcSize) / 2) | 0;
-    const offY = ((img.naturalHeight - srcSize) / 2) | 0;
+    const w = img.naturalWidth, h = img.naturalHeight;
+    if (!w || !h) return null;
+    // Contain-fit the entire image into the square (no cropping); aspect preserved,
+    // unused space stays transparent.
+    const scale = TARGET / Math.max(w, h);
+    const dw = w * scale, dh = h * scale;
+    const dx = ((TARGET - dw) / 2) | 0, dy = ((TARGET - dh) / 2) | 0;
     const c = document.createElement('canvas');
     c.width = c.height = TARGET;
     const ctx = c.getContext('2d');
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(img, offX, offY, srcSize, srcSize, 0, 0, TARGET, TARGET);
+    ctx.drawImage(img, 0, 0, w, h, dx, dy, dw, dh);
     if (!preAlpha) {
       const id = ctx.getImageData(0, 0, TARGET, TARGET);
       const d = id.data;

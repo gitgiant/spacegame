@@ -261,16 +261,26 @@ G.SoundEngine = class {
     this._boostHissGain.gain.setTargetAtTime(isActive ? 0.07 : 0, now, 0.05);
   }
 
+  // ── Stereo pan helper ────────────────────────────────────
+  // Returns _master when pan≈0, otherwise creates a StereoPannerNode → master.
+  _out(pan = 0) {
+    if (Math.abs(pan || 0) <= 0.005) return this._master;
+    const panner = this._ac.createStereoPanner();
+    panner.pan.value = Math.max(-1, Math.min(1, pan));
+    panner.connect(this._master);
+    return panner;
+  }
+
   // ── Spatial attenuation helper ───────────────────────────
-  // Returns an output node attenuated by distance. Returns null when too far.
-  _spatialOut(dist, maxDist = 1800) {
+  // Returns an output node attenuated by distance and panned. Returns null when too far.
+  _spatialOut(dist, pan = 0, maxDist = 1800) {
     const ac = this._ac;
-    if (!dist || dist <= 0) return this._master;
+    if (!dist || dist <= 0) return this._out(pan);
     const falloff = 1 - Math.min(1, dist / maxDist);
     if (falloff < 0.01) return null;
     const gain = ac.createGain();
     gain.gain.value = falloff * falloff * 0.9;
-    gain.connect(this._master);
+    gain.connect(this._out(pan));
     if (dist > 250) {
       const lpf = ac.createBiquadFilter();
       lpf.type = 'lowpass';
@@ -408,7 +418,7 @@ G.SoundEngine = class {
   }
 
   // ── Enemy weapon (distance-attenuated) ───────────────────
-  enemyWeapon(type, dist) {
+  enemyWeapon(type, dist, pan = 0) {
     if (!this.enabled) return;
     const MAX = 1300;
     if (dist > MAX) return;
@@ -417,7 +427,7 @@ G.SoundEngine = class {
     const vol = 0.07 * (1 - dist / MAX);
     const g = ac.createGain();
     g.gain.setValueAtTime(vol, now);
-    g.connect(this._master);
+    g.connect(this._out(pan));
     if (type === 'laser') {
       if (this._buffers.laser) {
         const src = ac.createBufferSource(); src.buffer = this._buffers.laser;
@@ -552,7 +562,7 @@ G.SoundEngine = class {
     this.stopJumpCharge();
     const ac  = this._ctx();
     const now = ac.currentTime;
-    const out = this._spatialOut(dist, 3000) ?? this._master;
+    const out = this._spatialOut(dist, 0, 3000) ?? this._master;
 
     // Frequency sweep down
     const osc = ac.createOscillator();
@@ -615,20 +625,23 @@ G.SoundEngine = class {
   }
 
   // ── Combat / damage ──────────────────────────────────────
-  explosion(dist) {
+  explosion(dist, pan = 0) {
     if (!this.enabled) return;
     const ac  = this._ctx();
     const now = ac.currentTime;
-    const out = this._spatialOut(dist);
+    const out = this._spatialOut(dist, pan);
     if (!out) return;
+    const pitch = 0.8 + Math.random() * 0.4; // randomize so stacked explosions differ
     if (this._buffers.explosion) {
       const src = ac.createBufferSource(); src.buffer = this._buffers.explosion;
+      src.playbackRate.value = pitch;
       const g = ac.createGain(); g.gain.value = 0.9;
       src.connect(g); g.connect(out); src.start(now);
       return;
     }
     const src = ac.createBufferSource();
     src.buffer = this._noise(1.4);
+    src.playbackRate.value = pitch;
     const flt = ac.createBiquadFilter();
     flt.type = 'lowpass';
     flt.frequency.setValueAtTime(3200, now);
@@ -716,7 +729,7 @@ G.SoundEngine = class {
     src.start(now); src.stop(now + 0.13);
   }
 
-  shieldHit() {
+  shieldHit(pan = 0) {
     if (!this.enabled || !this._ac) return;
     const now = this._ac.currentTime;
     if (now - this._shldHitAt < 0.12) return;
@@ -729,11 +742,11 @@ G.SoundEngine = class {
     const g = ac.createGain();
     g.gain.setValueAtTime(0.11, now);
     g.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
-    osc.connect(g); g.connect(this._master);
+    osc.connect(g); g.connect(this._out(pan));
     osc.start(now); osc.stop(now + 0.15);
   }
 
-  shieldsLost() {
+  shieldsLost(pan = 0) {
     if (!this.enabled) return;
     const ac  = this._ctx();
     const now = ac.currentTime;
@@ -745,15 +758,15 @@ G.SoundEngine = class {
     const g = ac.createGain();
     g.gain.setValueAtTime(0.15, now);
     g.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
-    osc.connect(g); g.connect(this._master);
+    osc.connect(g); g.connect(this._out(pan));
     osc.start(now); osc.stop(now + 0.36);
   }
 
-  shipDisabled(dist) {
+  shipDisabled(dist, pan = 0) {
     if (!this.enabled) return;
     const ac  = this._ctx();
     const now = ac.currentTime;
-    const out = this._spatialOut(dist);
+    const out = this._spatialOut(dist, pan);
     if (!out) return;
     [800, 500].forEach((freq, i) => {
       const osc = ac.createOscillator();
@@ -770,29 +783,30 @@ G.SoundEngine = class {
 
   // ── Per-weapon hull impacts ──────────────────────────────
   // Dispatches to a distinct synth per weapon type (G.WEAPONS[].type)
-  weaponHit(type) {
+  weaponHit(type, pan = 0) {
     if (!this.enabled || !this._ac) return;
     const now = this._ac.currentTime;
     if (now - this._wpnHitAt < 0.05) return;   // global debounce vs rapid fire
     this._wpnHitAt = now;
+    const out = this._out(pan);
     switch (type) {
-      case 'laser':     return this._hitLaser();
-      case 'missile':   return this._hitMissile();
-      case 'explosion': return this._hitExplosion();
-      case 'emp':       return this._hitEmp();
-      case 'mining':    return this._hitMining();
+      case 'laser':     return this._hitLaser(out);
+      case 'missile':   return this._hitMissile(out);
+      case 'explosion': return this._hitExplosion(out);
+      case 'emp':       return this._hitEmp(out);
+      case 'mining':    return this._hitMining(out);
       case 'projectile':
-      default:          return this._hitKinetic();
+      default:          return this._hitKinetic(out);
     }
   }
 
   // Laser — bright electric sizzle with a quick descending zap
-  _hitLaser() {
+  _hitLaser(out) {
     const ac = this._ctx(), now = ac.currentTime;
     if (this._buffers.laser) {
       const src = ac.createBufferSource(); src.buffer = this._buffers.laser;
       const g = ac.createGain(); g.gain.value = 0.4;
-      src.connect(g); g.connect(this._master); src.start(now);
+      src.connect(g); g.connect(out); src.start(now);
       return;
     }
     const src = ac.createBufferSource(); src.buffer = this._noise(0.08);
@@ -800,7 +814,7 @@ G.SoundEngine = class {
     const g = ac.createGain();
     g.gain.setValueAtTime(0.16, now);
     g.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
-    src.connect(flt); flt.connect(g); g.connect(this._master);
+    src.connect(flt); flt.connect(g); g.connect(out);
     src.start(now); src.stop(now + 0.09);
     const osc = ac.createOscillator(); osc.type = 'sawtooth';
     osc.frequency.setValueAtTime(1800, now);
@@ -808,19 +822,19 @@ G.SoundEngine = class {
     const g2 = ac.createGain();
     g2.gain.setValueAtTime(0.08, now);
     g2.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
-    osc.connect(g2); g2.connect(this._master);
+    osc.connect(g2); g2.connect(out);
     osc.start(now); osc.stop(now + 0.08);
   }
 
   // Kinetic (railgun/autocannon/mass driver) — hard metallic clang
-  _hitKinetic() {
+  _hitKinetic(out) {
     const ac = this._ctx(), now = ac.currentTime;
     const src = ac.createBufferSource(); src.buffer = this._noise(0.1);
     const flt = ac.createBiquadFilter(); flt.type = 'lowpass'; flt.frequency.value = 600;
     const g = ac.createGain();
     g.gain.setValueAtTime(0.3, now);
     g.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-    src.connect(flt); flt.connect(g); g.connect(this._master);
+    src.connect(flt); flt.connect(g); g.connect(out);
     src.start(now); src.stop(now + 0.11);
     const osc = ac.createOscillator(); osc.type = 'square';
     osc.frequency.setValueAtTime(440, now);
@@ -829,12 +843,12 @@ G.SoundEngine = class {
     const g2 = ac.createGain();
     g2.gain.setValueAtTime(0.1, now);
     g2.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
-    osc.connect(bp); bp.connect(g2); g2.connect(this._master);
+    osc.connect(bp); bp.connect(g2); g2.connect(out);
     osc.start(now); osc.stop(now + 0.13);
   }
 
   // Missile — punchy boom with a low sine thump
-  _hitMissile() {
+  _hitMissile(out) {
     const ac = this._ctx(), now = ac.currentTime;
     const src = ac.createBufferSource(); src.buffer = this._noise(0.35);
     const flt = ac.createBiquadFilter(); flt.type = 'lowpass';
@@ -843,7 +857,7 @@ G.SoundEngine = class {
     const g = ac.createGain();
     g.gain.setValueAtTime(0.4, now);
     g.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
-    src.connect(flt); flt.connect(g); g.connect(this._master);
+    src.connect(flt); flt.connect(g); g.connect(out);
     src.start(now); src.stop(now + 0.36);
     const osc = ac.createOscillator(); osc.type = 'sine';
     osc.frequency.setValueAtTime(140, now);
@@ -851,12 +865,12 @@ G.SoundEngine = class {
     const g2 = ac.createGain();
     g2.gain.setValueAtTime(0.3, now);
     g2.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-    osc.connect(g2); g2.connect(this._master);
+    osc.connect(g2); g2.connect(out);
     osc.start(now); osc.stop(now + 0.31);
   }
 
   // Explosion (grenade) — bigger, deeper detonation
-  _hitExplosion() {
+  _hitExplosion(out) {
     const ac = this._ctx(), now = ac.currentTime;
     const src = ac.createBufferSource(); src.buffer = this._noise(0.5);
     const flt = ac.createBiquadFilter(); flt.type = 'lowpass';
@@ -866,7 +880,7 @@ G.SoundEngine = class {
     g.gain.setValueAtTime(0.45, now);
     g.gain.setValueAtTime(0.4, now + 0.05);
     g.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
-    src.connect(flt); flt.connect(g); g.connect(this._master);
+    src.connect(flt); flt.connect(g); g.connect(out);
     src.start(now); src.stop(now + 0.51);
     const osc = ac.createOscillator(); osc.type = 'sine';
     osc.frequency.setValueAtTime(110, now);
@@ -874,12 +888,12 @@ G.SoundEngine = class {
     const g2 = ac.createGain();
     g2.gain.setValueAtTime(0.32, now);
     g2.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
-    osc.connect(g2); g2.connect(this._master);
+    osc.connect(g2); g2.connect(out);
     osc.start(now); osc.stop(now + 0.46);
   }
 
   // EMP — buzzy electric crackle (square tone gated by a fast LFO)
-  _hitEmp() {
+  _hitEmp(out) {
     const ac = this._ctx(), now = ac.currentTime;
     const osc = ac.createOscillator(); osc.type = 'square';
     osc.frequency.setValueAtTime(900, now);
@@ -890,20 +904,20 @@ G.SoundEngine = class {
     const lfo = ac.createOscillator(); lfo.type = 'square'; lfo.frequency.value = 60;
     const lfoG = ac.createGain(); lfoG.gain.value = 0.06;
     lfo.connect(lfoG); lfoG.connect(g.gain);
-    osc.connect(g); g.connect(this._master);
+    osc.connect(g); g.connect(out);
     osc.start(now); osc.stop(now + 0.23);
     lfo.start(now); lfo.stop(now + 0.23);
   }
 
   // Mining laser — gritty rocky crunch
-  _hitMining() {
+  _hitMining(out) {
     const ac = this._ctx(), now = ac.currentTime;
     const src = ac.createBufferSource(); src.buffer = this._noise(0.15);
     const flt = ac.createBiquadFilter(); flt.type = 'bandpass'; flt.frequency.value = 900; flt.Q.value = 1.2;
     const g = ac.createGain();
     g.gain.setValueAtTime(0.26, now);
     g.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
-    src.connect(flt); flt.connect(g); g.connect(this._master);
+    src.connect(flt); flt.connect(g); g.connect(out);
     src.start(now); src.stop(now + 0.16);
   }
 
@@ -924,10 +938,11 @@ G.SoundEngine = class {
     });
   }
 
-  boost() {
+  boost(pan = 0) {
     if (!this.enabled) return;
     const ac  = this._ctx();
     const now = ac.currentTime;
+    const out = this._out(pan);
     // Sweeping high-pass filter white noise for boost
     const src = ac.createBufferSource();
     src.buffer = this._noise(0.35);
@@ -947,10 +962,10 @@ G.SoundEngine = class {
     }
     const conv = ac.createConvolver(); conv.buffer = revBuf;
     const convG = ac.createGain(); convG.gain.value = 0.4;
-    conv.connect(convG); convG.connect(this._master);
+    conv.connect(convG); convG.connect(out);
     src.connect(flt); flt.connect(g);
-    g.connect(this._master); // dry
-    g.connect(conv);          // wet reverb tail
+    g.connect(out); // dry
+    g.connect(conv); // wet reverb tail
     src.start(now); src.stop(now + 0.36);
   }
 
@@ -1216,6 +1231,115 @@ G.SoundEngine = class {
       osc.connect(g); g.connect(this._uiOut);
       osc.start(now + i * 0.08); osc.stop(now + i * 0.08 + 0.17);
     });
+  }
+
+  abilityFrost() {
+    if (!this.enabled) return;
+    const ac = this._ctx(), now = ac.currentTime;
+    [320, 480, 640].forEach((f, i) => {
+      const osc = ac.createOscillator(); osc.type = 'sine'; osc.frequency.value = f;
+      const g = ac.createGain();
+      g.gain.setValueAtTime(0, now + i * 0.06);
+      g.gain.linearRampToValueAtTime(0.12, now + i * 0.06 + 0.05);
+      g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.06 + 0.45);
+      osc.connect(g); g.connect(this._master);
+      osc.start(now + i * 0.06); osc.stop(now + i * 0.06 + 0.5);
+    });
+    const src = ac.createBufferSource(); src.buffer = this._noise(0.5);
+    const flt = ac.createBiquadFilter(); flt.type = 'highpass'; flt.frequency.value = 3000;
+    const g2 = ac.createGain(); g2.gain.setValueAtTime(0.06, now); g2.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    src.connect(flt); flt.connect(g2); g2.connect(this._master); src.start(now); src.stop(now + 0.52);
+  }
+
+  abilityHeal() {
+    if (!this.enabled) return;
+    const ac = this._ctx(), now = ac.currentTime;
+    [440, 550, 660, 880].forEach((f, i) => {
+      const osc = ac.createOscillator(); osc.type = 'sine'; osc.frequency.value = f;
+      const g = ac.createGain();
+      g.gain.setValueAtTime(0, now + i * 0.08);
+      g.gain.linearRampToValueAtTime(0.09, now + i * 0.08 + 0.06);
+      g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.08 + 0.5);
+      osc.connect(g); g.connect(this._master);
+      osc.start(now + i * 0.08); osc.stop(now + i * 0.08 + 0.55);
+    });
+  }
+
+  abilityChaff() {
+    if (!this.enabled) return;
+    const ac = this._ctx(), now = ac.currentTime;
+    const src = ac.createBufferSource(); src.buffer = this._noise(0.4);
+    const flt = ac.createBiquadFilter(); flt.type = 'bandpass'; flt.frequency.value = 2000; flt.Q.value = 0.4;
+    const g = ac.createGain(); g.gain.setValueAtTime(0.18, now); g.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    src.connect(flt); flt.connect(g); g.connect(this._master); src.start(now); src.stop(now + 0.42);
+  }
+
+  abilityBrake() {
+    if (!this.enabled) return;
+    const ac = this._ctx(), now = ac.currentTime;
+    const osc = ac.createOscillator(); osc.type = 'square';
+    osc.frequency.setValueAtTime(200, now); osc.frequency.exponentialRampToValueAtTime(40, now + 0.3);
+    const g = ac.createGain(); g.gain.setValueAtTime(0.15, now); g.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    osc.connect(g); g.connect(this._master); osc.start(now); osc.stop(now + 0.32);
+  }
+
+  menuSwell(startOffset = 0) {
+    if (!this.enabled) return;
+    const remaining = 5.0 - startOffset;
+    if (remaining <= 0.1) return;
+    const ac   = this._ctx();
+    const now  = ac.currentTime;
+    // t0 = virtual time-zero of animation, adjusted so automation targets stay correct
+    const t0   = now - startOffset;
+    const peak = 3.9;   // fly-past moment in animation time
+    const total = 5.0;
+
+    // White noise — full buffer, start playback at offset into it
+    const len = Math.ceil(ac.sampleRate * total);
+    const buf = ac.createBuffer(1, len, ac.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const noise = ac.createBufferSource();
+    noise.buffer = buf;
+
+    // Lowpass Doppler sweep anchored to virtual t0
+    const filt = ac.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.setValueAtTime(60,   t0);
+    filt.frequency.exponentialRampToValueAtTime(8000, t0 + peak);
+    filt.frequency.exponentialRampToValueAtTime(80,   t0 + total);
+    filt.Q.setValueAtTime(0.8, t0);
+    filt.Q.linearRampToValueAtTime(6.0, t0 + peak);
+    filt.Q.linearRampToValueAtTime(1.0, t0 + total);
+
+    // Heavy reverb IR
+    const irLen = Math.ceil(ac.sampleRate * 3.5);
+    const ir = ac.createBuffer(2, irLen, ac.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const cd = ir.getChannelData(c);
+      for (let i = 0; i < irLen; i++)
+        cd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / irLen, 1.4);
+    }
+    const conv = ac.createConvolver();
+    conv.buffer = ir;
+
+    const dry = ac.createGain(); dry.gain.value = 0.2;
+    const wet = ac.createGain(); wet.gain.value = 0.8;
+
+    // Gain envelope anchored to virtual t0
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0.001, t0);
+    gain.gain.exponentialRampToValueAtTime(0.45, t0 + peak);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + total);
+
+    noise.connect(filt);
+    filt.connect(dry);  dry.connect(gain);
+    filt.connect(conv); conv.connect(wet); wet.connect(gain);
+    gain.connect(this._master || ac.destination);
+
+    // Start noise at startOffset position in the buffer so waveform matches
+    noise.start(now, startOffset);
+    noise.stop(now + remaining + 0.1);
   }
 
   menuClick() {
@@ -1607,6 +1731,35 @@ G.SoundEngine = class {
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
     src.connect(flt); flt.connect(g); g.connect(this._mLayers.drums);
     src.start(t); src.stop(t + 0.05);
+  }
+
+  airhorn() {
+    if(!this.enabled) return;
+    const ac = this._ctx(), now = ac.currentTime;
+    // Heavy reverb IR — 6 seconds, very slow decay
+    const revLen = Math.floor(ac.sampleRate * 6.5);
+    const revBuf = ac.createBuffer(2, revLen, ac.sampleRate);
+    for(let ch = 0; ch < 2; ch++) {
+      const d = revBuf.getChannelData(ch);
+      for(let i = 0; i < revLen; i++)
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / revLen, 0.7);
+    }
+    const conv = ac.createConvolver(); conv.buffer = revBuf;
+    const wetG = ac.createGain(); wetG.gain.value = 0.75;
+    conv.connect(wetG); wetG.connect(this._master);
+    // Three-note airhorn chord: Bb3, D4, F4 — classic major triad, harsh sawtooth
+    for(const freq of [233, 294, 349]) {
+      const osc = ac.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = freq;
+      const g = ac.createGain();
+      g.gain.setValueAtTime(0.001, now);
+      g.gain.linearRampToValueAtTime(0.28, now + 0.015);
+      g.gain.setValueAtTime(0.28, now + 1.1);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 1.9);
+      osc.connect(g);
+      g.connect(this._master);
+      g.connect(conv);
+      osc.start(now); osc.stop(now + 2.0);
+    }
   }
 
   // ── White noise buffer helper ────────────────────────────

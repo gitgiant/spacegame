@@ -90,7 +90,6 @@ G.fmtCredits = (n) => '$ '+Math.round(n).toLocaleString();
 
 // Rarity color helper
 G.rarityColor = (r) => G.RARITY[r]?.color || '#cccccc';
-G.rClass = (r) => G.RARITY[r]?.cls || 'rarity-c';
 
 // Generate a local system (planets, asteroids, stations) from system data
 G.generateLocalSystem = function(sys) {
@@ -475,8 +474,18 @@ G.genEnemyShips = function(sys, count) {
     const credits = Math.floor(50+danger*30+rng()*100);
     const cargoDrops = Math.floor(rng()*3);
 
-    const weapons = _genEnemyWeapons(shipFaction, danger, rng);
-    const primaryWpn = weapons[0];
+    const shipTpl = G.SHIPS[shapeId] || Object.values(G.SHIPS).find(s=>s.shape===shapeId);
+    const startWpnIds = shipTpl?.startWeapons || ['laser_cannon'];
+    const weapons = startWpnIds.map(id => {
+      const def = G.WEAPONS[id];
+      if(!def) return null;
+      const scale = 0.85 + rng()*0.35;
+      return { weaponId:id, damage:(def.damage||15)*scale, fireRate:def.fireRate||1.2, projSpeed:def.projSpeed||800,
+        range:def.range||700, color:def.color||col, type:def.type||'laser',
+        splash:def.splash||0, empStrength:def.empStrength||0, tracking:def.tracking||false,
+        width:def.width||2, turret:def.turret||false, lastShot:0 };
+    }).filter(Boolean);
+    const primaryWpn = weapons.find(w=>!w.turret) || weapons[0];
     enemies.push({
       type:'enemy',
       x:Math.cos(angle)*dist, y:Math.sin(angle)*dist,
@@ -499,6 +508,9 @@ G.genEnemyShips = function(sys, count) {
       patrolDist:600+rng()*800,
       patrolCenter:{x:Math.cos(angle)*dist*0.5, y:Math.sin(angle)*dist*0.5},
       disabled:false, boarded:false,
+      // ~20% of enemies in higher-danger systems get frost_nova
+      abilities: (danger >= 3 && rng() < 0.2) ? ['frost_nova'] : [],
+      abilityCooldowns: {},
     });
   }
 

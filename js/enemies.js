@@ -38,6 +38,14 @@ G.EnemyAI = class {
     }
     if(this.boarded) return;
 
+    // Frozen by Frost Nova — stop in place
+    if(this._frozenTimer > 0) {
+      this._frozenTimer -= dt;
+      this.vx *= 0.85; this.vy *= 0.85;
+      this.x += this.vx * dt; this.y += this.vy * dt;
+      return;
+    }
+
     // Fleet escort: keep patrol center on flagship
     if(this.fleetFlagshipId) {
       const flagship = G.game?.space?.enemies?.find(e=>e._fleetId===this.fleetFlagshipId);
@@ -179,7 +187,7 @@ G.EnemyAI = class {
               x: this.x+Math.sin(this.angle)*18, y: this.y-Math.cos(this.angle)*18,
               minSpd:20, maxSpd:60, life:0.15, r:2, color: wpn.color,
             });
-            G.sound?.enemyWeapon(wpn.type, distToPlayer);
+            G.sound?.enemyWeapon(wpn.type, distToPlayer, G.clamp((this.x-player.x)/900,-1,1));
           }
         }
       } else {
@@ -209,7 +217,7 @@ G.EnemyAI = class {
             x:this.x+Math.sin(this.angle)*18, y:this.y-Math.cos(this.angle)*18,
             minSpd:20, maxSpd:60, life:0.15, r:2, color:this.projColor,
           });
-          G.sound?.enemyWeapon(this.weaponType, distToPlayer);
+          G.sound?.enemyWeapon(this.weaponType, distToPlayer, G.clamp((this.x-player.x)/900,-1,1));
         }
       }
 
@@ -219,6 +227,30 @@ G.EnemyAI = class {
       this._locked = false;
       this._lockBeepT = 0;
       this._lockAlertT = 0;
+    }
+
+    // NPC ability usage — frost_nova when player is close and in engage state
+    if(this.abilities?.length && this.aiState === 'engage' && particles) {
+      this.abilityCooldowns = this.abilityCooldowns || {};
+      for(const abilId of this.abilities) {
+        const def = G.ABILITIES[abilId];
+        if(!def?.npcUsable) continue;
+        if((this.abilityCooldowns[abilId] || 0) > 0) { this.abilityCooldowns[abilId] -= dt; continue; }
+        if(abilId === 'frost_nova' && distToPlayer < def.range * 1.1) {
+          this.abilityCooldowns[abilId] = def.cooldown + Math.random() * 8;
+          particles.frost_nova(this.x, this.y, def.range);
+          G.sound?.abilityFrost?.();
+          // Freeze player
+          if(distToPlayer <= def.range) {
+            player._frozen = true;
+            player._frozenTimer = 2.0;
+          }
+        }
+      }
+    }
+    if(this.abilities?.length) {
+      this.abilityCooldowns = this.abilityCooldowns || {};
+      for(const k in this.abilityCooldowns) if(this.abilityCooldowns[k] > 0) this.abilityCooldowns[k] -= dt;
     }
 
     if(this.aiState === 'flee') {

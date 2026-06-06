@@ -105,6 +105,10 @@ G.Space = class {
       const npc = this._spawnNPC(sys);
       if(npc) npc.arriving = 2.0; // Show arrival effect for 2 seconds
     }
+
+    // World events: small chance one is already underway on arrival
+    this._eventTimer = 50 + Math.random()*70;
+    if(Math.random() < 0.12) this._triggerEvent(true);
   }
 
   _spawnNPC(sysArg) {
@@ -146,6 +150,111 @@ G.Space = class {
 
     this.npcs.push(npc);
     return npc;
+  }
+
+  // ── World events ─────────────────────────────────────────
+  _fleetSize(tier) {
+    const r = { small:[2,3], medium:[4,6], large:[7,10] }[tier] || [2,3];
+    return G.randInt(r[0], r[1]);
+  }
+
+  _eventSpawnPoint(minD=1800, maxD=2800) {
+    const p = G.game?.player;
+    const ox = p ? p.x : 0, oy = p ? p.y : 0;
+    const a = Math.random()*Math.PI*2;
+    const d = minD + Math.random()*(maxD-minD);
+    return { x: ox + Math.cos(a)*d, y: oy + Math.sin(a)*d };
+  }
+
+  // Hostile fleets warp into an empty hex beyond the outermost system body
+  _hostileHexSpawnPoint() {
+    const maxOrbit = this.bodies.reduce((m, b) => Math.max(m, b.orbitR || 0), 0);
+    const minD = Math.max(maxOrbit + 1200, 4000);
+    const d = minD + Math.random() * 2500;
+    const a = Math.random() * Math.PI * 2;
+    return { x: Math.cos(a)*d, y: Math.sin(a)*d };
+  }
+
+  // Spawn `size` NPC ships of `faction` clustered around (opts.x, opts.y).
+  _spawnEventFleet(faction, size, opts={}) {
+    const cx = opts.x ?? 0, cy = opts.y ?? 0;
+    const ships = [];
+    for(let i=0;i<size;i++) {
+      const n = new G.NPCShip(faction, this.bodies, this.sysId);
+      n.x = cx + (Math.random()-0.5)*500;
+      n.y = cy + (Math.random()-0.5)*500;
+      n.angle = Math.random()*Math.PI*2;
+      n.arriving = 2.0;
+      n.jumpingIn = true; n.jumpInTimer = 0.5;
+      if(opts.hostileTarget) { n.hostile = true; n.combatTarget = opts.hostileTarget; }
+      this.npcs.push(n);
+      ships.push(n);
+    }
+    return ships;
+  }
+
+  // Roll and spawn a random world event. Logs a line to the message feed.
+  _triggerEvent(onArrival, particles) {
+    const sys = G.SYSTEMS.find(s=>s.id===this.sysId);
+    if(!sys) return;
+    if(this.npcs.length > 24) return; // don't flood the system
+    const log = (msg, col) => G.ui?.addMsg('◆ EVENT: ' + msg, col || '#ffcc66');
+    const tier = ['small','small','medium','medium','large'][Math.floor(Math.random()*5)];
+    const TIER = tier.toUpperCase();
+    const facName = f => (G.FACTIONS[f]?.name || f);
+    const facCol  = f => (G.FACTIONS[f]?.color || '#ffcc66');
+    const roll = Math.random();
+
+    if(roll < 0.25) {
+      // Faction patrol / military fleet — warps in from outer hex
+      const pt = this._hostileHexSpawnPoint();
+      const fac = sys.faction==='rebellion' ? 'rebellion'
+                : (sys.faction==='pirate' || sys.faction==='alien') ? sys.faction
+                : 'earth';
+      const n = this._fleetSize(tier);
+      this._spawnEventFleet(fac, n, { x:pt.x, y:pt.y, particles });
+      log(`A ${TIER} ${facName(fac)} fleet (${n} ships) has jumped in.`, facCol(fac));
+
+    } else if(roll < 0.45) {
+      // Pirate raiding party — warps in from outer hex
+      const pt = this._hostileHexSpawnPoint();
+      const n = this._fleetSize(tier);
+      this._spawnEventFleet('pirate', n, { x:pt.x, y:pt.y, particles });
+      log(`A ${TIER} pirate raiding party (${n} ships) has arrived!`, '#ff5544');
+
+    } else if(roll < 0.70) {
+      // Two opposing fleets — each warps in from separate outer hexes
+      const pairs = [['earth','pirate'],['earth','alien'],['rebellion','alien']];
+      const [fA, fB] = pairs[Math.floor(Math.random()*pairs.length)];
+      const nA = this._fleetSize(tier);
+      const nB = this._fleetSize(['small','medium','large'][Math.floor(Math.random()*3)]);
+      const ptA = this._hostileHexSpawnPoint();
+      const ptB = this._hostileHexSpawnPoint();
+      this._spawnEventFleet(fA, nA, { x:ptA.x, y:ptA.y, particles });
+      this._spawnEventFleet(fB, nB, { x:ptB.x, y:ptB.y, particles });
+      log(`Combat detected — ${facName(fA)} (${nA}) engaging ${facName(fB)} (${nB})!`, '#ffaa33');
+
+    } else if(roll < 0.88) {
+      // Merchant convoy — arrives via normal space lanes
+      const pt = this._eventSpawnPoint();
+      const n = this._fleetSize(tier==='large' ? 'medium' : tier);
+      this._spawnEventFleet('independent', n, { x:pt.x, y:pt.y, particles });
+      log(`A merchant convoy (${n} ships) is passing through the system.`, '#66ccff');
+
+    } else {
+      // Merchant convoy pursued by pirates — pirates from outer hex
+      const pt = this._eventSpawnPoint();
+      const nm = this._fleetSize('small');
+      const merchants = this._spawnEventFleet('independent', nm, { x:pt.x, y:pt.y, particles });
+      const np = this._fleetSize(Math.random()<0.5 ? 'small' : 'medium');
+      const ptP = this._hostileHexSpawnPoint();
+      const pirates = this._spawnEventFleet('pirate', np, { x:ptP.x, y:ptP.y, particles });
+      for(const pir of pirates) {
+        pir.hostile = true;
+        pir.combatTarget = merchants[Math.floor(Math.random()*merchants.length)];
+      }
+      log(`Distress call — a merchant convoy (${nm}) is being pursued by pirates (${np})!`, '#ff8844');
+    }
   }
 
   update(dt, player, input, particles, now) {
@@ -209,16 +318,11 @@ G.Space = class {
       if(e.arriving) e.arriving -= dt;
       if(e._boosting && !e._prevBoosting) {
         const bd = Math.hypot(e.x - player.x, e.y - player.y);
-        if(bd < 1400) G.sound?.boost();
+        if(bd < 1400) G.sound?.boost(G.clamp((e.x-player.x)/900,-1,1));
       }
       e._prevBoosting = e._boosting;
-      if(!e.disabled&&particles) {
-        const eRate = e._boosting ? 0.7 : 0.3;
-        if(!e.disabled && Math.random()<eRate) {
-          if(e._boosting) particles.boost_trail(e.x,e.y,e.angle,e.size||1);
-          else particles.engine_trail(e.x,e.y,e.angle,e.vx,e.vy,e.size||1);
-        }
-      }
+      if(e._boosting&&!e.disabled&&particles&&Math.random()<0.7)
+        particles.boost_trail(e.x,e.y,e.angle,e.size||1);
     }
 
     // NPC ships
@@ -230,16 +334,11 @@ G.Space = class {
       if(n.arriving) n.arriving -= dt;
       if(n._boosting && !n._prevBoosting) {
         const bd = Math.hypot(n.x - player.x, n.y - player.y);
-        if(bd < 1400) G.sound?.boost();
+        if(bd < 1400) G.sound?.boost(G.clamp((n.x-player.x)/900,-1,1));
       }
       n._prevBoosting = n._boosting;
-      if(n.aiState!=='docked'&&!n.disabled&&particles) {
-        const nRate = n._boosting ? 0.6 : 0.2;
-        if(Math.random()<nRate) {
-          if(n._boosting) particles.boost_trail(n.x,n.y,n.angle,n.size||1);
-          else particles.engine_trail(n.x,n.y,n.angle,n.vx,n.vy,n.size||1);
-        }
-      }
+      if(n._boosting&&n.aiState!=='docked'&&!n.disabled&&particles&&Math.random()<0.6)
+        particles.boost_trail(n.x,n.y,n.angle,n.size||1);
     }
 
     // NPC respawn timer
@@ -247,6 +346,14 @@ G.Space = class {
     if(this._npcSpawnTimer <= 0 && this.npcs.length < 6) {
       this._npcSpawnTimer = 15 + Math.random()*20;
       this._spawnNPC();
+    }
+
+    // World events: periodic small chance to spawn one during the stay
+    if(this._eventTimer == null) this._eventTimer = 60;
+    this._eventTimer -= dt;
+    if(this._eventTimer <= 0) {
+      this._eventTimer = 70 + Math.random()*90;
+      if(Math.random() < 0.45) this._triggerEvent(false, particles);
     }
 
     // Respawn hostile enemies
@@ -261,11 +368,70 @@ G.Space = class {
       }
     }
 
+    // Chaff balls: travel, then explode into clouds after 1s
+    if(this.chaffBalls?.length) {
+      for(let bi=this.chaffBalls.length-1;bi>=0;bi--) {
+        const ball = this.chaffBalls[bi];
+        ball.x += ball.vx * dt;
+        ball.y += ball.vy * dt;
+        ball.vx *= 0.94; ball.vy *= 0.94;
+        ball.timer -= dt;
+        if(ball.timer <= 0) {
+          this.chaffClouds = this.chaffClouds || [];
+          this.chaffClouds.push({ x:ball.x, y:ball.y, r:ball.r, timer:3.5 });
+          if(particles) particles.chaff_burst(ball.x, ball.y, ball.vx, ball.vy);
+          G.sound?.abilityChaff?.();
+          this.chaffBalls.splice(bi,1);
+        }
+      }
+    }
+
+    // Chaff clouds: tick timer and detonate missiles that fly through them
+    if(this.chaffClouds?.length) {
+      for(let ci=this.chaffClouds.length-1;ci>=0;ci--) {
+        const cloud = this.chaffClouds[ci];
+        cloud.timer -= dt;
+        if(cloud.timer <= 0) { this.chaffClouds.splice(ci,1); continue; }
+      }
+    }
+
     // Projectiles
     for(let i=this.projectiles.length-1;i>=0;i--) {
       const p=this.projectiles[i];
       p.ttl-=dt;
       if(p.ttl<=0){this.projectiles.splice(i,1);continue;}
+
+      // Chaff balls: enemy missiles near a ball detonate the ball early
+      if(p.type === 'missile' && p.sourceId !== 'player' && this.chaffBalls?.length) {
+        let ballHit = false;
+        for(let bi=this.chaffBalls.length-1;bi>=0;bi--) {
+          const ball = this.chaffBalls[bi];
+          if(Math.hypot(p.x - ball.x, p.y - ball.y) < 40) {
+            this.chaffClouds = this.chaffClouds || [];
+            this.chaffClouds.push({ x:ball.x, y:ball.y, r:ball.r, timer:3.5 });
+            if(particles) { particles.chaff_burst(ball.x, ball.y, ball.vx, ball.vy); particles.explosion(p.x, p.y, 0, 0, 0.5); }
+            G.sound?.abilityChaff?.(); G.sound?.explosion?.(Math.hypot(p.x-player.x,p.y-player.y), G.clamp((p.x-player.x)/900,-1,1));
+            this.chaffBalls.splice(bi,1);
+            this.projectiles.splice(i,1);
+            ballHit = true; break;
+          }
+        }
+        if(ballHit) continue;
+      }
+      // Chaff clouds: enemy missiles that enter a chaff cloud explode immediately
+      if(p.type === 'missile' && p.sourceId !== 'player' && this.chaffClouds?.length) {
+        let chaffHit = false;
+        for(const cloud of this.chaffClouds) {
+          if(Math.hypot(p.x - cloud.x, p.y - cloud.y) < cloud.r) {
+            if(particles) particles.explosion(p.x, p.y, 0, 0, 0.5);
+            G.sound?.explosion?.(Math.hypot(p.x-player.x,p.y-player.y), G.clamp((p.x-player.x)/900,-1,1));
+            p.tracking = false;
+            this.projectiles.splice(i,1);
+            chaffHit = true; break;
+          }
+        }
+        if(chaffHit) continue;
+      }
 
       // Missile dormant phase: coast for 2s before engine ignites
       if(p.type === 'missile' && p.dormant) {
@@ -311,7 +477,7 @@ G.Space = class {
           for(let j=this.asteroids.length-1;j>=0;j--){
             const a=this.asteroids[j];
             if(G.circleHit(p.x,p.y,6,a.x,a.y,a.r)){
-              // Directly mine with weapon's mineRate (bypasses canMine check)
+              // Mine with the weapon's mineRate
               const wpnDef = G.WEAPONS[p.weaponId];
               const mineRate = wpnDef?.mineRate || 12;
               a.hp -= mineRate;
@@ -394,7 +560,11 @@ G.Space = class {
               if(t.hp<=0){
                 t._dead=true;
                 if(particles) particles.explosion(t.x,t.y,0,0,0.4);
-                G.sound?.explosion();
+                G.sound?.explosion(Math.hypot(t.x-player.x,t.y-player.y), G.clamp((t.x-player.x)/900,-1,1));
+              } else {
+                G.sound?.weaponHit(p.type, G.clamp((t.x-player.x)/900,-1,1));
+              }
+              if(t.hp<=0) {
                 // Small loot drop
                 const _td=['kinetic_rounds','metal_ore','electronics'];
                 const _ti=_td[Math.floor(Math.random()*_td.length)];
@@ -486,8 +656,65 @@ G.Space = class {
               }
             }
           }
+          // Cross-faction: NPC/enemy shots also hit ships from hostile factions
+          if(this.projectiles[i]===p && p.sourceId!=='turret') {
+            const shooter=[...this.npcs,...this.enemies].find(s=>s.id===p.sourceId);
+            if(shooter) {
+              const hostile=G.HOSTILE[shooter.faction]||{};
+              for(let j=this.enemies.length-1;j>=0;j--){
+                const e=this.enemies[j];
+                if(e.dead||e._deathDone||e.boarded||e.id===shooter.id) continue;
+                if(!hostile[e.faction]) continue;
+                if(G.circleHit(p.x,p.y,4,e.x,e.y,(e.size||1)*16+4)){
+                  this._onHitEnemy(e,p,particles);
+                  if(p.type==='missile'&&particles) this._missileExplosion(p,particles);
+                  if(!p.pierce){this.projectiles.splice(i,1);break;}
+                }
+              }
+              if(this.projectiles[i]===p) {
+                for(let j=this.npcs.length-1;j>=0;j--){
+                  const n=this.npcs[j];
+                  if(n.dead||n._deathDone||n.id===shooter.id) continue;
+                  if(!hostile[n.faction]) continue;
+                  if(G.circleHit(p.x,p.y,4,n.x,n.y,(n.size||1)*16+4)){
+                    n.takeDamage(p.damage,p.type);
+                    if(particles)particles.burst({x:p.x,y:p.y,minSpd:20,maxSpd:80,life:0.15,r:2,color:p.color},4);
+                    if(p.type==='missile'&&particles) this._missileExplosion(p,particles);
+                    if(!p.pierce){this.projectiles.splice(i,1);break;}
+                  }
+                }
+              }
+            }
+          }
         }
       }
+    }
+
+    // Player/fleet shots can intercept enemy missiles
+    {
+      const exploded = new Set(), usedShots = new Set();
+      for(let i = 0; i < this.projectiles.length; i++) {
+        const m = this.projectiles[i];
+        if(m.type !== 'missile' || m.sourceId === 'player' || exploded.has(m)) continue;
+        if(this.fleetShips.some(fs => fs.id === m.sourceId)) continue;
+        for(let j = 0; j < this.projectiles.length; j++) {
+          if(j === i || usedShots.has(this.projectiles[j])) continue;
+          const shot = this.projectiles[j];
+          if(shot.type === 'missile') continue;
+          const isFriendly = shot.sourceId === 'player' || this.fleetShips.some(fs => fs.id === shot.sourceId);
+          if(!isFriendly) continue;
+          if(G.circleHit(shot.x, shot.y, 4, m.x, m.y, 10)) {
+            exploded.add(m);
+            m.dead = true;
+            this._missileExplosion(m, particles);
+            if(!shot.pierce) usedShots.add(shot);
+            G.ui?.addMsg('Missile intercepted!', '#44ffff');
+            break;
+          }
+        }
+      }
+      if(exploded.size || usedShots.size)
+        this.projectiles = this.projectiles.filter(p => !exploded.has(p) && !usedShots.has(p));
     }
 
     // Fleet ships (player escorts)
@@ -504,13 +731,13 @@ G.Space = class {
         fs._dyingTimer-=dt; fs._dyingNextBang-=dt;
         if(fs._dyingNextBang<=0&&particles){
           particles.explosion(fs.x+(Math.random()-0.5)*30,fs.y+(Math.random()-0.5)*30,0,0,0.3);
-          G.sound?.explosion(Math.hypot(fs.x-player.x,fs.y-player.y));
+          G.sound?.explosion(Math.hypot(fs.x-player.x,fs.y-player.y), G.clamp((fs.x-player.x)/900,-1,1));
           fs._dyingNextBang=0.25;
         }
         fs.x+=fs.vx*dt; fs.y+=fs.vy*dt;
         if(fs._dyingTimer<=0){
           if(particles)particles.explosion(fs.x,fs.y,fs.vx,fs.vy,(fs.size||1)*1.5);
-          G.sound?.explosion(Math.hypot(fs.x-player.x,fs.y-player.y));
+          G.sound?.explosion(Math.hypot(fs.x-player.x,fs.y-player.y), G.clamp((fs.x-player.x)/900,-1,1));
           fs._deathDone=true;
         }
         continue;
@@ -522,7 +749,6 @@ G.Space = class {
         G.ui?.addMsg(fs.name+' DISABLED — cargo ejected','#ff8844');
       }
       fs.update(dt, player, G.game?.target, this.projectiles, particles, now);
-      if(!fs.disabled&&particles&&Math.random()<0.25) particles.engine_trail(fs.x,fs.y,fs.angle,fs.vx,fs.vy,fs.size||1);
     }
 
     // Floating loot pickup + magnet attraction
@@ -611,19 +837,20 @@ G.Space = class {
     const shieldsBefore = npc.shields;
     npc.takeDamage(proj.damage, proj.type);
     if(particles) {
+      const _nPan = G.clamp((npc.x-(G.game?.player?.x||0))/900,-1,1);
       if(shieldsBefore>0) {
         particles.shield_hit(proj.x,proj.y,(npc.size||1)*16);
-        G.sound?.shieldHit();
-        if(npc.shields <= 0) G.sound?.shieldsLost();
+        G.sound?.shieldHit(_nPan);
+        if(npc.shields <= 0) G.sound?.shieldsLost(_nPan);
       } else {
         particles.burst({x:proj.x,y:proj.y,minSpd:20,maxSpd:80,life:0.15,r:2,color:proj.color},4);
-        G.sound?.weaponHit(proj.type);
+        G.sound?.weaponHit(proj.type, _nPan);
       }
     }
     if(npc.disabled && !npc._disabledSoundPlayed) {
       npc._disabledSoundPlayed = true;
       const dist = G.game?.player ? Math.hypot(npc.x-G.game.player.x, npc.y-G.game.player.y) : 0;
-      G.sound?.shipDisabled(dist);
+      G.sound?.shipDisabled(dist, G.clamp((npc.x-(G.game?.player?.x||0))/900,-1,1));
       G.game?.addCombatLog((npc.name||npc.faction.toUpperCase()+' SHIP')+' DISABLED BY YOU', '#ff8844');
     }
   }
@@ -640,16 +867,17 @@ G.Space = class {
       else particles.burst({x:proj.x,y:proj.y,minSpd:20,maxSpd:80,life:0.15,r:2,color:proj.color},4);
     }
     if(proj.sourceId==='player' || proj.sourceId==='turret') {
+      const _ePan = G.clamp((enemy.x-(G.game?.player?.x||0))/900,-1,1);
       if(sb>0&&enemy.shields<sb) {
-        G.sound?.shieldHit();
-        if(enemy.shields <= 0) G.sound?.shieldsLost();
+        G.sound?.shieldHit(_ePan);
+        if(enemy.shields <= 0) G.sound?.shieldsLost(_ePan);
       } else {
-        G.sound?.weaponHit(proj.type);
+        G.sound?.weaponHit(proj.type, _ePan);
       }
     }
     if(!wasDisabled && enemy.disabled) {
       const dist = G.game?.player ? Math.hypot(enemy.x-G.game.player.x, enemy.y-G.game.player.y) : 0;
-      G.sound?.shipDisabled(dist);
+      G.sound?.shipDisabled(dist, G.clamp((enemy.x-(G.game?.player?.x||0))/900,-1,1));
       if(!enemy._disabledSoundPlayed) enemy._disabledSoundPlayed = true;
       const attacker = proj.sourceId === 'player' ? 'YOU' : (proj.sourceId||'').toUpperCase();
       G.game?.addCombatLog((enemy.faction||'ENEMY').toUpperCase()+' SHIP DISABLED BY '+attacker, '#ff8844');
@@ -730,8 +958,9 @@ G.Space = class {
 
   _missileExplosion(proj, particles) {
     if(particles) particles.explosion(proj.x, proj.y, 0, 0, 1.2);
-    const dist = G.game?.player ? Math.hypot(proj.x - G.game.player.x, proj.y - G.game.player.y) : 9999;
-    G.sound?.explosion(dist);
+    const pl = G.game?.player;
+    const dist = pl ? Math.hypot(proj.x - pl.x, proj.y - pl.y) : 9999;
+    G.sound?.explosion(dist, pl ? G.clamp((proj.x - pl.x)/900,-1,1) : 0);
   }
 
   _dropLoot(ship) {
@@ -840,7 +1069,7 @@ G.Space = class {
       if(particles) particles.explosion(ship.x+ox, ship.y+oy, 0, 0, 0.2+sz*0.15);
       const pl2 = G.game?.player;
       const d2 = pl2 ? Math.hypot(ship.x-pl2.x, ship.y-pl2.y) : 0;
-      G.sound?.explosion(d2);
+      G.sound?.explosion(d2, pl2 ? G.clamp((ship.x-pl2.x)/900,-1,1) : 0);
       const progress = 1 - Math.max(0, ship._dyingTimer) / ship._dyingInitialTimer;
       ship._dyingNextBang = Math.max(0.08, 0.45 - progress * 0.37);
     }
@@ -849,7 +1078,7 @@ G.Space = class {
       if(particles) particles.explosion(ship.x, ship.y, 0, 0, sz * 2.2);
       const plFin = G.game?.player;
       const dFin = plFin ? Math.hypot(ship.x-plFin.x, ship.y-plFin.y) : 0;
-      G.sound?.explosion(dFin);
+      G.sound?.explosion(dFin, plFin ? G.clamp((ship.x-plFin.x)/900,-1,1) : 0);
       // Shockwave: damage nearby ships
       const shockR = 140 + sz * 120;
       const shockDmg = 80 + sz * 160;
@@ -934,25 +1163,6 @@ G.Space = class {
 
   // ── Public helpers ───────────────────────────────────────
 
-  mineAsteroid(asteroid, player, particles) {
-    if(!player.canMine) return false;
-    asteroid.hp-=player.mineRate;
-    if(particles) particles.mine_spark(asteroid.x,asteroid.y);
-    if(asteroid.hp<=0) {
-      const dropId=G.randEl(asteroid.drops);
-      const qty=G.randInt(1,3);
-      this.floatingLoot.push({x:asteroid.x,y:asteroid.y,
-        vx:(Math.random()-0.5)*80,vy:(Math.random()-0.5)*80,
-        type:'item',itemId:dropId,qty,rarity:G.ITEMS[dropId]?.rarity||'c',ttl:60,
-        color:G.rarityColor(G.ITEMS[dropId]?.rarity||'c')});
-      const idx=this.asteroids.indexOf(asteroid);
-      if(idx>=0) this.asteroids.splice(idx,1);
-      if(particles) particles.explosion(asteroid.x,asteroid.y,0,0,0.6);
-      return true;
-    }
-    return false;
-  }
-
   scuttleEnemy(enemy) {
     if(!enemy.disabled) return;
     this._dropLoot(enemy);
@@ -1005,24 +1215,15 @@ G.Space = class {
     return nearest;
   }
 
-  nearestAsteroid(x,y,radius) {
-    let nearest=null,nearestD=radius;
-    for(const a of this.asteroids) {
-      const d=G.v2.dist({x,y},{x:a.x,y:a.y});
-      if(d<nearestD){nearestD=d;nearest=a;}
-    }
-    return nearest;
-  }
-
   // All targetable ships/objects (enemies, NPCs, derelicts, turrets)
   allTargets() {
-    return [
-      ...this.enemies.filter(e=>!e.dead&&!e._deathDone&&!e.boarded),
-      ...this.npcs.filter(n=>!n.dead&&!n._deathDone&&!n.boarded),
-      ...this.fleetShips.filter(f=>!f.dead&&!f._deathDone),
-      ...this.derelicts.filter(d=>!d.looted),
-      ...this.turrets.filter(t=>!t._dead),
-    ];
+    const out = [];
+    for(const e of this.enemies)    if(!e.dead&&!e._deathDone&&!e.boarded) out.push(e);
+    for(const n of this.npcs)        if(!n.dead&&!n._deathDone&&!n.boarded) out.push(n);
+    for(const f of this.fleetShips)  if(!f.dead&&!f._deathDone) out.push(f);
+    for(const d of this.derelicts)   if(!d.looted) out.push(d);
+    for(const t of this.turrets)     if(!t._dead) out.push(t);
+    return out;
   }
 
   nearestTarget(x, y) {

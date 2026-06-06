@@ -4,7 +4,25 @@ G.BASE_CANVAS_W = 1200;
 G.BASE_CANVAS_H = 750;
 G.CANVAS_W = 1200; // updated dynamically by _resize
 G.CANVAS_H = 750;
-G.SAVE_KEY  = 'starfarer_save_v2';
+G.SAVE_KEY  = 'nullpunkt_save_v2';
+
+// ── Hex-map constants & utilities ─────────────────────────
+G.HEX_PX    = 64;   // screen pixels per hex radius in hex-map view
+G.HEX_WORLD = 1500; // world units per hex radius (ship-position scaling)
+
+// All axial {q,r} coords at cube-distance n from origin (ring n)
+G.hexRing = function(n) {
+  if(n === 0) return [{q:0, r:0}];
+  const result = [];
+  for(let q = -n; q <= n; q++) {
+    const r1 = Math.max(-n, -q-n), r2 = Math.min(n, -q+n);
+    for(let r = r1; r <= r2; r++) {
+      if(Math.max(Math.abs(q), Math.abs(r), Math.abs(-q-r)) === n)
+        result.push({q, r});
+    }
+  }
+  return result;
+};
 
 // ── Renderer ──────────────────────────────────────────────
 G.Renderer = class {
@@ -93,7 +111,7 @@ G.Renderer = class {
     ctx.restore();
   }
 
-  drawShip(x, y, angle, shapeId, color, scale=1, thrusting=false, boosting=false, jumpStretch=1, strafeDir=0) {
+  drawShip(x, y, angle, shapeId, color, scale=1, thrusting=false, boosting=false, jumpStretch=1, strafeDir=0, superBoost=false, skipSprite=false) {
     if(isNaN(x)||isNaN(y)||!isFinite(x)||!isFinite(y)) return;
     const shape = G.SHAPES[shapeId] || G.SHAPES.shuttle;
     const ctx = this.ctx;
@@ -104,25 +122,45 @@ G.Renderer = class {
     ctx.scale(scale, scale * jumpStretch);
 
     // Draw ship sprite — photo image if available, else pixel-art
-    const imgCanvas = G.ShipImages?.get(shapeId);
-    if (imgCanvas) {
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(imgCanvas, -(SZ>>1), -(SZ>>1), SZ, SZ);
-    } else {
-      const sprite = G.Sprites.get(shapeId, color || shape.color);
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(sprite, -(SZ>>1), -(SZ>>1), SZ, SZ);
+    if(!skipSprite) {
+      const imgCanvas = G.ShipImages?.get(shapeId);
+      if (imgCanvas) {
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(imgCanvas, -(SZ>>1), -(SZ>>1), SZ, SZ);
+      } else {
+        const sprite = G.Sprites.get(shapeId, color || shape.color);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(sprite, -(SZ>>1), -(SZ>>1), SZ, SZ);
+      }
     }
 
     // Engine thrust flame overlay (on top of sprite)
     if(thrusting && shape.enginePts) {
       const ew = shape.engineW || 5;
       for(const [ex,ey] of shape.enginePts) {
-        const len = boosting ? ew*2.8 : ew*1.4;
+        const flick = 0.85 + Math.random()*0.3;
+        const len = (boosting ? ew*2.8 : ew*1.4) * flick;
+
+        // Exhaust plume — soft, elongated glow trailing behind the flame
+        const plumeLen = len * 2.4;
+        const plumeW = ew * (boosting ? 1.4 : 1.0);
+        const pgrad = ctx.createLinearGradient(ex,ey, ex,ey+plumeLen);
+        pgrad.addColorStop(0, superBoost?'rgba(40,255,140,0.65)':boosting?'rgba(120,180,255,0.55)':'rgba(255,170,40,0.55)');
+        pgrad.addColorStop(0.4, superBoost?'rgba(0,200,80,0.32)':boosting?'rgba(40,110,255,0.28)':'rgba(255,90,0,0.28)');
+        pgrad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.beginPath();
+        ctx.moveTo(ex-plumeW, ey);
+        ctx.quadraticCurveTo(ex-plumeW*0.5, ey+plumeLen*0.6, ex, ey+plumeLen);
+        ctx.quadraticCurveTo(ex+plumeW*0.5, ey+plumeLen*0.6, ex+plumeW, ey);
+        ctx.closePath();
+        ctx.fillStyle = pgrad;
+        ctx.fill();
+
+        // Sharp inner flame triangle
         const grad = ctx.createLinearGradient(ex,ey, ex,ey+len);
-        grad.addColorStop(0, boosting?'#44aaff':'#ffaa22');
-        grad.addColorStop(0.5, boosting?'rgba(0,100,255,0.5)':'rgba(255,80,0,0.5)');
+        grad.addColorStop(0, superBoost?'#00ff88':boosting?'#44aaff':'#ffaa22');
+        grad.addColorStop(0.5, superBoost?'rgba(0,220,100,0.5)':boosting?'rgba(0,100,255,0.5)':'rgba(255,80,0,0.5)');
         grad.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.beginPath();
         ctx.moveTo(ex-ew*0.35, ey);
@@ -178,6 +216,10 @@ G.Renderer = class {
       slotCount[slotType]++;
       const [sx, sy] = positions[idx % positions.length];
       const icon = G.Sprites.getMod(visual);
+      const slotCol = G.SLOT_RING[slotType]?.color || '#334455';
+      // Slot-colored 1px border ensures icon is visible over any ship image
+      ctx.fillStyle = slotCol;
+      ctx.fillRect(sx-half-1, sy-half-1, MSZ+2, MSZ+2);
       if(inst.broken) {
         ctx.globalAlpha = 0.4;
         ctx.drawImage(icon, sx-half, sy-half, MSZ, MSZ);
@@ -190,6 +232,244 @@ G.Renderer = class {
         ctx.fillRect(sx+half-2, sy+half-2, 2, 2);
       } else {
         ctx.drawImage(icon, sx-half, sy-half, MSZ, MSZ);
+      }
+    }
+    ctx.restore();
+  }
+
+  // Draw module/weapon tiles centered at (x,y) in world space.
+  // entries: [{ col, row, visual, slot, broken }] — use builder cell coords for player,
+  // compact grid for enemies/NPCs.
+  drawShipTileDisplay(x, y, scale, entries, angle=0, gridCenter=null, overrideCtx=null) {
+    if(!entries || entries.length === 0) return;
+    const ctx = overrideCtx || this.ctx;
+    const sc = scale || 1;
+    const STEP = 12 * sc, TILE = 10 * sc;
+    const PAD = (STEP - TILE) / 2;
+    let centerC, centerR;
+    if(gridCenter) {
+      centerC = gridCenter[0]; centerR = gridCenter[1];
+    } else {
+      let minC = Infinity, maxC = -Infinity, minR = Infinity, maxR = -Infinity;
+      for(const e of entries) {
+        if(e.col < minC) minC = e.col; if(e.col > maxC) maxC = e.col;
+        if(e.row < minR) minR = e.row; if(e.row > maxR) maxR = e.row;
+      }
+      centerC = (minC + maxC) / 2; centerR = (minR + maxR) / 2;
+    }
+    const offX = (centerC + 0.5) * STEP;
+    const offY = (centerR + 0.5) * STEP;
+    ctx.save();
+    ctx.translate(x | 0, y | 0);
+    if(angle) ctx.rotate(angle);
+    ctx.imageSmoothingEnabled = false;
+    // Draw hull panels first (background layer)
+    for(const e of entries) {
+      if(e.slot !== 'hull') continue;
+      const tx = (e.col * STEP - offX + PAD) | 0;
+      const ty = (e.row * STEP - offY + PAD) | 0;
+      this._drawHullTile(ctx, tx, ty, TILE, e.hullColor || '#667799', e.hullShape || 'square', e.hullFacing || 0);
+    }
+    // Draw inner modules on top
+    for(const e of entries) {
+      if(e.slot === 'hull') continue;
+      const tx = (e.col * STEP - offX + PAD) | 0;
+      const ty = (e.row * STEP - offY + PAD) | 0;
+      const icon = G.Sprites.getMod(e.visual || 'special');
+      const slotCol = G.SLOT_RING[e.slot]?.color || '#334455';
+      ctx.fillStyle = slotCol + '33';
+      ctx.fillRect(tx, ty, TILE, TILE);
+      if(e.broken) ctx.globalAlpha = 0.4;
+      ctx.drawImage(icon, tx, ty, TILE, TILE);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = slotCol;
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(tx + 0.5, ty + 0.5, TILE - 1, TILE - 1);
+    }
+    ctx.restore();
+  }
+
+  // Build tile entries for a player ship from their module grid
+  _playerTileEntries(player) {
+    G.ui?._ensureBuilderCells?.(player);
+    const entries = [];
+    for(const [, inst] of Object.entries(player.modules || {})) {
+      if(inst.cell == null) continue;
+      const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+      if(!mod) continue;
+      const entry = {
+        col: inst.cell % 9, row: (inst.cell / 9) | 0,
+        visual: mod.visual || (G.WEAPONS[inst.moduleId] ? 'weapon' : 'special'),
+        slot: mod.slot || 'special', broken: inst.broken || false,
+      };
+      if(mod.slot === 'hull') {
+        entry.hullColor  = inst.color  || '#667799';
+        entry.hullShape  = inst.shape  || 'square';
+        entry.hullFacing = inst.facing || 0;
+      }
+      entries.push(entry);
+    }
+    return entries;
+  }
+
+  // Draw a single hull panel tile with color and shape onto canvas
+  _drawHullTile(ctx, tx, ty, TILE, color, shape, facing) {
+    const sprite = G.Sprites.getHull(shape || 'square', facing || 0, color || '#667799', TILE);
+    ctx.drawImage(sprite, tx | 0, ty | 0, TILE, TILE);
+  }
+
+  // Build tile entries for non-player ships from weapon IDs
+  _weaponTileEntries(weaponIds, cols = 3) {
+    return (weaponIds || []).map((id, idx) => {
+      const wDef = G.WEAPONS[id] || {};
+      return {
+        col: idx % cols, row: (idx / cols) | 0,
+        visual: wDef.slot === 'turret' ? (id === 'missile_turret' ? 'missile_turret' : 'turret') : 'weapon',
+        slot: wDef.slot || 'weapon', broken: false,
+      };
+    });
+  }
+
+  // Build tile entries for a non-player ship (NPC/enemy/fleet) from template + actual weapons
+  _npcTileEntries(ship, hullColor) {
+    const tplId = ship.shipId || ship.shapeId;
+    const tpl = G.SHIPS[tplId];
+    if(!tpl?.startCells) {
+      const ids = (ship.weapons||[]).map(w=>w.weaponId).filter(Boolean);
+      if(!ids.length) ids.push(...(ship.weaponIds||[]).filter(Boolean));
+      if(!ids.length && ship.weaponId) ids.push(ship.weaponId);
+      return this._addHullPanelEntries(this._weaponTileEntries(ids), hullColor);
+    }
+    const modIds = ['cockpit', ...(tpl.startModules||[]).map(e => typeof e === 'string' ? e : e.id)];
+    const nonWeaponCount = modIds.length;
+    const wpnIds = [];
+    if(ship.weapons?.length) { for(const w of ship.weapons) if(w.weaponId) wpnIds.push(w.weaponId); }
+    else if(ship.weaponIds?.length) wpnIds.push(...ship.weaponIds.filter(Boolean));
+    else if(ship.weaponId) wpnIds.push(ship.weaponId);
+    const cells = tpl.startCells;
+    const entries = [];
+    for(let i = 0; i < modIds.length; i++) {
+      const cell = cells[i]; if(cell == null) continue;
+      const mod = G.MODULES[modIds[i]]; if(!mod || mod.slot === 'hull') continue;
+      entries.push({ col: cell % 9, row: (cell / 9)|0, visual: mod.visual||'special', slot: mod.slot||'special', broken: false });
+    }
+    for(let i = 0; i < wpnIds.length; i++) {
+      const cell = cells[nonWeaponCount + i]; if(cell == null) continue;
+      const wDef = G.WEAPONS[wpnIds[i]] || {};
+      entries.push({ col: cell % 9, row: (cell / 9)|0,
+        visual: wDef.slot === 'turret' ? (wpnIds[i] === 'missile_turret' ? 'missile_turret' : 'turret') : 'weapon',
+        slot: wDef.slot || 'weapon', broken: false });
+    }
+    return this._addHullPanelEntries(entries, hullColor);
+  }
+
+  // Wrap inner tile entries with hull panel entries (outer perimeter) using faction color
+  _addHullPanelEntries(innerEntries, hullColor) {
+    if(!innerEntries || !innerEntries.length) return innerEntries || [];
+    const DIRS = [[-1,0],[0,1],[1,0],[0,-1]];
+    const inner = new Set(innerEntries.map(e => e.row * 100 + e.col));
+    const occupied = new Set(inner);
+    const hullEntries = [];
+    for(const e of innerEntries) {
+      for(let d = 0; d < 4; d++) {
+        const nr = e.row + DIRS[d][0], nc = e.col + DIRS[d][1];
+        const key = nr * 100 + nc;
+        if(occupied.has(key)) continue;
+        occupied.add(key);
+        const innerDirs = [];
+        for(let d2 = 0; d2 < 4; d2++) {
+          if(inner.has((nr + DIRS[d2][0]) * 100 + (nc + DIRS[d2][1]))) innerDirs.push(d2);
+        }
+        let shape, facing;
+        if(innerDirs.length >= 3) {
+          shape = 'convex'; facing = 0;
+        } else if(innerDirs.length === 2) {
+          shape = 'quarterround';
+          const has = {};
+          for(const d2 of innerDirs) has[d2] = true;
+          if(has[2] && has[1]) facing = 4;
+          else if(has[2] && has[3]) facing = 5;
+          else if(has[0] && has[3]) facing = 6;
+          else if(has[0] && has[1]) facing = 7;
+          else facing = 4;
+        } else {
+          shape = 'square';
+          facing = (innerDirs[0] + 2) % 4;
+        }
+        hullEntries.push({ row: nr, col: nc, slot: 'hull', hullColor: hullColor || '#667799', hullShape: shape, hullFacing: facing });
+      }
+    }
+    return [...innerEntries, ...hullEntries];
+  }
+
+  // Draw turret sprites on top of a ship at its turret slot positions.
+  // turretAngle: absolute world angle the turrets are currently facing.
+  // playerTurretSlots: optional array of weaponSlots with _turretAngle per slot.
+  drawTurretOverlay(x, y, shipAngle, shapeId, scale, turretAngle, playerTurretSlots) {
+    const offsets = G.Sprites.slotOffsets[shapeId] || G.Sprites.slotOffsets.shuttle;
+    const turretPositions = offsets.turret;
+    if(!turretPositions || turretPositions.length === 0) return;
+    const ctx = this.ctx;
+    const sprite = G.Sprites.getTurret();
+    const TSZ = G.Sprites.TSZ;
+    const half = TSZ >> 1;
+    ctx.save();
+    ctx.translate(x|0, y|0);
+    ctx.rotate(shipAngle);
+    ctx.scale(scale, scale);
+    ctx.imageSmoothingEnabled = false;
+    for(let i = 0; i < turretPositions.length; i++) {
+      const [sx, sy] = turretPositions[i];
+      const slotAngle = playerTurretSlots
+        ? (playerTurretSlots[i]?._turretAngle != null ? playerTurretSlots[i]._turretAngle : shipAngle) - shipAngle
+        : turretAngle - shipAngle;
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(slotAngle);
+      ctx.drawImage(sprite, -half, -half, TSZ, TSZ);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  drawShipGridHUD(player, shapeId) {
+    if(!player?.modules) return;
+    const ctx = this.ctx;
+    G.ui?._ensureBuilderCells?.(player);
+    const CELL = 12, COLS = 9, ROWS = 9;
+    const GW = COLS * CELL, GH = ROWS * CELL;
+    const px = 8, py = (G.CANVAS_H - GH - 72) | 0;
+    const cellMap = {};
+    for(const [, inst] of Object.entries(player.modules))
+      if(inst.cell != null) cellMap[inst.cell] = inst;
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.globalAlpha = 0.82;
+    ctx.fillStyle = '#010a14';
+    ctx.fillRect(px - 2, py - 2, GW + 4, GH + 4);
+    ctx.strokeStyle = '#1a3a5a'; ctx.lineWidth = 1;
+    ctx.strokeRect(px - 2, py - 2, GW + 4, GH + 4);
+    ctx.globalAlpha = 1;
+    for(let i = 0; i < 81; i++) {
+      const col = i % COLS, row = (i / COLS) | 0;
+      const cx = px + col * CELL, cy = py + row * CELL;
+      const inst = cellMap[i];
+      if(inst) {
+        const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+        if(mod?.slot === 'hull') {
+          this._drawHullTile(ctx, cx, cy, CELL - 1, inst.color || '#667799', inst.shape || 'square', inst.facing || 0);
+        } else {
+          const slotCol = G.SLOT_RING[mod?.slot]?.color || '#334455';
+          ctx.fillStyle = slotCol + '33'; ctx.fillRect(cx, cy, CELL - 1, CELL - 1);
+          const visual = mod?.visual || (G.WEAPONS[inst.moduleId] ? 'weapon' : 'special');
+          const icon = G.Sprites.getMod(visual);
+          if(inst.broken) { ctx.globalAlpha = 0.4; ctx.drawImage(icon, cx, cy, CELL - 1, CELL - 1); ctx.globalAlpha = 1; }
+          else ctx.drawImage(icon, cx, cy, CELL - 1, CELL - 1);
+          ctx.strokeStyle = slotCol; ctx.lineWidth = 0.5;
+          ctx.strokeRect(cx + 0.5, cy + 0.5, CELL - 2, CELL - 2);
+        }
+      } else {
+        ctx.fillStyle = '#050e1a'; ctx.fillRect(cx, cy, CELL - 1, CELL - 1);
       }
     }
     ctx.restore();
@@ -245,7 +525,7 @@ G.Renderer = class {
   drawAsteroid(x, y, r, angle, color, atype) {
     const ctx = this.ctx;
     const shapeKey = 'asteroid_'+(atype||'rocky');
-    const shape = G.SHAPES[shapeKey] || G.SHAPES.asteroid_rocky || G.SHAPES.asteroid;
+    const shape = G.SHAPES[shapeKey] || G.SHAPES.asteroid_rocky;
     ctx.save(); ctx.translate(x|0,y|0); ctx.rotate(angle); ctx.scale(r/12,r/12);
     ctx.beginPath();
     ctx.moveTo(shape.body[0][0],shape.body[0][1]);
@@ -284,9 +564,6 @@ G.Renderer = class {
 
   drawDerelict(x, y, angle, shapeId) {
     const ctx=this.ctx;
-    ctx.save(); ctx.globalAlpha=0.55;
-    this.drawShip(x,y,angle,shapeId,'#445566',1,false,false);
-    ctx.restore();
     ctx.save(); ctx.globalAlpha=0.5; ctx.fillStyle='#ff6600';
     ctx.beginPath();
     ctx.arc((x+Math.cos(Date.now()*0.003)*4)|0,(y+Math.sin(Date.now()*0.003)*4)|0,2,0,Math.PI*2);
@@ -341,10 +618,14 @@ G.Renderer = class {
       // Draw beam from shooter (stored on projectile) to current position
       const ox = p.originX ?? p.x, oy = p.originY ?? p.y;
       const grad = ctx.createLinearGradient(ox, oy, p.x, p.y);
-      grad.addColorStop(0, 'rgba(255,220,0,0)');
-      grad.addColorStop(0.3, 'rgba(255,200,0,0.55)');
-      grad.addColorStop(0.85, '#ffee00');
-      grad.addColorStop(1, '#ffffff');
+      // Animated rainbow: hue flows along the beam over time
+      const t = performance.now() * 0.001;
+      const segs = 6;
+      for(let i=0;i<=segs;i++){
+        const hue = (((i/segs)*360) + t*300) % 360;
+        const alpha = i===0 ? 0 : 0.85;
+        grad.addColorStop(i/segs, `hsla(${hue|0},100%,60%,${alpha})`);
+      }
       ctx.beginPath();
       ctx.moveTo(ox|0, oy|0);
       ctx.lineTo(p.x|0, p.y|0);
@@ -378,29 +659,44 @@ G.Renderer = class {
     ctx.restore();
   }
 
-  // Pulsating shield glow — hugs the actual pixel-art sprite shape via canvas shadow
-  drawShieldOutline(x, y, angle, shapeId, color, scale, shieldRatio, time) {
-    if(shieldRatio <= 0) return;
-    const ctx   = this.ctx;
+  // Pulsating shield glow — traces the outer perimeter of module cells
+  drawShieldOutline(x, y, angle, scale, shieldRatio, time, entries, gridCenter=null) {
+    if(shieldRatio <= 0 || !entries || entries.length === 0) return;
+    const ctx = this.ctx;
+    const sc = scale || 1;
+    const STEP = 12 * sc;
     const pulse = 0.5 + 0.5 * Math.sin(time * 6);
     const alpha = 0.25 + 0.65 * shieldRatio * (0.6 + 0.4 * pulse);
-    const blur  = (5 + 9 * pulse) * Math.max(0.6, scale);
-    const imgCanvas = G.ShipImages?.get(shapeId);
-    const sprite = imgCanvas || G.Sprites.get(shapeId, color || '#8899bb');
-    const SZ = G.Sprites.SZ;
-
+    let centerC, centerR;
+    if(gridCenter) {
+      centerC = gridCenter[0]; centerR = gridCenter[1];
+    } else {
+      let minC=Infinity,maxC=-Infinity,minR=Infinity,maxR=-Infinity;
+      for(const e of entries) {
+        if(e.col<minC)minC=e.col; if(e.col>maxC)maxC=e.col;
+        if(e.row<minR)minR=e.row; if(e.row>maxR)maxR=e.row;
+      }
+      centerC=(minC+maxC)/2; centerR=(minR+maxR)/2;
+    }
+    const offX = (centerC + 0.5) * STEP, offY = (centerR + 0.5) * STEP;
+    const occ = new Set(entries.map(e => e.col+'_'+e.row));
     ctx.save();
-    ctx.translate(x | 0, y | 0);
+    ctx.translate(x|0, y|0);
     ctx.rotate(angle);
-    ctx.scale(scale, scale);
-    ctx.imageSmoothingEnabled = !!imgCanvas;
-
-    // Shadow cast by the sprite's non-transparent pixels creates an exact silhouette glow
-    ctx.shadowColor = `rgba(80,160,255,${Math.min(1, alpha)})`;
-    ctx.shadowBlur  = blur / scale;
-    ctx.drawImage(sprite, -(SZ >> 1), -(SZ >> 1), SZ, SZ);
+    ctx.beginPath();
+    for(const e of entries) {
+      const cx = e.col * STEP - offX, cy = e.row * STEP - offY;
+      if(!occ.has(e.col+'_'+(e.row-1))) { ctx.moveTo(cx,cy); ctx.lineTo(cx+STEP,cy); }
+      if(!occ.has(e.col+'_'+(e.row+1))) { ctx.moveTo(cx,cy+STEP); ctx.lineTo(cx+STEP,cy+STEP); }
+      if(!occ.has((e.col-1)+'_'+e.row)) { ctx.moveTo(cx,cy); ctx.lineTo(cx,cy+STEP); }
+      if(!occ.has((e.col+1)+'_'+e.row)) { ctx.moveTo(cx+STEP,cy); ctx.lineTo(cx+STEP,cy+STEP); }
+    }
+    ctx.strokeStyle = `rgba(80,160,255,${Math.min(1,alpha)})`;
+    ctx.lineWidth = (1.5 + 2 * pulse) * sc;
+    ctx.shadowColor = `rgba(80,160,255,${Math.min(1,alpha*0.8)})`;
+    ctx.shadowBlur = (6 + 8 * pulse) * sc;
+    ctx.stroke();
     ctx.shadowBlur = 0;
-    ctx.shadowColor = 'transparent';
     ctx.restore();
   }
 
@@ -579,6 +875,20 @@ G.Renderer = class {
       const fx=tx(fs)|0, fy=ty(fs)|0;
       if(!inBounds(fx,fy)) continue;
       drawShipTriangle(fx,fy,fs.angle,'#00ff88',4);
+    }
+
+    // Missiles — small diamonds, orange for enemy, cyan for player
+    for(const proj of space.projectiles) {
+      if(proj.type !== 'missile' || proj.dormant) continue;
+      const mx = tx(proj)|0, my = ty(proj)|0;
+      if(!inBounds(mx, my)) continue;
+      const isEnemy = proj.sourceId !== 'player';
+      ctx.save();
+      ctx.translate(mx, my);
+      ctx.rotate(proj.angle || Math.atan2(proj.vx || 0, -(proj.vy || 0)));
+      ctx.fillStyle = isEnemy ? '#ff4400' : '#44ffff';
+      ctx.beginPath(); ctx.moveTo(0,-3); ctx.lineTo(2,0); ctx.lineTo(0,3); ctx.lineTo(-2,0); ctx.closePath(); ctx.fill();
+      ctx.restore();
     }
 
     // Player — slightly larger triangle
@@ -903,8 +1213,14 @@ G.Renderer = class {
 
     for(const e of space.enemies) {
       if(e._deathDone||e.boarded) continue;
-      this.drawShip(e.x,e.y,e.angle,e.shapeId||'pirate_fighter',e.color,e.size||1,
-        (e.aiState==='engage'||e._boosting)&&!e.disabled, e._boosting||false);
+      const eHullCol = G.FACTIONS[e.faction]?.color || e.color || '#667799';
+      const eEntries = this._npcTileEntries(e, eHullCol);
+      this.drawShipTileDisplay(e.x, e.y, e.size||1, eEntries, e.angle);
+      if((e._frozenTimer||0) > 0) {
+        ctx.save(); ctx.globalAlpha=0.45;
+        ctx.beginPath(); ctx.arc(e.x,e.y,(e.size||1)*18,0,Math.PI*2);
+        ctx.fillStyle='#88ddff'; ctx.fill(); ctx.restore();
+      }
       if(e.isFleetFlagship && !e.disabled) {
         ctx.save();
         ctx.beginPath(); ctx.arc(e.x,e.y,(e.size||1)*22,0,Math.PI*2);
@@ -913,9 +1229,10 @@ G.Renderer = class {
         ctx.fillText('FLAGSHIP',e.x|0,(e.y-(e.size||1)*28)|0); ctx.textAlign='left';
         ctx.restore();
       }
-      if(e.shields > 0)
-        this.drawShieldOutline(e.x, e.y, e.angle, e.shapeId||'pirate_fighter', e.color||'#8899bb', e.size||1,
-          e.shields/Math.max(e.maxShields,1), space.time);
+      if(e.shields > 0) {
+        this.drawShieldOutline(e.x, e.y, e.angle, e.size||1,
+          e.shields/Math.max(e.maxShields,1), space.time, eEntries);
+      }
       this.drawEnemyBars(e);
     }
 
@@ -923,18 +1240,30 @@ G.Renderer = class {
     for(const n of space.npcs) {
       if(n._deathDone||n.boarded) continue;
       const moving = n.aiState!=='docked';
+      const nHullCol = G.FACTIONS[n.faction]?.color || n.color || '#667799';
+      const nEntries = this._npcTileEntries(n, nHullCol);
       if(n.jumpingOut) {
         const t = Math.max(0, n.jumpOutTimer / 0.45);
         ctx.save(); ctx.globalAlpha = t;
-        const stretch = 1 + (1-t)*7;
-        this.drawShip(n.x,n.y,n.angle,n.shapeId||'shuttle',n.color,n.size||1,true,false,stretch);
+        this.drawShipTileDisplay(n.x, n.y, n.size||1, nEntries, n.angle);
+        ctx.restore();
+      } else if(n.jumpingIn) {
+        const t = Math.max(0, n.jumpInTimer / 0.5);
+        ctx.save(); ctx.globalAlpha = 1 - t * 0.8;
+        this.drawShipTileDisplay(n.x, n.y, n.size||1, nEntries, n.angle);
         ctx.restore();
       } else {
         const nScale = n.size||1;
-        this.drawShip(n.x,n.y,n.angle,n.shapeId||'shuttle',n.color,nScale,moving,n._boosting||false,1,n._strafeDir||0);
-        if(n.shields > 0)
-          this.drawShieldOutline(n.x, n.y, n.angle, n.shapeId||'shuttle', n.color||'#8899bb', nScale,
-            n.shields/Math.max(n.maxShields,1), space.time);
+        this.drawShipTileDisplay(n.x, n.y, nScale, nEntries, n.angle);
+        if((n._frozenTimer||0) > 0) {
+          ctx.save(); ctx.globalAlpha=0.45;
+          ctx.beginPath(); ctx.arc(n.x,n.y,nScale*18,0,Math.PI*2);
+          ctx.fillStyle='#88ddff'; ctx.fill(); ctx.restore();
+        }
+        if(n.shields > 0) {
+          this.drawShieldOutline(n.x, n.y, n.angle, nScale,
+            n.shields/Math.max(n.maxShields,1), space.time, nEntries);
+        }
         if(n.hostile) this.drawEnemyBars(n);
         if(game.target===n) {
           ctx.save(); ctx.font=(6/_zoom)+'px "Press Start 2P",monospace';
@@ -948,9 +1277,11 @@ G.Renderer = class {
     // Fleet ships (friendly escorts)
     for(const fs of space.fleetShips||[]) {
       if(fs._deathDone) continue;
-      this.drawShip(fs.x, fs.y, fs.angle, fs.shapeId||'shuttle', fs.color, fs.size||1, !fs.disabled, false);
+      const fsHullCol = G.FACTIONS[fs.faction]?.color || fs.color || '#8899bb';
+      const fsEntries = this._npcTileEntries(fs, fsHullCol);
+      this.drawShipTileDisplay(fs.x, fs.y, fs.size||1, fsEntries, fs.angle);
       if(fs.shields>0)
-        this.drawShieldOutline(fs.x,fs.y,fs.angle,fs.shapeId||'shuttle',fs.color,fs.size||1,fs.shields/Math.max(fs.maxShields,1),space.time);
+        this.drawShieldOutline(fs.x,fs.y,fs.angle,fs.size||1,fs.shields/Math.max(fs.maxShields,1),space.time, fsEntries);
       // Health bar
       const bw=36, bh=3, bx=fs.x-18, by=fs.y-(fs.size||1)*24-12;
       ctx.fillStyle='#0a1a0a'; ctx.fillRect(bx|0,by|0,bw,bh);
@@ -970,19 +1301,50 @@ G.Renderer = class {
 
     for(const p of space.projectiles) this.drawProjectile(p);
 
+    // Chaff balls — glowing yellow orbs that burst after 1s
+    if(space.chaffBalls?.length) {
+      for(const ball of space.chaffBalls) {
+        const pulse = 0.6 + 0.4 * Math.sin(ball.timer * 20);
+        ctx.save();
+        ctx.globalAlpha = pulse;
+        const g = ctx.createRadialGradient(ball.x, ball.y, 0, ball.x, ball.y, 7);
+        g.addColorStop(0, '#ffffff');
+        g.addColorStop(0.3, '#ffee44');
+        g.addColorStop(1, 'rgba(255,180,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(ball.x, ball.y, 7, 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+      }
+    }
+
     // Particles stored in world-space; ctx is already translated so offset = 0
     particles.draw(ctx, 0, 0);
 
+    const superBoost = (player._superboostTimer || 0) > 0;
     const thrusting = !player.disabled && game.input.thrust;
-    const boosting  = !player.disabled && game.input.boost && player.energy > 5 && player.boostCharge > 0;
+    const boosting  = !player.disabled && game.input.boost && (superBoost || (player.energy > 5 && player.boostCharge > 0));
     const strafeDir = player.disabled ? 0 : game.input.strafeR ? 1 : game.input.strafeL ? -1 : 0;
     const shipColor = G.SHIPS[player.templateId]?.color || '#8899bb';
     const shapeId   = G.SHIPS[player.templateId]?.shape || 'shuttle';
-    this.drawShip(player.x,player.y,player.angle,shapeId,shipColor,1,thrusting,boosting,1,strafeDir);
+    this.drawShipTileDisplay(player.x, player.y, 1, this._playerTileEntries(player), player.angle, [4, 4]);
+    const playerTurretSlots = player.weaponSlots.filter(s => s.turret);
+    if(playerTurretSlots.length) this.drawTurretOverlay(player.x,player.y,player.angle,shapeId,1,player.angle,playerTurretSlots);
+    if((player._frozenTimer||0) > 0) {
+      ctx.save(); ctx.globalAlpha=0.45;
+      ctx.beginPath(); ctx.arc(player.x,player.y,18,0,Math.PI*2);
+      ctx.fillStyle='#88ddff'; ctx.fill(); ctx.restore();
+    }
+    if((player._healBuffTimer||0) > 0) {
+      const hAlpha = 0.25 + 0.15*Math.sin(space.time*6);
+      ctx.save(); ctx.globalAlpha=hAlpha;
+      ctx.beginPath(); ctx.arc(player.x,player.y,22,0,Math.PI*2);
+      ctx.fillStyle='#44ff88'; ctx.fill(); ctx.restore();
+    }
 
     if(player.shields > 0)
-      this.drawShieldOutline(player.x, player.y, player.angle, shapeId, shipColor, 1,
-        player.shields / Math.max(player.maxShields, 1), space.time);
+      this.drawShieldOutline(player.x, player.y, player.angle, 1,
+        player.shields / Math.max(player.maxShields, 1), space.time,
+        this._playerTileEntries(player), [4, 4]);
 
     // Target direction arrow orbiting player ship — colored by faction relation
     if(game.target && !game.target.dead) {
@@ -1046,6 +1408,20 @@ G.Renderer = class {
 
     ctx.restore();
 
+    this.drawShipGridHUD(player, shapeId);
+
+    // Hint text when zoomed near the hex-map threshold
+    if(_zoom < 0.65) {
+      ctx.save();
+      ctx.globalAlpha = G.clamp((0.65 - _zoom) / 0.075, 0, 1);
+      ctx.font = '6px "Press Start 2P",monospace';
+      ctx.fillStyle = '#334455';
+      ctx.textAlign = 'center';
+      ctx.fillText('SCROLL OUT → sector map', G.CANVAS_W/2, G.CANVAS_H - 12);
+      ctx.textAlign = 'left';
+      ctx.restore();
+    }
+
     const mmCanvas=document.getElementById('minimap');
     if(mmCanvas) this.drawMinimap(mmCanvas,player,space,game);
   }
@@ -1074,7 +1450,7 @@ G.Renderer = class {
       }
     }
 
-    this._menuT += dt;
+    if(!this._menuFrozen) this._menuT += dt;
     const warpT = Math.min(this._menuT / 4, 1);
     const speedMult = warpT * warpT * warpT * 8 + 0.02;
 
@@ -1082,12 +1458,14 @@ G.Renderer = class {
     ctx.fillRect(0, 0, G.CANVAS_W, G.CANVAS_H);
 
     for (const s of this._menuStars) {
-      s.r   += s.speed * speedMult * dt;
-      s.hue  = (s.hue + s.hueSpeed * dt) % 360;
-      if (s.r > maxR) {
-        s.r    = 2 + Math.random() * 15;
-        s.angle = Math.random() * Math.PI * 2;
-        continue;
+      if(!this._menuFrozen) {
+        s.r   += s.speed * speedMult * dt;
+        s.hue  = (s.hue + s.hueSpeed * dt) % 360;
+        if (s.r > maxR) {
+          s.r    = 2 + Math.random() * 15;
+          s.angle = Math.random() * Math.PI * 2;
+          continue;
+        }
       }
 
       const trailLen = Math.max(2, s.speed * speedMult * 0.08);
@@ -1114,6 +1492,241 @@ G.Renderer = class {
       ctx.lineWidth = s.size * (0.5 + speedMult * 0.08);
       ctx.stroke();
     }
+  }
+
+  // Assign system bodies to hex grid slots by orbital distance + world angle
+  _buildBodyHexMap(bodies) {
+    const result = new Map();
+    const used = new Set();
+    const SQ3 = Math.sqrt(3);
+
+    const star = bodies.find(b => b.type === 'star');
+    if(star) { result.set(star, {q:0, r:0}); used.add('0,0'); }
+
+    // Ring tier by orbital radius
+    const ringFor = orb => orb < 1200 ? 1 : orb < 3500 ? 2 : orb < 6500 ? 3 : 4;
+
+    // Screen-space angle of hex center (q, r) from canvas center
+    const hexAngle = (q, r) => Math.atan2(1.5*r, SQ3*q + SQ3/2*r);
+
+    const others = bodies
+      .filter(b => b !== star)
+      .sort((a, b) => (a.orbitR||0) - (b.orbitR||0));
+
+    for(const b of others) {
+      const ring0 = ringFor(b.orbitR || 0);
+      const ba = Math.atan2(b.y || 0, b.x || 0);
+      let assigned = false;
+      for(let ring = ring0; ring <= ring0 + 2 && !assigned; ring++) {
+        const cands = G.hexRing(ring).filter(h => !used.has(`${h.q},${h.r}`));
+        if(!cands.length) continue;
+        let best = cands[0], bestDiff = Infinity;
+        for(const h of cands) {
+          const diff = Math.abs(G.wrapAngle(ba - hexAngle(h.q, h.r)));
+          if(diff < bestDiff) { bestDiff = diff; best = h; }
+        }
+        result.set(b, {q: best.q, r: best.r});
+        used.add(`${best.q},${best.r}`);
+        assigned = true;
+      }
+    }
+    return result;
+  }
+
+  // Full hex-map view: tactical sector overlay between space flight and galaxy map
+  renderHexMap(game) {
+    const ctx = this.ctx;
+    const CX = G.CANVAS_W/2, CY = G.CANVAS_H/2;
+    const S = G.HEX_PX, SQ3 = Math.sqrt(3);
+    const space = game.space, player = game.player;
+    if(!space || !player) return;
+
+    // Background
+    ctx.fillStyle = '#000810';
+    ctx.fillRect(0, 0, G.CANVAS_W, G.CANVAS_H);
+
+    // Hex (q,r) → screen (x,y)
+    const hexXY = (q, r) => ({
+      x: CX + S * (SQ3*q + SQ3/2*r),
+      y: CY + S * 1.5*r,
+    });
+
+    // Stroke a hex outline
+    const hexPath = (q, r, inset=0) => {
+      const {x, y} = hexXY(q, r);
+      ctx.beginPath();
+      for(let i=0; i<6; i++) {
+        const a = Math.PI/6 + i*Math.PI/3;
+        const hx = x + (S-inset)*Math.cos(a), hy = y + (S-inset)*Math.sin(a);
+        i===0 ? ctx.moveTo(hx,hy) : ctx.lineTo(hx,hy);
+      }
+      ctx.closePath();
+    };
+
+    // Draw grid
+    ctx.strokeStyle = 'rgba(0,70,120,0.20)';
+    ctx.lineWidth = 0.5;
+    for(let q=-7; q<=7; q++) {
+      for(let r=-7; r<=7; r++) {
+        if(Math.max(Math.abs(q),Math.abs(r),Math.abs(-q-r)) > 7) continue;
+        const {x,y} = hexXY(q, r);
+        if(x < -S || x > G.CANVAS_W+S || y < -S || y > G.CANVAS_H+S) continue;
+        hexPath(q, r);
+        ctx.stroke();
+      }
+    }
+
+    // Body hex assignment + highlight
+    const bodyMap = this._buildBodyHexMap(space.bodies);
+    for(const [b, h] of bodyMap) {
+      const fc = b.type==='star'
+        ? 'rgba(255,200,60,0.07)'
+        : b.hasSpaceport ? 'rgba(30,80,200,0.07)' : 'rgba(40,60,100,0.05)';
+      hexPath(h.q, h.r, 2);
+      ctx.fillStyle = fc; ctx.fill();
+      ctx.strokeStyle = b.type==='star' ? 'rgba(200,160,40,0.30)' : 'rgba(40,100,200,0.22)';
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+    }
+
+    // Asteroid fields (faint scatter at world positions)
+    ctx.fillStyle = '#332211';
+    for(const a of space.asteroids) {
+      const sx = CX + a.x*S/G.HEX_WORLD, sy = CY + a.y*S/G.HEX_WORLD;
+      if(sx < 0 || sx > G.CANVAS_W || sy < 0 || sy > G.CANVAS_H) continue;
+      ctx.fillRect(sx|0, sy|0, 2, 2);
+    }
+
+    // Body icons at assigned hex centers
+    const blink = Math.sin(Date.now()*0.007) > 0;
+    const isMissHere = (game.activeMissions||[]).some(m =>
+      !m.completed && !m.failed &&
+      (m.params?.dest===game.currentSysId || m.params?.target===game.currentSysId)
+    );
+
+    for(const [b, h] of bodyMap) {
+      const {x, y} = hexXY(h.q, h.r);
+      ctx.save();
+      if(b.type === 'star') {
+        const col = b.color || '#ffff88';
+        const g = ctx.createRadialGradient(x,y,5,x,y,26);
+        g.addColorStop(0, col+'dd'); g.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,26,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle=col; ctx.beginPath(); ctx.arc(x,y,10,0,Math.PI*2); ctx.fill();
+      } else if(b.type === 'planet') {
+        const isMiss = isMissHere && b.hasSpaceport;
+        const col = isMiss&&blink ? '#ffcc00' : b.hasSpaceport ? '#4488ff' : '#556677';
+        ctx.fillStyle=col; ctx.beginPath(); ctx.arc(x,y,6,0,Math.PI*2); ctx.fill();
+        if(b.hasSpaceport) {
+          ctx.strokeStyle = isMiss&&blink ? '#ffcc00' : '#2255cc';
+          ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(x,y,10,0,Math.PI*2); ctx.stroke();
+        }
+        if(isMiss&&blink) {
+          ctx.strokeStyle='#ffcc00'; ctx.lineWidth=1;
+          ctx.beginPath(); ctx.arc(x,y,14,0,Math.PI*2); ctx.stroke();
+        }
+      } else if(b.type === 'station') {
+        ctx.fillStyle='#aaaacc'; ctx.fillRect(x-6,y-6,12,12);
+        ctx.strokeStyle='#6666aa'; ctx.lineWidth=1; ctx.strokeRect(x-9,y-9,18,18);
+      }
+      if(b.name) {
+        ctx.font = '5px "Press Start 2P",monospace';
+        ctx.fillStyle = b.type==='star' ? '#aaaa55' : '#445566';
+        ctx.textAlign = 'center';
+        ctx.fillText(b.spaceportName||b.name, x, y + (b.type==='star'?24:19));
+      }
+      ctx.restore();
+    }
+
+    // World-position → screen helper
+    const wts = (wx, wy) => ({
+      x: CX + wx*S/G.HEX_WORLD,
+      y: CY + wy*S/G.HEX_WORLD,
+    });
+
+    // Ship triangle helper
+    const drawTri = (x, y, angle, col, sz=5) => {
+      ctx.save(); ctx.translate(x,y); ctx.rotate(angle);
+      ctx.fillStyle=col;
+      ctx.beginPath(); ctx.moveTo(0,-sz); ctx.lineTo(sz*0.8,sz); ctx.lineTo(-sz*0.8,sz); ctx.closePath();
+      ctx.fill(); ctx.restore();
+    };
+
+    // Derelicts
+    for(const d of space.derelicts) {
+      if(d.looted) continue;
+      const {x,y}=wts(d.x,d.y);
+      drawTri(x,y,d.angle||0,'#555566',4);
+    }
+
+    // Turrets
+    for(const t of space.turrets||[]) {
+      if(t._dead) continue;
+      const {x,y}=wts(t.x,t.y);
+      ctx.fillStyle=t.hostile?'#ff2222':'#334433';
+      ctx.fillRect(x-2,y-2,5,5);
+    }
+
+    // Fleet ships (friendly)
+    for(const fs of space.fleetShips||[]) {
+      if(fs.dead||fs._deathDone) continue;
+      const {x,y}=wts(fs.x,fs.y);
+      drawTri(x,y,fs.angle,'#00ff88',5);
+    }
+
+    // NPC ships
+    for(const n of space.npcs) {
+      if(n.dead||n.boarded) continue;
+      const {x,y}=wts(n.x,n.y);
+      const nRel=game.getRel(n.faction);
+      const nFacCol=G.FACTIONS[n.faction]?.color;
+      const col=n.hostile?(nFacCol||'#ff3333'):nRel>=50?'#00ee66':nRel>=-20?'#88aacc':nRel<-30?(nFacCol||'#ff8800'):'#ffcc00';
+      drawTri(x,y,n.angle,col,5);
+      if(n.hostile&&blink) {
+        ctx.beginPath(); ctx.arc(x,y,8,0,Math.PI*2);
+        ctx.strokeStyle='#ff2222'; ctx.lineWidth=1.2; ctx.stroke();
+      }
+    }
+
+    // Enemy ships
+    for(const e of space.enemies) {
+      if(e._deathDone||e.boarded) continue;
+      const {x,y}=wts(e.x,e.y);
+      const rel=game.getRel(e.faction)||0;
+      const col=G.FACTIONS[e.faction]?.color||(rel<-50?'#ff3333':'#ff8800');
+      drawTri(x,y,e.angle,col,6);
+      if((rel<-20||e.aiState==='engage')&&blink) {
+        ctx.beginPath(); ctx.arc(x,y,10,0,Math.PI*2);
+        ctx.strokeStyle='#ff2222'; ctx.lineWidth=1.5; ctx.stroke();
+      }
+    }
+
+    // Player ship
+    {
+      const {x,y}=wts(player.x,player.y);
+      const pg=ctx.createRadialGradient(x,y,3,x,y,14);
+      pg.addColorStop(0,'rgba(0,255,238,0.35)'); pg.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=pg; ctx.beginPath(); ctx.arc(x,y,14,0,Math.PI*2); ctx.fill();
+      drawTri(x,y,player.angle,'#ffffff',7);
+      ctx.beginPath(); ctx.arc(x,y,11,0,Math.PI*2);
+      ctx.strokeStyle='rgba(0,255,238,0.65)'; ctx.lineWidth=1.5; ctx.stroke();
+    }
+
+    // Pulsing ring on center hex (system core)
+    const pulse = 0.45+0.25*Math.sin(Date.now()*0.0022);
+    hexPath(0, 0, 2);
+    ctx.strokeStyle=`rgba(0,180,255,${pulse})`; ctx.lineWidth=1.2; ctx.stroke();
+
+    // UI text overlay
+    const sys = G.SYSTEMS?.find(s=>s.id===game.currentSysId);
+    ctx.save();
+    ctx.font = '8px "Press Start 2P",monospace';
+    ctx.fillStyle = '#00ffee'; ctx.textAlign = 'left';
+    ctx.fillText('SECTOR — '+(sys?.name||game.currentSysId).toUpperCase(), 10, 22);
+    ctx.font = '5px "Press Start 2P",monospace';
+    ctx.fillStyle = '#334455';
+    ctx.fillText('[SCROLL IN] return to flight   [M] galaxy map', 10, 36);
+    ctx.restore();
   }
 };
 
@@ -1172,6 +1785,7 @@ G.Game = class {
 
     // Click on game canvas → target the ship under the cursor
     this.canvas.addEventListener('click', e => {
+      if(this.state === 'menu') { this.start(); return; }
       if(this.state !== 'space') return;
       const rect = this.canvas.getBoundingClientRect();
       const ratio = G.CANVAS_W / rect.width;
@@ -1195,6 +1809,13 @@ G.Game = class {
           if(d < Math.max(b.r + 8/zoom, CLICK_RADIUS)) { best = b; break; }
         }
       }
+      if(!best) {
+        for(const proj of this.space.projectiles) {
+          if(proj.type !== 'missile' || proj.dead) continue;
+          const d = Math.hypot(proj.x - wx, proj.y - wy);
+          if(d < CLICK_RADIUS) { best = proj; break; }
+        }
+      }
       if(best) {
         this.target = best;
         G.sound?.targetLock();
@@ -1203,12 +1824,28 @@ G.Game = class {
       }
     });
 
-    // Mouse-wheel zoom while flying
+    // Mouse-wheel zoom while flying; zoom past minimum → enter hex map
     this._zoomManual = 0;
     this.canvas.addEventListener('wheel', e => {
+      if(this.state === 'hexmap') {
+        e.preventDefault();
+        if(e.deltaY < 0) {
+          this.state = 'space';
+          this._zoomManual = -0.42;
+          document.getElementById('minimap-wrap')?.classList.remove('hidden');
+        }
+        return;
+      }
       if(this.state !== 'space') return;
       e.preventDefault();
-      this._zoomManual = G.clamp((this._zoomManual || 0) - e.deltaY * 0.0008, -0.425, 3.04);
+      const nz = (this._zoomManual || 0) - e.deltaY * 0.0008;
+      if(nz < -0.425) {
+        this.state = 'hexmap';
+        this._zoomManual = -0.425;
+        document.getElementById('minimap-wrap')?.classList.add('hidden');
+      } else {
+        this._zoomManual = G.clamp(nz, -0.425, 3.04);
+      }
     }, { passive: false });
 
     // Minimap click → target ship
@@ -1239,6 +1876,13 @@ G.Game = class {
           if(b.type !== 'planet' && b.type !== 'station') continue;
           const d = Math.hypot(b.x - wx, b.y - wy);
           if(d < Math.max(b.r + 80, CLICK_RADIUS)) { best = b; break; }
+        }
+      }
+      if(!best) {
+        for(const proj of this.space.projectiles) {
+          if(proj.type !== 'missile' || proj.dead) continue;
+          const d = Math.hypot(proj.x - wx, proj.y - wy);
+          if(d < CLICK_RADIUS) { best = proj; break; }
         }
       }
       if(best) {
@@ -1289,6 +1933,7 @@ G.Game = class {
       galaxyVisited: [...this.galaxy.visited],
       player:       this.player.getSaveData(),
       playerPos:    { x:this.player.x, y:this.player.y },
+      playerAbilities: [...(this.player.abilities||[])],
       fleet: this.fleet.map(e => ({
         id: e.id, fleetName: e.fleetName,
         combatSpeed: e.combatSpeed, combatTurnSpeed: e.combatTurnSpeed,
@@ -1344,6 +1989,16 @@ G.Game = class {
     this.player.powerWeapons = sd.powerWeapons || 0.33;
     this.player.powerShields = sd.powerShields || 0.33;
     this.player.powerEngines = sd.powerEngines || 0.34;
+    this.player.abilities = d.playerAbilities || sd.abilities || [];
+    if(this.player.abilities.length === 0) this.player.abilities = Object.keys(G.ABILITIES);
+    this.player.abilityCooldowns = {};
+    // Rename auto_turret → turret in saved modules
+    for(const inst of Object.values(this.player.modules)) {
+      if(inst.moduleId === 'auto_turret') inst.moduleId = 'turret';
+    }
+    this.player.ensureCockpit();     // migrate older saves that predate the cockpit
+    this.player.ensureCoreModule();  // migrate older saves that predate class core modules
+    this.player.ensureHullPanels();  // migrate older saves that predate hull enclosure system
     this.player._recompute();
     this.player.hull    = sd.hull    || this.player.maxHull;
     this.player.shields = sd.shields || 0;
@@ -1359,6 +2014,7 @@ G.Game = class {
         ship.slots = Array.isArray(fd.ship.slots) ? fd.ship.slots : ship.slots;
         ship.cargo = fd.ship.cargo || {};
         ship.crew = fd.ship.crew || [];
+        ship.ensureCoreModule();
         ship._recompute();
         ship.hull = fd.ship.hull || ship.maxHull;
         ship.shields = fd.ship.shields || 0;
@@ -1421,6 +2077,7 @@ G.Game = class {
 
     this.economy._marketCache = {};
     this.player = new G.Ship(charData.shipId || 'shuttle');
+    this.player.abilities = Object.keys(G.ABILITIES);
     this.player.x=800; this.player.y=300;
     this.space = new G.Space();
     this.space.loadSystem('sol');
@@ -1527,10 +2184,39 @@ G.Game = class {
     const p=this.player;
     if(!p) return;
 
-    // Weapon select 1-9
-    for(let i=1;i<=9;i++) {
-      if(this.input.pressed('Digit'+i) && p.weaponSlots[i-1]) p.activeWeapon=i-1;
+    // Weapon cycle: [ and ] keys
+    if(this.input.pressed('BracketLeft') && p.weaponSlots.length > 1)
+      p.activeWeapon = (p.activeWeapon - 1 + p.weaponSlots.length) % p.weaponSlots.length;
+    if(this.input.pressed('BracketRight') && p.weaponSlots.length > 1)
+      p.activeWeapon = (p.activeWeapon + 1) % p.weaponSlots.length;
+
+    // Ability keys 1-0 (slots 0-9)
+    if(!p.disabled) {
+      const _aKeys = ['Digit1','Digit2','Digit3','Digit4','Digit5','Digit6','Digit7','Digit8','Digit9','Digit0'];
+      for(let i=0;i<10;i++) {
+        if(this.input.pressed(_aKeys[i])) {
+          const _aid = (p.abilities||[])[i];
+          if(_aid) this._useAbility(_aid, p);
+        }
+      }
     }
+
+    // Tick ability cooldowns
+    const _acd = p.abilityCooldowns || (p.abilityCooldowns = {});
+    for(const k in _acd) { if(_acd[k] > 0) _acd[k] = Math.max(0, _acd[k] - dt); }
+
+    // Tick heal buff on player
+    if((p._healBuffTimer||0) > 0) {
+      p._healBuffTimer -= dt;
+      p.hull = Math.min(p.maxHull, p.hull + (p._healBuff||5) * dt);
+      if(p._healBuffTimer <= 0) { p._healBuff = 0; p._healBuffTimer = 0; }
+    }
+
+    // Tick player frozen (from enemy frost nova)
+    if((p._frozenTimer||0) > 0) p._frozenTimer -= dt;
+
+    // Tick superboost
+    if((p._superboostTimer||0) > 0) p._superboostTimer = Math.max(0, p._superboostTimer - dt);
 
     // M: toggle galaxy map
     if(this.input.pressed('KeyM')) {
@@ -1637,6 +2323,11 @@ G.Game = class {
       this._autopilot = false;
     }
 
+    // Auto-clear targeted missiles that have left the projectile list
+    if(this.target?.type === 'missile' && !this.space.projectiles.includes(this.target)) {
+      this.target = null;
+    }
+
     // V: comms with any targeted entity (ships or planets)
     if(this.input.pressed('KeyV')) {
       if(this.target && (!this.target.dead || this.target.type==='planet' || this.target.type==='station')) {
@@ -1673,55 +2364,74 @@ G.Game = class {
       this._lockT = 0; this._locked = false; this._lockBeepT = 0;
     }
 
-    p.update(dt, this.input);
+    // Frozen player: suppress controls, decelerate
+    if((p._frozenTimer||0) > 0) {
+      p.vx *= 0.85; p.vy *= 0.85;
+      p.x += p.vx*dt; p.y += p.vy*dt;
+    } else {
+      p.update(dt, this.input);
+    }
 
-    // Engine trail at correct exhaust point (behind ship)
-    if(!p.disabled && this.input.thrust && Math.random()<0.5) {
-      this.particles.engine_trail(p.x,p.y,p.angle,p.vx,p.vy,1);
-    }
-    // Boost trail — blue streaks that linger
-    if(!p.disabled && this.input.boost && p.energy>5 && p.boostCharge>0) {
-      if(Math.random()<0.7) this.particles.boost_trail(p.x,p.y,p.angle,1.2);
-    }
-    // Retrograde braking exhaust — particles shoot forward/sideways (RCS effect)
-    if(this.input.reverse && Math.random()<0.5) {
-      const spd = Math.sqrt(p.vx*p.vx+p.vy*p.vy);
-      if(spd > 10) {
-        // Emit 2 small puffs from nose corners of the ship
-        for(const side of [-1,1]) {
-          const ex = p.x + Math.sin(p.angle)*12 + Math.cos(p.angle)*side*6;
-          const ey = p.y - Math.cos(p.angle)*12 + Math.sin(p.angle)*side*6;
-          this.particles.emit({
-            x:ex, y:ey,
-            vx: (p.vx/spd)*30 + Math.cos(p.angle)*side*20,
-            vy: (p.vy/spd)*30 - Math.sin(p.angle)*side*20,
-            life:0.12, r:1.4, color:'#88aaff', drag:0.85, fade:true,
-          });
-        }
+    // Per-thruster engine trails — one plume per active thruster module
+    if(!p.disabled) {
+      G.ui?._ensureBuilderCells?.(p);
+      const TSTEP = 12, tCC = 4, tCR = 4;
+      const tCa=Math.cos(p.angle), tSa=Math.sin(p.angle);
+      const _sb = (p._superboostTimer||0) > 0;
+      const _rainbow = this.input.boost && (_sb || (p.energy>5 && p.boostCharge>0));
+      for(const inst of Object.values(p.modules||{})) {
+        if(inst.cell==null) continue;
+        const mod=G.MODULES[inst.moduleId];
+        if(!mod||mod.slot!=='thruster') continue;
+        const rot=(inst.rot||0)%4;
+        const active=(rot===0&&this.input.thrust)||(rot===1&&this.input.strafeR)||
+                     (rot===2&&this.input.reverse)||(rot===3&&this.input.strafeL)||_rainbow;
+        if(!active||Math.random()>=0.5) continue;
+        const dx=(inst.cell%9-tCC)*TSTEP, dy=((inst.cell/9|0)-tCR)*TSTEP;
+        const wx=p.x + dx*tCa - dy*tSa;
+        const wy=p.y + dx*tSa + dy*tCa;
+        this.particles.engine_trail(wx,wy,p.angle+rot*Math.PI/2,p.vx,p.vy,1,_rainbow);
+      }
+      if(!p.disabled && _rainbow) {
+        if(Math.random()<0.7) this.particles.boost_trail(p.x,p.y,p.angle,1.2,_sb);
       }
     }
 
-    // Auto turrets (including missile turrets)
-    for(let i=0;i<p.weaponSlots.length;i++){
-      const w=p.weaponSlots[i];
-      const wDef=G.WEAPONS[w.weaponId];
-      if(!wDef?.turret) continue;
-      const nearest=this.space.nearestTarget(p.x,p.y);
-      if(nearest&&G.v2.dist(p,nearest)<(wDef.range||280)){
-        const projs=p.fireWeapon(i,nearest.x,nearest.y);
-        if(projs){
-          const arr=Array.isArray(projs)?projs:[projs];
-          arr.forEach(pr=>{
-            if(wDef.type==='missile'){
-              pr.tracking=true;
-              pr.trackTarget=nearest;
-              pr.dormant=true;
-              pr.dormantT=0.35;
-              pr.ttl+=0.35;
-            }
-            this.space.projectiles.push(pr);
-          });
-          if(wDef.type==='missile') G.sound?.weapon?.('missile');
+    // Turrets: rotate toward intercept point each frame; fire on SPACE
+    if(!p.disabled) {
+      const tgt = this.target;
+      const MAX_ROT = 1.5 * Math.PI * dt; // 270°/sec rotation speed
+      for(let i = 0; i < p.weaponSlots.length; i++) {
+        const w = p.weaponSlots[i];
+        const wDef = G.WEAPONS[w.weaponId];
+        if(!wDef?.turret) continue;
+        if(w._turretAngle == null) w._turretAngle = p.angle;
+        // Rotate toward intercept point, or ship heading when no target
+        {
+          const desired = tgt
+            ? (() => { const ip = this._interceptPoint(tgt, p, wDef.projSpeed || 800); return Math.atan2(ip.x - p.x, -(ip.y - p.y)); })()
+            : p.angle;
+          const diff = G.wrapAngle(desired - w._turretAngle);
+          w._turretAngle = Math.abs(diff) <= MAX_ROT
+            ? desired
+            : G.wrapAngle(w._turretAngle + Math.sign(diff) * MAX_ROT);
+        }
+        // Fire on SPACE toward current turret facing
+        if(this.input.fire) {
+          const tx = p.x + Math.sin(w._turretAngle) * (wDef.range || 600);
+          const ty = p.y - Math.cos(w._turretAngle) * (wDef.range || 600);
+          const projs = p.fireWeapon(i, tx, ty);
+          if(projs) {
+            const arr = Array.isArray(projs) ? projs : [projs];
+            arr.forEach(pr => {
+              if(wDef.type === 'missile') {
+                pr.tracking = true; pr.trackTarget = tgt;
+                pr.dormant = true; pr.dormantT = 0.35; pr.ttl += 0.35;
+              }
+              this.space.projectiles.push(pr);
+            });
+            G.sound?.weapon?.(wDef.type === 'missile' ? 'missile' : 'laser');
+          }
         }
       }
     }
@@ -1732,7 +2442,7 @@ G.Game = class {
       const tx = aim?.x ?? this.target?.x, ty = aim?.y ?? this.target?.y;
       for(let wIdx = 0; wIdx < p.weaponSlots.length; wIdx++) {
         const wDef = p.weaponSlots[wIdx] ? G.WEAPONS[p.weaponSlots[wIdx].weaponId] : null;
-        if(!wDef || wDef.turret || wDef.type === 'missile' || wDef.type === 'mining') continue;
+        if(!wDef || wDef.turret || wDef.type === 'missile') continue;
         const projs = p.fireWeapon(wIdx, tx, ty);
         if(projs) {
           const arr = Array.isArray(projs) ? projs : [projs];
@@ -1742,23 +2452,14 @@ G.Game = class {
       }
     }
 
-    // C (alt fire): missiles (dormant launch) + mining laser (continuous beam)
+    // C (alt fire): missiles (dormant launch)
     if(this.input.altFire && !p.disabled) {
       const isLocked = this._locked && this._lockTarget && !this._lockTarget.dead;
       const aim = this.target ? this._interceptPoint(this.target, p) : null;
       const tx = aim?.x ?? this.target?.x, ty = aim?.y ?? this.target?.y;
       for(let wIdx = 0; wIdx < p.weaponSlots.length; wIdx++) {
         const wDef = p.weaponSlots[wIdx] ? G.WEAPONS[p.weaponSlots[wIdx].weaponId] : null;
-        if(!wDef || (wDef.type !== 'missile' && wDef.type !== 'mining')) continue;
-        if(wDef.type === 'mining') {
-          const projs = p.fireWeapon(wIdx, tx, ty);
-          if(projs) {
-            const arr = Array.isArray(projs) ? projs : [projs];
-            arr.forEach(pr => this.space.projectiles.push(pr));
-            G.sound?.weapon?.(wDef.type);
-          }
-          continue;
-        }
+        if(!wDef || wDef.type !== 'missile') continue;
         const projs = p.fireWeapon(wIdx, tx, ty);
         if(projs) {
           const arr = Array.isArray(projs) ? projs : [projs];
@@ -1853,15 +2554,6 @@ G.Game = class {
       }
     }
 
-    // Mining (hold M near asteroid — only when NOT on map)
-    if(this.input.is('KeyM') && this.state==='space' && p.canMine) {
-      const nearA=this.space.nearestAsteroid(p.x,p.y,120);
-      if(nearA&&Math.random()<dt*4) {
-        const done=this.space.mineAsteroid(nearA,p,this.particles);
-        if(done) this.ui.addMsg('Asteroid mined!','#ffcc44');
-      }
-    }
-
     if(p.disabled && !this._playerDisabledMsgShown) {
       this._playerDisabledMsgShown = true;
       this.ui.addMsg('Ship disabled! Hull integrity lost.', '#ff6644');
@@ -1926,9 +2618,9 @@ G.Game = class {
   }
 
   // Compute the intercept position to pass as a fire target, accounting for target velocity
-  _interceptPoint(target, shooter) {
+  _interceptPoint(target, shooter, projSpdOverride) {
     const wpn = shooter.weaponSlots[shooter.activeWeapon];
-    const projSpd = wpn ? (G.WEAPONS[wpn.weaponId]?.projSpeed || 800) : 800;
+    const projSpd = projSpdOverride ?? (wpn ? (G.WEAPONS[wpn.weaponId]?.projSpeed || 800) : 800);
     const dx = target.x - shooter.x, dy = target.y - shooter.y;
     const tvx = target.vx || 0, tvy = target.vy || 0;
     const a = tvx*tvx + tvy*tvy - projSpd*projSpd;
@@ -2013,6 +2705,13 @@ G.Game = class {
   }
 
   launch() {
+    if(this.player && !this.player.flyable){
+      const _hc = Object.values(this.player.modules).some(i => { const m = G.MODULES[i.moduleId]; return m?.slot==='cockpit'; });
+      const _hm = Object.values(this.player.modules).some(i => { const m = G.MODULES[i.moduleId]; return m?.slot==='core'; });
+      const reason = !_hc ? 'Missing cockpit' : !_hm ? 'Missing class core module' : 'Hull not enclosed — add hull panels around all modules';
+      this.ui.addMsg(reason+' — check Ship Builder.','#ff4444');
+      return;
+    }
     this.state='launching';
     this._landFade=1;
     this.camZoom=1.35;
@@ -2036,6 +2735,7 @@ G.Game = class {
     this.state='space';
     this._jumpChargeT=0;
     this.ui.els['galaxy-overlay']?.classList.add('hidden');
+    document.getElementById('minimap-wrap')?.classList.remove('hidden');
   }
 
   _playerDied() {
@@ -2049,6 +2749,80 @@ G.Game = class {
     this._playerDyingInitTimer = 2.5;
     this._playerDyingNextBang  = 0.15;
     this._hideHUD();
+  }
+
+  _useAbility(abilityId, ship) {
+    const def = G.ABILITIES?.[abilityId];
+    if(!def) return;
+    ship.abilityCooldowns = ship.abilityCooldowns || {};
+    if((ship.abilityCooldowns[abilityId]||0) > 0) {
+      const rem = Math.ceil(ship.abilityCooldowns[abilityId]);
+      this.ui.addMsg(def.name+' — '+rem+'s cooldown', '#556677');
+      return;
+    }
+    if(ship.energy < (def.energyCost||0)) {
+      this.ui.addMsg('Not enough energy for '+def.name+'!', '#ff4444');
+      return;
+    }
+    ship.energy -= (def.energyCost||0);
+    ship.abilityCooldowns[abilityId] = def.cooldown;
+
+    const px = ship.x, py = ship.y;
+    const range = def.range || 300;
+
+    if(abilityId === 'frost_nova') {
+      this.particles.frost_nova(px, py, range);
+      G.sound?.abilityFrost?.();
+      for(const e of this.space.enemies) {
+        if(e.dead || e._deathDone || e.disabled) continue;
+        if(Math.hypot(e.x-px, e.y-py) <= range) { e._frozen=true; e._frozenTimer=2.0; }
+      }
+      for(const n of this.space.npcs) {
+        if(n.dead || n._deathDone || n.disabled || !n.hostile) continue;
+        if(Math.hypot(n.x-px, n.y-py) <= range) { n._frozen=true; n._frozenTimer=2.0; }
+      }
+      this.addCombatLog('Frost Nova!', '#88ddff');
+
+    } else if(abilityId === 'healing_nova') {
+      this.particles.healing_nova(px, py, range);
+      G.sound?.abilityHeal?.();
+      ship._healBuff = 6; ship._healBuffTimer = 5.0;
+      for(const n of this.space.npcs) {
+        if(n.dead || n._deathDone || n.hostile || n.disabled) continue;
+        if(Math.hypot(n.x-px, n.y-py) <= range) { n._healBuff=6; n._healBuffTimer=5.0; }
+      }
+      this.addCombatLog('Healing Nova!', '#44ff88');
+
+    } else if(abilityId === 'chaff') {
+      this.space.chaffBalls = this.space.chaffBalls || [];
+      for(let _bi=0; _bi<10; _bi++) {
+        setTimeout(() => {
+          if(!this.player || this.player.dead) return;
+          const angle = Math.random() * Math.PI * 2;
+          const spd = 100 + Math.random() * 150;
+          this.space.chaffBalls.push({
+            x: this.player.x, y: this.player.y,
+            vx: this.player.vx + Math.cos(angle) * spd,
+            vy: this.player.vy + Math.sin(angle) * spd,
+            timer: 1.0, r: range,
+          });
+        }, _bi * 100);
+      }
+      if(this._locked) { G.sound?.missileLockOff?.(); this._lockT=0; this._locked=false; }
+      this.addCombatLog('Chaff launched ×10!', '#ffcc44');
+
+    } else if(abilityId === 'quantum_brake') {
+      this.particles.quantum_brake(px, py);
+      G.sound?.abilityBrake?.();
+      ship.vx=0; ship.vy=0;
+      this.addCombatLog('Quantum Brake!', '#aa88ff');
+
+    } else if(abilityId === 'superboost') {
+      ship._superboostTimer = 5.0;
+      G.sound?.boost?.();
+      this.addCombatLog('Superboost!', '#00ff88');
+    }
+    this.ui.updateAbilityBar(ship);
   }
 
   _updateDyingPlayer(dt) {
@@ -2205,6 +2979,7 @@ G.Game = class {
     this._hideHUD();
     this.state = 'menu';
     this.renderer._menuStars = null;
+    this.renderer._menuFrozen = false;
     document.getElementById('main-menu')?.classList.remove('hidden');
     this._updateContinueBtn();
   }
@@ -2214,6 +2989,7 @@ G.Game = class {
       (this.ui.els[id]||document.getElementById(id))?.classList.remove('hidden');
     });
     document.getElementById('minimap-wrap')?.classList.remove('hidden');
+    this.ui.updateAbilityBar(this.player);
   }
   _hideHUD() {
     ['hud','hud-top'].forEach(id=>{
@@ -2299,6 +3075,7 @@ G.Game.prototype._loop = function(ts) {
         if(completed.length > 0) G.sound?.missionComplete();
         this.ui.showSpaceport(port.name, this.currentSysId);
         this.state='landed'; this.camZoom=1.0; this._landFade=0;
+        setTimeout(()=>this.ui.showSTCWelcome(port.name, port.faction||'neutral'), 350);
       }
     }
 
@@ -2319,6 +3096,13 @@ G.Game.prototype._loop = function(ts) {
       ctx.fillRect(0, 0, G.CANVAS_W, G.CANVAS_H);
       ctx.restore();
     }
+  } else if(this.state === 'hexmap') {
+    if(!this.paused) {
+      this.space.update(dt, this.player, this.input, this.particles, Date.now()/1000);
+      this.particles.update(dt);
+    }
+    this.renderer.renderHexMap(this);
+    if(this.input.pressed('KeyM')) this.openGalaxy();
   } else if(this.state==='galaxy') {
     if(this.input.pressed('KeyM')) this.closeGalaxy();
     // Hold J with a route selected: close map and begin jump charge immediately
@@ -2330,6 +3114,10 @@ G.Game.prototype._loop = function(ts) {
     this.galaxy.draw(this.currentSysId);
   } else if(this.state==='landed') {
     if(this.input.pressed('KeyL')) this.launch();
+    if(this.ui._spTab === 'builder') {
+      if(this.input.pressed('KeyQ')) this.ui.builderRotate(-1);
+      if(this.input.pressed('KeyE')) this.ui.builderRotate(1);
+    }
     // Zoom out fully when viewing missions tab
     if(this.ui._spTab === 'missions') {
       this.camZoom = 0.22;
@@ -2339,14 +3127,21 @@ G.Game.prototype._loop = function(ts) {
     this.renderer.renderSpace(this);
   } else if (this.state === 'menu') {
     this.renderer.renderMenuBg(dt);
+    if(Object.keys(this.input.justPressed).length > 0) {
+      this.start();
+    }
   } else {
     this.renderer.clear();
   }
 
-  // Escape: close galaxy map or toggle options menu
+  // Escape: close galaxy map / hex map or toggle options menu
   if(this.input.pressed('Escape')) {
     if(this.state==='galaxy') {
       this.closeGalaxy();
+    } else if(this.state==='hexmap') {
+      this.state='space';
+      this._zoomManual=-0.42;
+      document.getElementById('minimap-wrap')?.classList.remove('hidden');
     } else if(this.state==='space' || this.state==='dead') {
       const opts=document.getElementById('options-overlay');
       if(opts) {
@@ -2359,6 +3154,7 @@ G.Game.prototype._loop = function(ts) {
   if(this.player && this.state!=='menu') {
     this.ui.updateHUD(this.player, this.space, this.target);
     this.ui.updateJumpRouteHUD(this.player, this.galaxy, this._jumpCooldown);
+    this.ui.updateAbilityBar(this.player);
   }
 
   this._updateMusic(dt);

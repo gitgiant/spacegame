@@ -447,12 +447,20 @@ G.NPCShip = class {
     this.size    = tpl.size||1.0;
     this.captain = { sex: Math.random() < 0.5 ? 'male' : 'female', faceIdx: Math.floor(Math.random() * 5) };
 
+    // Resolve base stats from class core module (stats now live there, not on template)
+    const _coreId    = 'core_' + tpl.id;
+    const _coreStats = G.MODULES[_coreId]?.stats || {};
+    const _baseHull  = _coreStats.maxHull  || 200;
+    const _baseMass  = _coreStats.mass     || 80;
+    const _baseTurn  = _coreStats.turnBase || 2.0;
+    const _baseCargo = _coreStats.cargoSpace || 20;
+
     // Stats derived from ship template so larger ships are tankier and slower
     const hullVar = 0.8 + Math.random() * 0.4;
-    this.maxHp      = tpl.baseHull * hullVar;
+    this.maxHp      = _baseHull * hullVar;
     this.hp         = this.maxHp;
     // Shields: faction modifier × hull-relative base (larger ships get more)
-    const shieldBase = tpl.baseHull * 0.35 * hullVar;
+    const shieldBase = _baseHull * 0.35 * hullVar;
     this.maxShields = faction==='earth'      ? shieldBase
                     : faction==='rebellion'  ? shieldBase * 0.6
                     : faction==='independent'? shieldBase * 0.15
@@ -468,21 +476,20 @@ G.NPCShip = class {
     this.angle = spawnAngle + Math.PI; // face center
 
     // Speed and agility scale inversely with ship mass
-    const massRatio = 80 / (tpl.baseMass || 80);
-    this.speed     = (tpl.baseThrust / (tpl.baseMass || 80) * 1.8 + 80) * (0.8 + Math.random() * 0.4);
-    this.turnSpeed = tpl.baseTurn * (0.8 + Math.random() * 0.4);
+    this.speed     = (tpl.baseThrust / _baseMass * 1.8 + 80) * (0.8 + Math.random() * 0.4);
+    this.turnSpeed = _baseTurn * (0.8 + Math.random() * 0.4);
     this.fireRate  = 0.5+Math.random()*0.7;
     this.damage    = 10+Math.random()*10;
     this.lastShot  = 0;
 
-    // Primary weapon from ship template
-    const weaponIds = tpl.startWeapons || ['laser_cannon'];
-    this.weaponId = weaponIds[0];
+    // All weapons from ship template
+    this.weaponIds = (tpl.startWeapons || ['laser_cannon']).filter(id => !!G.WEAPONS[id]);
+    this.weaponId  = this.weaponIds[0]; // legacy fallback
 
     // Mining state
     const shipClass = tpl.class || 'shuttle';
     this.isMiner  = (shipClass === 'miner');
-    this.cargoMax = tpl.baseCargoSpace || 20;
+    this.cargoMax = _baseCargo;
     this.cargoUsed = 0;
     this.mineTarget = null;
     this.mineTimer  = 0;
@@ -507,6 +514,7 @@ G.NPCShip = class {
     this.jumpingOut   = false;
     this.jumpOutTimer = 0;
     this._boosting    = false;
+    this._intentionMsgCooldown = 0;
 
     // Cargo / credits
     this.credits = 80+Math.floor(Math.random()*400);
@@ -516,6 +524,10 @@ G.NPCShip = class {
       const item = itemArr[Math.floor(Math.random()*itemArr.length)];
       this.cargo[item] = 1+Math.floor(Math.random()*4);
     }
+
+    // ~15% of friendly NPC ships carry healing_nova
+    this.abilities = (faction !== 'pirate' && Math.random() < 0.15) ? ['healing_nova'] : [];
+    this.abilityCooldowns = {};
   }
 
   _setInitialDestination(bodies) {
@@ -540,6 +552,16 @@ G.NPCShip = class {
 
     this._boosting = false;
 
+    // Hyperspace jump-in sequence (materialization)
+    if(this.jumpingIn) {
+      this.jumpInTimer -= dt;
+      if(this.jumpInTimer <= 0) {
+        this.jumpingIn = false;
+        if(particles) particles.warp_effect(this.x, this.y);
+      }
+      return;
+    }
+
     // Hyperspace jump-out sequence
     if(this.jumpingOut) {
       this.jumpOutTimer -= dt;
@@ -557,6 +579,45 @@ G.NPCShip = class {
       this.x+=this.vx*dt; this.y+=this.vy*dt; return;
     }
     if(this.empTimer>0) { this.empTimer-=dt; this.x+=this.vx*dt; this.y+=this.vy*dt; return; }
+
+    // Frozen by Frost Nova
+    if(this._frozenTimer > 0) {
+      this._frozenTimer -= dt;
+      this.vx *= 0.85; this.vy *= 0.85;
+      this.x += this.vx * dt; this.y += this.vy * dt;
+      return;
+    }
+
+    // Heal over time buff (from Healing Nova)
+    if(this._healBuffTimer > 0 && this._healBuff > 0) {
+      this._healBuffTimer -= dt;
+      this.hp = Math.min(this.maxHp, this.hp + this._healBuff * dt);
+      if(this._healBuffTimer <= 0) { this._healBuff = 0; }
+    }
+
+    // NPC ability usage — healing_nova when hurt
+    if(this.abilities?.length && particles) {
+      this.abilityCooldowns = this.abilityCooldowns || {};
+      for(const abilId of this.abilities) {
+        const def = G.ABILITIES[abilId];
+        if(!def?.npcUsable) continue;
+        if((this.abilityCooldowns[abilId] || 0) > 0) { this.abilityCooldowns[abilId] -= dt; continue; }
+        if(abilId === 'healing_nova' && this.hp < this.maxHp * 0.6) {
+          this.abilityCooldowns[abilId] = def.cooldown + Math.random() * 10;
+          particles.healing_nova(this.x, this.y, def.range);
+          G.sound?.abilityHeal?.();
+          // Heal self
+          this._healBuff = 5; this._healBuffTimer = 5.0;
+          // Heal nearby friendly NPCs
+          for(const n of (otherNPCs || [])) {
+            if(n === this || n.hostile || n.dead) continue;
+            if(Math.hypot(n.x - this.x, n.y - this.y) <= def.range) {
+              n._healBuff = 5; n._healBuffTimer = 5.0;
+            }
+          }
+        }
+      }
+    }
 
     // Occasional radio chatter to the player
     this._chatTimer = (this._chatTimer||30+Math.random()*60) - dt;
@@ -601,6 +662,8 @@ G.NPCShip = class {
     }
 
     // Autonomous behavior
+    const _prevAiState = this.aiState;
+    const _prevHostile = this.hostile;
     this._updateAutonomous(dt, particles);
     this._applyDrag(dt);
     this.x+=this.vx*dt; this.y+=this.vy*dt;
@@ -613,6 +676,22 @@ G.NPCShip = class {
         if(G.HOSTILE[this.faction]?.[s.faction]) {
           if(Math.hypot(this.x-s.x, this.y-s.y) < 700) {
             this.hostile=true; this.combatTarget=s; break;
+          }
+        }
+      }
+    }
+
+    // Declare intention change to nearby player
+    if(this._intentionMsgCooldown > 0) this._intentionMsgCooldown -= dt;
+    else if(this.aiState !== _prevAiState || (this.hostile && !_prevHostile)) {
+      const player = G.game?.player;
+      if(player && Math.random() < 0.45) {
+        const dist = Math.hypot(this.x - player.x, this.y - player.y);
+        if(dist < 900) {
+          const msg = this._intentionDeclaration(_prevHostile);
+          if(msg) {
+            this._intentionMsgCooldown = 20;
+            G.ui?.addMsg('['+this.name+']: "'+msg+'"', G.FACTIONS[this.faction]?.color||'#88ccee');
           }
         }
       }
@@ -846,29 +925,74 @@ G.NPCShip = class {
 
     const angleToT=Math.atan2(dx,-dy);
     const diff=Math.abs(G.wrapAngle(this.angle-angleToT));
-    const wpn = G.WEAPONS[this.weaponId] || {};
-    const range = wpn.range || 600;
-    const rate  = wpn.fireRate || this.fireRate;
-    const spd   = wpn.projSpeed || 800;
-    if(dist < range * 0.85 && diff < 0.5 && now - this.lastShot > 1/rate) {
-      this.lastShot = now;
-      projectiles.push({
-        x: this.x+Math.sin(this.angle)*16, y: this.y-Math.cos(this.angle)*16,
-        vx: Math.sin(angleToT)*spd + this.vx*0.2,
-        vy: -Math.cos(angleToT)*spd + this.vy*0.2,
-        damage: wpn.damage || this.damage,
-        type:   wpn.type   || 'laser',
-        color:  wpn.color  || this.color,
-        width:  wpn.width  || 2,
-        splash: wpn.splash || 0,
-        pierce: wpn.pierce ?? false,
-        ttl:    (wpn.range || 600) / (wpn.projSpeed || 800),
-        tracking: false,
-        sourceId: this.id,
-      });
-      const playerDist = G.game?.player ? Math.hypot(this.x - G.game.player.x, this.y - G.game.player.y) : 0;
-      G.sound?.enemyWeapon(wpn.type || 'laser', playerDist);
+    const playerDist = G.game?.player ? Math.hypot(this.x - G.game.player.x, this.y - G.game.player.y) : 0;
+    const wpnIds = this.weaponIds?.length ? this.weaponIds : [this.weaponId].filter(Boolean);
+    for(const wid of wpnIds) {
+      const wpn = G.WEAPONS[wid] || {};
+      const range = wpn.range || 600;
+      const rate  = wpn.fireRate || this.fireRate;
+      const spd   = wpn.projSpeed || 800;
+      const cooldownKey = '_shot_'+wid;
+      if(dist < range * 0.85 && diff < 0.5 && now - (this[cooldownKey]||0) > 1/rate) {
+        this[cooldownKey] = now;
+        projectiles.push({
+          x: this.x+Math.sin(this.angle)*16, y: this.y-Math.cos(this.angle)*16,
+          vx: Math.sin(angleToT)*spd + this.vx*0.2,
+          vy: -Math.cos(angleToT)*spd + this.vy*0.2,
+          damage: wpn.damage || this.damage,
+          type:   wpn.type   || 'laser',
+          color:  wpn.color  || this.color,
+          width:  wpn.width  || 2,
+          splash: wpn.splash || 0,
+          pierce: wpn.pierce ?? false,
+          ttl:    range / spd,
+          tracking: false,
+          sourceId: this.id,
+        });
+        G.sound?.enemyWeapon(wpn.type || 'laser', playerDist);
+      }
     }
+  }
+
+  _intentionDeclaration(wasHostile) {
+    if(this.hostile && !wasHostile) {
+      const bank = G.COMMS_LINES[this.faction]||G.COMMS_LINES.independent;
+      const sightedLines = [
+        'Enemies sighted. Going weapons hot.','Hostile contact. Engaging.',
+        'Contact! Engaging hostile.','Threat detected. Weapons free.',
+        'Got eyes on a bogey. Engaging.','Picking a fight. Don\'t interfere.',
+      ];
+      const allLines = [...(bank.hostile||[]), ...sightedLines];
+      return allLines[Math.floor(Math.random()*allLines.length)];
+    }
+    const opts = {
+      mining_asteroid:    ['Mining survey. Stand clear.','Starting extraction.','Locked on target asteroid.',
+                           'Looting this rock. Back off.','Salvage rights claimed. Move along.',
+                           'Found something good. Starting extraction.'],
+      transit_to_port:    ['Inbound to port.','Switching to docking approach.','Heading to the port.',
+                           'Need to eat. Making for port.','Tired. Heading in.',
+                           'Low on supplies. Docking up.','Long shift. Time to rest.'],
+      transit_to_jump:    ['Plotting jump coordinates.','Spooling up jump drive.','Calculating hyperspace route.',
+                           'Escorting this lane. Nothing to see.','Guarding this sector. Move along.',
+                           'Getting out of here.','This system is too hot. Jumping.'],
+      charging_jump:      ['Jump drive charging. Stand clear.','Initiating hyperspace sequence.',
+                           'Hiding from whoever that was.','Not getting paid enough for this.'],
+      fuel_rendezvous:    ['En route for fuel transfer. Hold your position.'],
+      seek_asteroid:      ['Scanning for survey targets.','Picking an asteroid.',
+                           'Bored. Going to shoot some rocks.','Nothing to do. Mining it is.',
+                           'Scouting for salvage.'],
+      departing:          ['Departing. Clearing the pad.','Lifting off.',
+                           'Finally. Getting out of this port.','Break\'s over. Back at it.',
+                           'Finished eating. Moving out.'],
+      docked:             ['Taking a break.','Grabbing food. Back soon.','Resting here a bit.',
+                           'Taking a nap. Don\'t bother me.','Comfort stop. Give me five.',
+                           'Off the clock. Leave me alone.','Eating. Comm me later.',
+                           'Nature calls. Stand by.','Just need a minute. Personal business.',
+                           'Docked and bored out of my mind.'],
+      parking:            ['Lining up. Give me space.','Coming in slow.','Watch your wing — parking.'],
+    }[this.aiState];
+    if(!opts) return null;
+    return opts[Math.floor(Math.random()*opts.length)];
   }
 
   _setJumpTarget() {
@@ -1030,8 +1154,10 @@ G.FleetShip = class {
     this.fleetDataId = entry.id;
     this.name = entry.fleetName || 'Fleet Ship';
     const tpl = G.SHIPS[entry.ship?.templateId];
+    this.shipId  = entry.ship?.templateId || null;
     this.shapeId = tpl?.shape || 'shuttle';
     this.color = tpl?.color || '#8899bb';
+    this.faction = tpl?.faction || 'neutral';
     this.size = tpl?.size || 1.0;
 
     const s = entry.ship;
@@ -1046,6 +1172,10 @@ G.FleetShip = class {
     this.fireRate = entry.combatFireRate || 1.0;
     this.weaponType = entry.combatWeaponType || 'laser';
     this.weaponColor = entry.combatWeaponColor || '#44aaff';
+    // All weapons from ship template
+    const fsTpl = G.SHIPS[entry.ship?.templateId];
+    this.weaponIds = (fsTpl?.startWeapons || [this.weaponType]).filter(id => !!G.WEAPONS[id]);
+    if(!this.weaponIds.length) this.weaponIds = [this.weaponType];
 
     this.x = 0; this.y = 0;
     this.vx = 0; this.vy = 0;
@@ -1118,26 +1248,34 @@ G.FleetShip = class {
       }
 
       const angleDiff = Math.abs(G.wrapAngle(this.angle - aimAngle));
-      if(angleDiff < 0.5 && distToTarget < 680 && now - this.lastShot > 1/this.fireRate) {
-        this.lastShot = now;
-        const spd = this.weaponType==='laser' ? 780 : 560;
-        const isMissile = this.weaponType === 'missile';
-        projectiles.push({
-          x: this.x+Math.sin(this.angle)*16, y: this.y-Math.cos(this.angle)*16,
-          vx: Math.sin(aimAngle)*spd+this.vx*0.2, vy: -Math.cos(aimAngle)*spd+this.vy*0.2,
-          damage: this.damage, type: this.weaponType,
-          range: 700, traveled: 0,
-          color: this.weaponColor, width: 2,
-          ttl: 0.95, sourceId: this.id,
-          splash: 0, empStrength: 0, tracking: isMissile, pierce: false,
-          trackTarget: isMissile ? { x: attackTarget.x, y: attackTarget.y } : null,
-        });
-        if(particles) particles.emit({
-          x: this.x+Math.sin(this.angle)*16, y: this.y-Math.cos(this.angle)*16,
-          minSpd:20, maxSpd:60, life:0.15, r:2, color:this.weaponColor,
-        });
-        const playerDist = Math.hypot(this.x - player.x, this.y - player.y);
-        G.sound?.enemyWeapon(this.weaponType, playerDist);
+      const playerDist2 = Math.hypot(this.x - player.x, this.y - player.y);
+      const fsWpnIds = this.weaponIds?.length ? this.weaponIds : [this.weaponType];
+      for(const wid of fsWpnIds) {
+        const wDef = G.WEAPONS[wid] || {};
+        const range = wDef.range || 700;
+        const rate  = wDef.fireRate || this.fireRate;
+        const spd   = wDef.projSpeed || (wDef.type==='laser' ? 780 : 560);
+        const fsKey = '_fsshot_'+wid;
+        if(angleDiff < 0.5 && distToTarget < range && now - (this[fsKey]||0) > 1/rate) {
+          this[fsKey] = now;
+          const isMissile = wDef.type === 'missile';
+          projectiles.push({
+            x: this.x+Math.sin(this.angle)*16, y: this.y-Math.cos(this.angle)*16,
+            vx: Math.sin(aimAngle)*spd+this.vx*0.2, vy: -Math.cos(aimAngle)*spd+this.vy*0.2,
+            damage: wDef.damage || this.damage, type: wDef.type || this.weaponType,
+            range, traveled: 0,
+            color: wDef.color || this.weaponColor, width: wDef.width || 2,
+            ttl: range/spd, sourceId: this.id,
+            splash: wDef.splash || 0, empStrength: wDef.empStrength || 0,
+            tracking: isMissile, pierce: wDef.pierce || false,
+            trackTarget: isMissile ? { x: attackTarget.x, y: attackTarget.y } : null,
+          });
+          if(particles) particles.emit({
+            x: this.x+Math.sin(this.angle)*16, y: this.y-Math.cos(this.angle)*16,
+            minSpd:20, maxSpd:60, life:0.15, r:2, color: wDef.color || this.weaponColor,
+          });
+          G.sound?.enemyWeapon(wDef.type || this.weaponType, playerDist2);
+        }
       }
     } else {
       const dx = player.x - this.x, dy = player.y - this.y;

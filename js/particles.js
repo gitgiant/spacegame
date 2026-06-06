@@ -111,41 +111,51 @@ G.Particles = class {
       life:0.4, maxLife:0.4, color:'#aa44ff', vx:0, vy:0, fade:true });
   }
 
-  engine_trail(x, y, angle, vx, vy, scale=1) {
+  engine_trail(x, y, angle, vx, vy, scale=1, rainbow=false) {
     const exhaustDist = 14 * scale;
     const ex = x - Math.sin(angle) * exhaustDist;
     const ey = y + Math.cos(angle) * exhaustDist;
     const exhaustAngle = angle + Math.PI + G.rand(-0.25, 0.25);
+    let color;
+    if(rainbow) {
+      const hue = (performance.now() * 0.18 + Math.random() * 30) % 360;
+      color = Math.random() < 0.6
+        ? `hsl(${hue|0},100%,65%)`
+        : `hsl(${(hue+50)%360|0},100%,80%)`;
+    } else {
+      color = Math.random() < 0.6 ? '#ffaa22' : '#ff6622';
+    }
     this.emit({
       x: ex, y: ey,
       vx: Math.sin(exhaustAngle) * G.rand(30,90) * scale,
       vy: -Math.cos(exhaustAngle) * G.rand(30,90) * scale,
       life: 0.12 + Math.random() * 0.1,
       r: (1.5 + Math.random() * 1.5) * scale,
-      color: Math.random() < 0.6 ? '#ffaa22' : '#ff6622',
+      color,
       drag: 0.88,
       fade: true,
     });
   }
 
-  boost_trail(x, y, angle, scale=1) {
+  boost_trail(x, y, angle, scale=1, superBoost=false) {
     const exhaustDist = 14 * scale;
     const ex = x - Math.sin(angle) * exhaustDist;
     const ey = y + Math.cos(angle) * exhaustDist;
     const exhaustAngle = angle + Math.PI + G.rand(-0.14, 0.14);
-    // Main bright blue streak — longer life so it lingers
+    const hue = (performance.now() * 0.18 + Math.random() * 30) % 360;
+    const c1 = `hsl(${hue|0},100%,65%)`;
+    const c2 = `hsl(${(hue+50)%360|0},100%,82%)`;
     this.emit({
       x: ex, y: ey,
       vx: Math.sin(exhaustAngle) * G.rand(60, 180) * scale,
       vy: -Math.cos(exhaustAngle) * G.rand(60, 180) * scale,
       life: 0.35 + Math.random() * 0.25,
       r: (2 + Math.random() * 2) * scale,
-      color: Math.random() < 0.55 ? '#44aaff' : '#88ccff',
+      color: Math.random() < 0.55 ? c1 : c2,
       drag: 0.91,
       fade: true,
       type: 'streak',
     });
-    // Dim core glow
     this.emit({
       x: ex, y: ey,
       vx: Math.sin(exhaustAngle) * G.rand(20, 60) * scale,
@@ -164,6 +174,54 @@ G.Particles = class {
       life:0.2+Math.random()*0.3,
       r:2, color:'#ffcc44', drag:0.9,
     }, 4);
+  }
+
+  frost_nova(x, y, range) {
+    const dur = 0.55;
+    this.active.push({ type:'ring', x, y, r:20, maxR:range,
+      life:dur, maxLife:dur, color:'#88ddff', vx:0, vy:0, fade:true, expandRate:range/dur });
+    this.active.push({ type:'ring', x, y, r:10, maxR:range*0.6,
+      life:0.38, maxLife:0.38, color:'#ccf0ff', vx:0, vy:0, fade:true, expandRate:range*0.6/0.35 });
+    for(let i=0;i<48;i++) {
+      const ang = (i/48)*Math.PI*2;
+      this.emit({ x, y, angle:ang, spread:0.18,
+        minSpd:60, maxSpd:range*0.7,
+        life:0.5+Math.random()*0.35, r:1.5+Math.random()*2,
+        color:Math.random()<0.5?'#88ddff':'#ccf0ff', drag:0.93, fade:true });
+    }
+  }
+
+  healing_nova(x, y, range) {
+    const dur = 0.65;
+    this.active.push({ type:'ring', x, y, r:20, maxR:range,
+      life:dur, maxLife:dur, color:'#44ff88', vx:0, vy:0, fade:true, expandRate:range/dur });
+    for(let i=0;i<36;i++) {
+      const ang = (i/36)*Math.PI*2;
+      this.emit({ x, y, angle:ang, spread:0.15,
+        minSpd:50, maxSpd:range*0.65,
+        life:0.6+Math.random()*0.4, r:2+Math.random()*2,
+        color:Math.random()<0.5?'#44ff88':'#88ffaa', drag:0.93, fade:true });
+    }
+  }
+
+  chaff_burst(x, y, vx, vy) {
+    for(let i=0;i<80;i++) {
+      this.emit({ x, y, vx, vy,
+        minSpd:30, maxSpd:200,
+        life:1.2+Math.random()*1.5, r:1+Math.random()*2.5,
+        color:Math.random()<0.5?'#ffcc44':'#aaaaaa', drag:0.97, fade:true });
+    }
+  }
+
+  quantum_brake(x, y) {
+    for(let i=0;i<50;i++) {
+      this.emit({ x, y,
+        minSpd:40, maxSpd:220,
+        life:0.3+Math.random()*0.4, r:1.5+Math.random()*2.5,
+        color:Math.random()<0.5?'#aa88ff':'#ffffff', drag:0.9, fade:true });
+    }
+    this.active.push({ type:'ring', x, y, r:8, maxR:90,
+      life:0.3, maxLife:0.3, color:'#aa88ff', vx:0, vy:0, fade:true });
   }
 
   warp_effect(x, y) {

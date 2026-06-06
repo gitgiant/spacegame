@@ -242,6 +242,8 @@ G.Economy = class {
     if(!sys) return [];
     const rng = G.seededRng(sysId+'_outfitter');
     return Object.values({...G.MODULES, ...G.WEAPONS}).filter(mod => {
+      if(mod.slot==='core') return false;
+      if(mod.slot==='hull') return false;
       if(mod.rarity==='e'&&rng()<0.7) return false;
       if(mod.rarity==='l'&&rng()<0.9) return false;
       if(mod.rarity==='r'&&sys.danger<4&&rng()<0.5) return false;

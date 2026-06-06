@@ -26,7 +26,7 @@ G.Input = class {
   _bind() {
     window.addEventListener('keydown', e => {
       // Don't let movement keys register while any menu is open
-      const movementKey = ['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE',
+      const movementKey = ['KeyW','KeyA','KeyS','KeyD',
                            'ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code);
       if(movementKey && this._menuOpen()) return;
 
