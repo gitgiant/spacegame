@@ -1002,7 +1002,12 @@ html, body {
   gap: 2px;
   position: relative;
   padding-top: 4px;
+  pointer-events: auto;       /* tappable for touch ability use */
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
+.ability-slot:active { border-color: #66ccff; }
 .ability-slot-num {
   position: absolute;
   top: 2px; left: 4px;
