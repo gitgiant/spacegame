@@ -1081,14 +1081,14 @@ G.Space = class {
       G.sound?.explosion(dFin, plFin ? G.clamp((ship.x-plFin.x)/900,-1,1) : 0);
       // Shockwave: damage nearby ships
       const shockR = 140 + sz * 120;
-      const shockDmg = 80 + sz * 160;
+      const shockDmg = 800 + sz * 1600;
       for(const other of [...this.npcs, ...this.enemies]) {
         if(other===ship||other.dead||other.boarded) continue;
         const d = Math.hypot(other.x-ship.x, other.y-ship.y);
         if(d < shockR) {
           const dmg = shockDmg*(1-d/shockR);
           other.takeDamage?.(dmg, 'projectile');
-          const knock = 800 * (1-d/shockR);
+          const knock = 8000 * (1-d/shockR);
           const ang = Math.atan2(other.y-ship.y, other.x-ship.x);
           other.vx += Math.cos(ang) * knock * 0.016;
           other.vy += Math.sin(ang) * knock * 0.016;
@@ -1100,7 +1100,7 @@ G.Space = class {
         if(dp < shockR) {
           const dmg = shockDmg*0.35*(1-dp/shockR);
           pl.takeDamage(dmg, 'projectile');
-          const knock = 600 * (1-dp/shockR);
+          const knock = 6000 * (1-dp/shockR);
           const ang = Math.atan2(pl.y-ship.y, pl.x-ship.x);
           pl.vx += Math.cos(ang) * knock * 0.016;
           pl.vy += Math.sin(ang) * knock * 0.016;
