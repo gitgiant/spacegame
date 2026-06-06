@@ -235,6 +235,11 @@
         </div>
       </div>
       <div id="opt-control-hint" style="font-size:5px;color:#44ffcc;font-family:'Press Start 2P',monospace;text-align:right;margin-bottom:12px;min-height:7px"></div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <span style="font-size:6px;color:#aabbcc;font-family:'Press Start 2P',monospace;min-width:48px">STEER</span>
+        <button id="opt-steer-dpad" class="btn" style="font-size:5px;padding:4px 10px;border-color:#44ffcc;color:#44ffcc">D-PAD</button>
+        <button id="opt-steer-joy" class="btn" style="font-size:5px;padding:4px 10px">JOYSTICK</button>
+      </div>
       <button class="btn btn-big" id="opt-controls-btn" style="border-color:#ffaa44;color:#ffaa44">CONTROLS</button>
       <button class="btn btn-big" id="opt-save-btn">SAVE GAME</button>
       <button class="btn btn-big" id="opt-load-btn" style="border-color:#00ffee;color:#00ffee">LOAD GAME</button>
@@ -277,6 +282,9 @@
       <button class="mbtn" data-key="KeyA" style="grid-area:l">◄</button>
       <button class="mbtn" data-key="KeyS" style="grid-area:dn">▼</button>
       <button class="mbtn" data-key="KeyD" style="grid-area:r">►</button>
+    </div>
+    <div id="mc-joystick" class="hidden">
+      <div id="mc-joy-knob"></div>
     </div>
     <div class="mc-combat">
       <div class="mc-combat-grid">
