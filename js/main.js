@@ -1283,8 +1283,8 @@ G.Renderer = class {
     ctx.scale(_zoom, _zoom);
     ctx.translate(-(camX + G.CANVAS_W/2), -(camY + G.CANVAS_H/2));
 
-    // Hex outline helper - circumradius for drawing vertices
-    const HEX_R = G.HEX_WORLD / Math.sqrt(3);
+    // Hex outline helper - sized to match hex map visual size
+    const HEX_R = 2 * G.HEX_WORLD / Math.sqrt(3);
     const drawHexOutline = (q, r) => {
       const hexW = G.hexToWorld(q, r);
       ctx.beginPath();
