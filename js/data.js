@@ -1502,7 +1502,7 @@ G.ABILITIES = {
   },
   scan: {
     id: 'scan', name: 'Scan',
-    desc: 'Read a targeted ship — hull, shields, armament, cargo and intel. Granted by a sensor module.',
+    desc: 'Penetrating sensor sweep of a targeted ship — strips away its hull plating in your view to reveal the internal modules so you can target weapons, engines, or the core. Granted by a sensor module.',
     cooldown: 3, energyCost: 8, range: 0,
     color: '#44ddff', icon: '⌖', npcUsable: false,
   },

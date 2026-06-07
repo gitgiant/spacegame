@@ -372,16 +372,68 @@ G.Renderer = class {
     return entries;
   }
 
-  // Hex tile entries for a non-player ship (NPC/enemy/fleet). Uses the shared,
-  // cached template layout (G.hexLayoutForTemplate) recoloured to the ship's
-  // faction hull tint.
+  // True once any hull panel on a ship's backing hull has been destroyed (breach).
+  _hullBreached(ship) {
+    const mods = ship.ship?.modules;
+    if(!mods) return false;
+    for(const inst of Object.values(mods))
+      if(inst.broken && (G.MODULES[inst.moduleId]?.slot === 'hull')) return true;
+    return false;
+  }
+
+  // Non-player internals stay hidden behind solid hull plating until the hull is
+  // breached (incoming fire chews through the outer panels first) or the ship has
+  // been scanned. Returns true when the interior modules should be shown.
+  _internalsRevealed(ship) {
+    return !!(ship._scanned || this._hullBreached(ship));
+  }
+
+  // Hex tile entries for a non-player ship (NPC/enemy/fleet). When the ship has a
+  // live backing hull, internals are hidden behind a solid hull silhouette until
+  // revealed (breach/scan); otherwise broken/inner modules are drawn. Ships with
+  // no backing hull fall back to the cached static template layout.
   _npcTileEntries(ship, hullColor) {
+    const live = ship.ship?.modules;
+    if(live) {
+      const reveal = this._internalsRevealed(ship);
+      const entries = [];
+      for(const inst of Object.values(live)) {
+        if(inst.q == null) continue;
+        const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+        if(!mod) continue;
+        const isHull = mod.slot === 'hull';
+        if(reveal) {
+          entries.push({
+            q: inst.q, r: inst.r, rot: inst.rot || 0,
+            visual: mod.visual || (G.WEAPONS[inst.moduleId] ? 'weapon' : 'special'),
+            slot: mod.slot || 'special', broken: inst.broken || false,
+            ...(isHull ? { color: inst.color || hullColor } : {}),
+          });
+        } else {
+          // Hidden: draw every cell as a hull panel — a solid, opaque silhouette.
+          entries.push({ q: inst.q, r: inst.r, slot: 'hull', visual: 'hull', color: hullColor, broken: false });
+        }
+      }
+      return entries;
+    }
     const tplId = ship.shipId || ship.shapeId || ship.templateId;
     const base = G.hexLayoutForTemplate(tplId);
     if(!base.length) return [];
     return base.map(e => e.slot === 'hull'
       ? { ...e, color: hullColor || e.color || '#667799' }
       : e);
+  }
+
+  // Sprite cache key. Undamaged, unrevealed ships share one baked solid-hull
+  // sprite per (template, colour). Revealed/breached ships draw live (null key)
+  // so the interior and broken modules update each frame.
+  _npcCacheKey(ship, hullColor) {
+    const id = ship.shipId || ship.shapeId || ship.templateId;
+    if(ship.ship?.modules) {
+      if(this._internalsRevealed(ship)) return null;
+      return id + '|' + hullColor + '|hull';
+    }
+    return id + '|' + hullColor;
   }
 
   // Aim angle a ship's turrets should point: toward its current target, else fwd.
@@ -1399,7 +1451,7 @@ G.Renderer = class {
       if(e._deathDone||e.boarded||e._inDust) continue;
       const eHullCol = G.FACTIONS[e.faction]?.color || e.color || '#667799';
       const eEntries = this._npcTileEntries(e, eHullCol);
-      this.drawShipTileDisplay(e.x, e.y, e.size||1, eEntries, e.angle, null, null, 0, (e.shipId||e.shapeId||e.templateId)+'|'+eHullCol);
+      this.drawShipTileDisplay(e.x, e.y, e.size||1, eEntries, e.angle, null, null, 0, this._npcCacheKey(e, eHullCol));
       this.drawTurretOverlay(e, e.size||1, eEntries, this._shipAim(e));
       if((e._frozenTimer||0) > 0) {
         ctx.save(); ctx.globalAlpha=0.45;
@@ -1443,7 +1495,7 @@ G.Renderer = class {
       const moving = n.aiState!=='docked';
       const nHullCol = G.FACTIONS[n.faction]?.color || n.color || '#667799';
       const nEntries = this._npcTileEntries(n, nHullCol);
-      const nKey = (n.shipId||n.shapeId||n.templateId)+'|'+nHullCol;
+      const nKey = this._npcCacheKey(n, nHullCol);
       if(n.jumpingOut) {
         const t = Math.max(0, n.jumpOutTimer / 0.45);
         ctx.save(); ctx.globalAlpha = t;
@@ -1500,7 +1552,7 @@ G.Renderer = class {
       if(fs._deathDone||fs._inDust) continue;
       const fsHullCol = G.FACTIONS[fs.faction]?.color || fs.color || '#8899bb';
       const fsEntries = this._npcTileEntries(fs, fsHullCol);
-      this.drawShipTileDisplay(fs.x, fs.y, fs.size||1, fsEntries, fs.angle, null, null, 0, (fs.shipId||fs.shapeId||fs.templateId)+'|'+fsHullCol);
+      this.drawShipTileDisplay(fs.x, fs.y, fs.size||1, fsEntries, fs.angle, null, null, 0, this._npcCacheKey(fs, fsHullCol));
       this.drawTurretOverlay(fs, fs.size||1, fsEntries, this._shipAim(fs));
       if(fs.shields>0)
         this.drawShieldOutline(fs, fsEntries, fs.size||1, space.time);
@@ -3749,8 +3801,8 @@ G.Game = class {
       tgt._scanned = true;
       G.sound?.targetLock?.();
       const nm = tgt.name || G.SHIPS[tgt.templateId||tgt.shapeId]?.name || 'target';
-      this.ui.addMsg('Scan complete — '+nm, '#44ddff');
-      this.addCombatLog('Scanned '+nm, '#44ddff');
+      this.ui.addMsg('Scan complete — internal modules revealed: '+nm, '#44ddff');
+      this.addCombatLog('Scanned '+nm+' — internals exposed', '#44ddff');
 
     } else if(abilityId === 'radar_scan') {
       this.particles.radar_pulse(px, py, range);

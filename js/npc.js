@@ -450,26 +450,6 @@ G.NPCShip = class extends G.ShipEntity {
     this.classId = G.CLASS_IDS[Math.floor(Math.random()*G.CLASS_IDS.length)];
     this.level = G.randInt(1, 20);
 
-    // Resolve base stats from class core module (stats now live there, not on template)
-    const _coreId    = 'core_' + tpl.id;
-    const _coreStats = G.MODULES[_coreId]?.stats || {};
-    const _baseHull  = _coreStats.maxHull  || 200;
-    const _baseMass  = _coreStats.mass     || 80;
-    const _baseTurn  = _coreStats.turnBase || 2.0;
-    const _baseCargo = _coreStats.cargoSpace || 20;
-
-    // Stats derived from ship template so larger ships are tankier and slower
-    const hullVar = 0.8 + Math.random() * 0.4;
-    this.maxHp      = _baseHull * hullVar;
-    this.hp         = this.maxHp;
-    // Shields: faction modifier × hull-relative base (larger ships get more)
-    const shieldBase = _baseHull * 0.35 * hullVar;
-    this.maxShields = faction==='earth'      ? shieldBase
-                    : faction==='rebellion'  ? shieldBase * 0.6
-                    : faction==='independent'? shieldBase * 0.15
-                    : 0;
-    this.shields = this.maxShields;
-
     // Spawn at system edge, facing inward
     const spawnAngle = Math.random()*Math.PI*2;
     const spawnDist  = 2800+Math.random()*1500;
@@ -478,21 +458,16 @@ G.NPCShip = class extends G.ShipEntity {
     this.vx = 0; this.vy = 0;
     this.angle = spawnAngle + Math.PI; // face center
 
-    // Speed and agility scale inversely with ship mass
-    this.speed     = (tpl.baseThrust / _baseMass * 1.8 + 80) * (0.8 + Math.random() * 0.4);
-    this.turnSpeed = _baseTurn * (0.8 + Math.random() * 0.4);
-    this.fireRate  = 0.5+Math.random()*0.7;
-    this.damage    = 10+Math.random()*10;
+    this._fireRateMult = 1;
     this.lastShot  = 0;
-
-    // All weapons from ship template
-    this.weaponIds = (tpl.startWeapons || ['laser_cannon']).filter(id => !!G.WEAPONS[id]);
-    this.weaponId  = this.weaponIds[0]; // legacy fallback
+    // Backing module hull: positional damage + pure module stats. Sets ship,
+    // maxHp/hp, maxShields/shields, speed, turnSpeed, size, weapons (drop meta).
+    G.aiInitHull(this, this.shipId);
 
     // Mining state
     const shipClass = tpl.class || 'shuttle';
     this.isMiner  = (shipClass === 'miner');
-    this.cargoMax = _baseCargo;
+    this.cargoMax = this.ship?.cargoSpace || 20;
     this.cargoUsed = 0;
     this.mineTarget = null;
     this.mineTimer  = 0;
@@ -1081,34 +1056,10 @@ G.NPCShip = class extends G.ShipEntity {
     }
 
     const angleToT=Math.atan2(dx,-dy);
-    const diff=Math.abs(G.wrapAngle(this.angle-angleToT));
-    const playerDist = G.game?.player ? Math.hypot(this.x - G.game.player.x, this.y - G.game.player.y) : 0;
-    const wpnIds = this.weaponIds?.length ? this.weaponIds : [this.weaponId].filter(Boolean);
-    for(const wid of wpnIds) {
-      const wpn = G.WEAPONS[wid] || {};
-      const range = wpn.range || 600;
-      const rate  = wpn.fireRate || this.fireRate;
-      const spd   = wpn.projSpeed || 800;
-      const cooldownKey = '_shot_'+wid;
-      if(dist < range * 0.85 && diff < 0.5 && now - (this[cooldownKey]||0) > 1/rate) {
-        this[cooldownKey] = now;
-        projectiles.push({
-          x: this.x+Math.sin(this.angle)*16, y: this.y-Math.cos(this.angle)*16,
-          vx: Math.sin(angleToT)*spd + this.vx*0.2,
-          vy: -Math.cos(angleToT)*spd + this.vy*0.2,
-          damage: wpn.damage || this.damage,
-          type:   wpn.type   || 'laser',
-          color:  wpn.color  || this.color,
-          width:  wpn.width  || 2,
-          splash: wpn.splash || 0,
-          pierce: wpn.pierce ?? false,
-          ttl:    range / spd,
-          tracking: false,
-          sourceId: this.id,
-        });
-        G.sound?.enemyWeapon(wpn.type || 'laser', playerDist);
-      }
-    }
+    // Fire every live weapon module from its own hex cell. Destroyed weapon
+    // modules drop out automatically.
+    G.aiSyncHull(this);
+    G.aiFireWeapons(this, angleToT, this.combatTarget || G.game?.player, now, projectiles, particles, { fireArc: 0.5 });
   }
 
   _intentionDeclaration(wasHostile) {
@@ -1326,6 +1277,14 @@ G.FleetShip = class extends G.ShipEntity {
     this.weaponIds = (fsTpl?.startWeapons || [this.weaponType]).filter(id => !!G.WEAPONS[id]);
     if(!this.weaponIds.length) this.weaponIds = [this.weaponType];
 
+    // Unified module hull: positional damage + module-derived stats (hull/shields/
+    // speed/turn), same as the player and enemies/NPCs. `this.ship` already holds
+    // the real module loadout; derive from it (overrides entry.combat* scalars).
+    this._damageVer = 0;
+    this._fireRateMult = 1;
+    this.size = tpl?.size || this.size || 1.0;
+    if(this.ship) { this.ship.size = this.size; G.aiDeriveStats(this, false); }
+
     this.classId = G.CLASS_IDS[Math.floor(Math.random()*G.CLASS_IDS.length)];
     this.level = G.randInt(1, 20);
 
@@ -1407,49 +1366,10 @@ G.FleetShip = class extends G.ShipEntity {
         this._thrust(dt);
       }
 
-      const angleDiff = Math.abs(G.wrapAngle(this.angle - aimAngle));
-      const playerDist2 = Math.hypot(this.x - player.x, this.y - player.y);
-      const fsWpnIds = this.weaponIds?.length ? this.weaponIds : [this.weaponType];
-      for(const wid of fsWpnIds) {
-        const wDef = G.WEAPONS[wid] || {};
-        const range = wDef.range || 700;
-        const rate  = wDef.fireRate || this.fireRate;
-        const spd   = wDef.projSpeed || (wDef.type==='laser' ? 780 : 560);
-        const fsKey = '_fsshot_'+wid;
-        if(angleDiff < 0.5 && distToTarget < range && now - (this[fsKey]||0) > 1/rate) {
-          this[fsKey] = now;
-          const isMissile = wDef.type === 'missile';
-          // Find weapon module and calculate position
-          let projX = this.x+Math.sin(this.angle)*16;
-          let projY = this.y-Math.cos(this.angle)*16;
-          if(this.ship?.modules) {
-            const weapModule = Object.values(this.ship.modules).find(m => G.WEAPONS[m.moduleId]?.id === wid);
-            if(weapModule?.q != null) {
-              const p = G.hexToPixel(weapModule.q, weapModule.r, G.HEX_R);
-              const dx = p.x, dy = p.y;
-              const ca = Math.cos(this.angle), sa = Math.sin(this.angle);
-              projX = this.x + dx * ca - dy * sa;
-              projY = this.y + dx * sa + dy * ca;
-            }
-          }
-          projectiles.push({
-            x: projX, y: projY,
-            vx: Math.sin(aimAngle)*spd+this.vx*0.2, vy: -Math.cos(aimAngle)*spd+this.vy*0.2,
-            damage: wDef.damage || this.damage, type: wDef.type || this.weaponType,
-            range, traveled: 0,
-            color: wDef.color || this.weaponColor, width: wDef.width || 2,
-            ttl: range/spd, sourceId: this.id,
-            splash: wDef.splash || 0, empStrength: wDef.empStrength || 0,
-            tracking: isMissile, pierce: wDef.pierce || false,
-            trackTarget: isMissile ? { x: attackTarget.x, y: attackTarget.y } : null,
-          });
-          if(particles) particles.emit({
-            x: projX, y: projY,
-            minSpd:20, maxSpd:60, life:0.15, r:2, color: wDef.color || this.weaponColor,
-          });
-          G.sound?.enemyWeapon(wDef.type || this.weaponType, playerDist2);
-        }
-      }
+      // Fire every live weapon module from its own hex cell. Destroyed weapon
+      // modules drop out automatically.
+      G.aiSyncHull(this);
+      G.aiFireWeapons(this, aimAngle, attackTarget, now, projectiles, particles, { fireArc: 0.5 });
     } else {
       const dx = player.x - this.x, dy = player.y - this.y;
       const dist = Math.hypot(dx, dy) || 1;

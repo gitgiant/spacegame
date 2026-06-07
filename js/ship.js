@@ -797,24 +797,6 @@ G.Ship = class extends G.ShipEntity {
     if(this.hull <= 0) { this.hull = 0; this._postDisableDmg = 0; this.disabled = true; }
   }
 
-  // Randomly damage a module; returns { name, slot } if one breaks, else null
-  _damageModule(dmg) {
-    const instIds = Object.keys(this.modules).filter(id=>!this.modules[id].broken);
-    if(instIds.length === 0) return null;
-    if(Math.random() > 0.3) return null; // 30% chance to hit a module
-    const id = G.randEl(instIds);
-    const inst = this.modules[id];
-    const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
-    inst.hp -= dmg * 0.5;
-    if(inst.hp <= 0) {
-      inst.broken = true;
-      this._recompute();
-      if(mod?.slot === 'core') { this.hull = 0; this.disabled = true; }
-      return { name: mod?.name || inst.moduleId, slot: mod?.slot || '' };
-    }
-    return null;
-  }
-
   // Bounding radius computed from installed module hex cells
   getCollisionRadius() {
     let max = 20;
@@ -830,10 +812,11 @@ G.Ship = class extends G.ShipEntity {
   // Damage module closest to world point (wx, wy); returns { name, slot } if one breaks
   _damageModuleAtPoint(wx, wy, dmg) {
     const ca = Math.cos(this.angle), sa = Math.sin(this.angle);
+    const R = G.HEX_R * (this.size || 1);   // AI hulls render/collide scaled by size
     let bestId = null, bestDist = Infinity;
     for(const [id, inst] of Object.entries(this.modules)) {
       if(inst.q == null || inst.broken) continue;
-      const p = G.hexToPixel(inst.q, inst.r, G.HEX_R);
+      const p = G.hexToPixel(inst.q, inst.r, R);
       const lx = p.x, ly = p.y;
       const ex = this.x + lx * ca - ly * sa;
       const ey = this.y + lx * sa + ly * ca;
@@ -1012,13 +995,17 @@ G.stripBackThrusters = (modules) => {
 // ── Shared hex layout for non-player ships (enemies/NPCs/fleet) ────────────
 // Builds a template's deterministic hex assembly once and caches the tile
 // entries {q,r,visual,slot,rot,color,broken}. Player ships read live modules.
+// Resolve a ship id to a G.SHIPS key: accept a direct key, or an old shape id
+// (some enemies/NPCs store the SHAPES key in `shapeId`) by matching ship.shape.
+G.resolveShipKey = function(id) {
+  if(!id) return null;
+  return G.SHIPS[id] ? id : (Object.keys(G.SHIPS).find(k => G.SHIPS[k].shape === id) || null);
+};
+
 G._hexLayoutCache = {};
 G.hexLayoutForTemplate = function(tplId) {
   if(!tplId) return [];
-  // Resolve a ship id: accept a direct G.SHIPS key, or an old shape id (some
-  // enemies store the SHAPES key in `shapeId`) by matching ship.shape.
-  let key = G.SHIPS[tplId] ? tplId
-    : Object.keys(G.SHIPS).find(k => G.SHIPS[k].shape === tplId);
+  const key = G.resolveShipKey(tplId);
   if(!key) return [];
   if(G._hexLayoutCache[key]) return G._hexLayoutCache[key];
   let entries = [];
@@ -1039,6 +1026,145 @@ G.hexLayoutForTemplate = function(tplId) {
   } catch(e) { entries = []; }
   G._hexLayoutCache[key] = entries;
   return entries;
+};
+
+// ── AI module-hull helpers ────────────────────────────────────────────────
+// Enemies (G.EnemyAI) and NPCs (G.NPCShip) carry a real backing G.Ship in
+// `w.ship`, so they take the SAME positional module damage as the player:
+// projectiles destroy individual weapon/engine/core modules. Stats are derived
+// from that module loadout (pure module stats — no scalar danger formulas).
+
+// Build the backing hull from a template id (key or shape) onto wrapper `w`.
+// opts.hullMult / shieldMult / sizeMult scale the loadout (fleet flagships).
+G.aiInitHull = function(w, tplId, opts = {}) {
+  const key = G.resolveShipKey(tplId);
+  let ship = null;
+  try { if(key) ship = new G.Ship(key); } catch(e) { ship = null; }
+  w.ship = ship;
+  if(!ship) {                         // fallback: keep/seed scalar stats
+    w.maxHp = w.maxHp || 200; w.hp = w.hp || w.maxHp;
+    w.maxShields = w.maxShields || 0; w.shields = w.shields || 0;
+    w.turnSpeed = w.turnSpeed || 2.0; w.speed = w.speed || 300;
+    return null;
+  }
+  if(opts.hullMult)   { ship.maxHull    *= opts.hullMult;   ship.hull    = ship.maxHull; }
+  if(opts.shieldMult) { ship.maxShields *= opts.shieldMult; ship.shields = ship.maxShields; }
+  w.size = (w.size || 1) * (opts.sizeMult || 1);
+  ship.size = w.size;
+  // Weapon metadata for loot/ammo drops (consumed by _dropLoot).
+  w.weapons = G.aiWeaponMods(ship).map(m => ({ weaponId: m.moduleId }));
+  G.aiDeriveStats(w, true);
+  return ship;
+};
+
+// Max velocity cap from thrust/mass (AI caps speed; the player is uncapped with
+// drag). Tuned so typical hulls land ~300-450.
+G.aiMaxSpeed = function(ship) {
+  const accel = (ship.thrustForward || 0) / Math.max(1, ship.mass || 1);
+  return G.clamp(120 + accel * 1.4, 150, 680);
+};
+
+// Re-derive wrapper stats from the backing hull. `refill` tops off health/shields
+// (spawn); else current values are clamped to the new maxima (after a break).
+// Handles both health conventions: EnemyAI/NPCShip use hp/maxHp, FleetShip uses
+// hull/maxHull.
+G.aiDeriveStats = function(w, refill = false) {
+  const s = w.ship; if(!s) return;
+  w.maxShields = s.maxShields;
+  w.turnSpeed  = s.turnSpeed || w.turnSpeed || 2.0;
+  w.speed      = G.aiMaxSpeed(s);
+  if('hull' in w) {                       // hull-based wrapper (FleetShip)
+    w.maxHull = s.maxHull;
+    if(refill) w.hull = w.maxHull; else if(w.hull > w.maxHull) w.hull = w.maxHull;
+  } else {                                // hp-based wrapper (EnemyAI/NPCShip)
+    w.maxHp = s.maxHull;
+    if(refill) w.hp = w.maxHp; else if(w.hp > w.maxHp) w.hp = w.maxHp;
+  }
+  if(refill) w.shields = w.maxShields; else if(w.shields > w.maxShields) w.shields = w.maxShields;
+};
+
+// Copy the wrapper's live transform onto the backing hull so module world
+// positions (firing origins, hit tests) line up. Call before damage/firing.
+G.aiSyncHull = function(w) {
+  const s = w.ship; if(!s) return;
+  s.x = w.x; s.y = w.y; s.angle = w.angle; s.size = w.size || 1;
+};
+
+// Live (unbroken) weapon module instances on a hull, nose-first (smallest r).
+G.aiWeaponMods = function(ship) {
+  if(!ship?.modules) return [];
+  const out = [];
+  for(const inst of Object.values(ship.modules)) {
+    if(inst.broken || inst.q == null) continue;
+    if(G.WEAPONS[inst.moduleId]) out.push(inst);
+  }
+  out.sort((a, b) => (a.r - b.r) || (a.q - b.q));
+  return out;
+};
+
+// React to a positional module break: re-derive stats, clamp hp, disable on
+// core loss. Bumps a render-cache version so the broken tile shows.
+G.aiOnModuleBroken = function(w, bm) {
+  if(!w.ship) return;
+  w._damageVer = (w._damageVer || 0) + 1;
+  G.aiDeriveStats(w, false);
+  if(bm && bm.slot === 'core') {
+    w.disabled = true;
+    if('hull' in w) w.hull = 0; else w.hp = 0;
+    if('aiState' in w) w.aiState = 'disabled';
+  }
+};
+
+// Fire every live weapon module along `aimAngle`, from each module's world cell.
+// Per-module cooldown persists on inst._aiShot; broken weapons are skipped, so a
+// destroyed weapon module stops firing. opts.fireArc gates by heading alignment;
+// opts.requireLock holds missiles until `w._locked`.
+G.aiFireWeapons = function(w, aimAngle, target, now, projectiles, particles, opts = {}) {
+  const ship = w.ship; if(!ship) return;
+  const mods = G.aiWeaponMods(ship);
+  if(!mods.length) return;
+  const arc = opts.fireArc ?? 0.6;
+  if(Math.abs(G.wrapAngle(w.angle - aimAngle)) > arc) return;
+  const R = G.HEX_R * (w.size || 1);
+  const ca = Math.cos(w.angle), sa = Math.sin(w.angle);
+  const rateMult = w._fireRateMult || 1;
+  const tdist = target ? Math.hypot(target.x - w.x, target.y - w.y) : 0;
+  const pl = G.game?.player;
+  const playerDist = pl ? Math.hypot(w.x - pl.x, w.y - pl.y) : 0;
+  const pan = G.clamp((w.x - (pl?.x || 0)) / 900, -1, 1);
+  const fallbackCol = w.projColor || w.weaponColor || w.color || '#ff4444';
+  for(const inst of mods) {
+    const def = G.WEAPONS[inst.moduleId]; if(!def) continue;
+    const range = def.range || 700;
+    const rate  = (def.fireRate || 1) * rateMult;
+    const spd   = def.projSpeed || (def.type === 'laser' ? 850 : 600);
+    const isMissile = def.type === 'missile';
+    if(opts.requireLock && isMissile && !w._locked) continue;
+    if(tdist > range || (now - (inst._aiShot || 0)) < 1 / rate) continue;
+    inst._aiShot = now;
+    const p = G.hexToPixel(inst.q, inst.r, R);
+    const ox = w.x + p.x * ca - p.y * sa;
+    const oy = w.y + p.x * sa + p.y * ca;
+    projectiles.push({
+      x: ox, y: oy,
+      vx: Math.sin(aimAngle) * spd + (w.vx || 0) * 0.2,
+      vy: -Math.cos(aimAngle) * spd + (w.vy || 0) * 0.2,
+      damage: def.damage || 10, type: def.type || 'laser',
+      splash: def.splash || 0, empStrength: def.empStrength || 0,
+      range, traveled: 0, ttl: range / spd,
+      color: def.color || fallbackCol, width: def.width || 2,
+      sourceId: w.id, pierce: def.pierce || false,
+      tracking: isMissile,
+      trackTarget: (isMissile && target) ? { x: target.x, y: target.y } : null,
+    });
+    if(particles) particles.emit({ x: ox, y: oy, minSpd:20, maxSpd:60, life:0.15, r:2, color: def.color || fallbackCol });
+    G.sound?.enemyWeapon(def.type || 'laser', playerDist, pan);
+  }
+};
+
+// True if the backing hull has any live missile weapon (for lock-on logic).
+G.aiHasMissile = function(w) {
+  return G.aiWeaponMods(w.ship).some(m => (G.WEAPONS[m.moduleId]?.type === 'missile'));
 };
 
 // ── Hex-shaped collision / hitbox ─────────────────────────────────────────

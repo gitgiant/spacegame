@@ -633,7 +633,7 @@ G.Space = class {
               const n=this.npcs[j];
               if(!n.hostile||n.dead||n._deathDone) continue;
               if(G.shipHexHit(n,p.x,p.y)){
-                n.takeDamage(p.damage,p.type);
+                this._applyHit(n,p.damage,p.type,p.x,p.y);
                 if(particles)particles.burst({x:p.x,y:p.y,minSpd:20,maxSpd:80,life:0.15,r:2,color:p.color},4);
                 if(p.type==='missile' && particles) this._missileExplosion(p,particles);
                 if(!p.pierce){this.projectiles.splice(i,1);break;}
@@ -650,7 +650,7 @@ G.Space = class {
             for(const fs of this.fleetShips){
               if(fs.dead||fs._deathDone) continue;
               if(G.shipHexHit(fs,p.x,p.y)){
-                fs.takeDamage(p.damage,p.type);
+                this._applyHit(fs,p.damage,p.type,p.x,p.y);
                 if(particles)particles.burst({x:p.x,y:p.y,minSpd:20,maxSpd:80,life:0.15,r:2,color:p.color},4);
                 if(p.type==='missile' && particles) this._missileExplosion(p,particles);
                 if(!p.pierce){this.projectiles.splice(i,1);break;}
@@ -834,6 +834,30 @@ G.Space = class {
 
   // ── Damage handlers ─────────────────────────────────────
 
+  // Unified hit pipeline for ALL ships: shields/armor/hull via takeDamage, then
+  // positional module damage to the nearest module at (hx,hy). The player holds
+  // modules directly; AI ships (enemy/NPC/fleet) carry a backing G.Ship in
+  // `.ship`. Module-destroyed UI messages fire only for the player.
+  _applyHit(target, amount, type, hx, hy, factor = 0.3) {
+    const res = target.takeDamage(amount, type);
+    if(res.hullDmg > 0) {
+      const hull = (target instanceof G.Ship) ? target : target.ship;
+      if(hull && hull._damageModuleAtPoint) {
+        if(target !== hull) G.aiSyncHull(target);   // align backing-hull transform
+        const bm = hull._damageModuleAtPoint(hx, hy, res.hullDmg * factor);
+        if(bm) {
+          if(target !== hull) G.aiOnModuleBroken(target, bm);
+          if(target === G.game?.player) {
+            G.ui?.addMsg(bm.slot === 'core'
+              ? '⚠ CORE MODULE DESTROYED — CATASTROPHIC FAILURE!'
+              : '⚠ MODULE DESTROYED: ' + bm.name, bm.slot === 'core' ? '#ff1111' : '#ff6622');
+          }
+        }
+      }
+    }
+    return res;
+  }
+
   _playerHitsNPC(npc, proj, player, particles) {
     const wasHostile = npc.hostile;
 
@@ -889,7 +913,7 @@ G.Space = class {
 
     const shieldsBefore = npc.shields;
     const _npcMarkMult = (npc._marked && npc._markedTimer > 0) ? 1.5 : 1.0;
-    npc.takeDamage(proj.damage * _npcMarkMult, proj.type);
+    this._applyHit(npc, proj.damage * _npcMarkMult, proj.type, proj.x, proj.y);
     if(particles) {
       const _nPan = G.clamp((npc.x-(G.game?.player?.x||0))/900,-1,1);
       if(shieldsBefore>0) {
@@ -914,7 +938,7 @@ G.Space = class {
     const wasDisabled = enemy.disabled;
     const wasDead = enemy.dead;
     const _markMult = (enemy._marked && enemy._markedTimer > 0) ? 1.5 : 1.0;
-    enemy.takeDamage(proj.damage * _markMult, proj.type);
+    this._applyHit(enemy, proj.damage * _markMult, proj.type, proj.x, proj.y);
     enemy._lastAttackerId = proj.sourceId;
     if(sb>0&&enemy.shields<sb) G.recordShieldHit(enemy, proj.x, proj.y);
     if(particles) {
@@ -946,19 +970,11 @@ G.Space = class {
 
   _onHitPlayer(player, proj, particles) {
     const shieldsBefore = player.shields;
-    const res=player.takeDamage(proj.damage, proj.type);
+    const res=this._applyHit(player, proj.damage, proj.type, proj.x, proj.y, 0.3);
     // Cancel jump charge if player takes hull damage while charging
     if(res.hullDmg > 0 && G.game?._jumpChargeT > 0) {
       G.game._jumpChargeT = 0;
       G.ui?.addMsg('Jump cancelled — hull hit!','#ff4444');
-    }
-    // Module damage from projectile hit — uses projectile position to hit nearest module
-    if(res.hullDmg > 0) {
-      const bm = player._damageModuleAtPoint(proj.x, proj.y, res.hullDmg * 0.3);
-      if(bm) {
-        if(bm.slot === 'core') G.ui?.addMsg('⚠ CORE MODULE DESTROYED — CATASTROPHIC FAILURE!','#ff1111');
-        else G.ui?.addMsg('⚠ MODULE DESTROYED: '+bm.name,'#ff6622');
-      }
     }
     if(res.shieldDmg>0) G.recordShieldHit(player, proj.x, proj.y);
     if(particles) {
@@ -1009,7 +1025,7 @@ G.Space = class {
       const d=G.v2.dist({x:proj.x,y:proj.y},{x:t.x,y:t.y});
       if(d<proj.splash) {
         const f=1-d/proj.splash;
-        t.takeDamage(proj.damage*f*0.5,proj.type);
+        this._applyHit(t, proj.damage*f*0.5, proj.type, proj.x, proj.y, 0.3);
         const knock = 600 * f;
         const ang = Math.atan2(t.y-proj.y, t.x-proj.x);
         t.vx += Math.cos(ang) * knock * 0.016;
@@ -1070,17 +1086,8 @@ G.Space = class {
         const dmg = (impactSpeed - THRESHOLD) * 0.10;
         const ix = a.x + nx * rA, iy = a.y + ny * rA;
 
-        if(a === player) {
-          a.takeDamage(dmg, 'projectile');
-          const bmA = a._damageModuleAtPoint(ix, iy, dmg * 0.5);
-          if(bmA) G.ui?.addMsg(bmA.slot==='core'?'⚠ CORE DESTROYED — CATASTROPHIC FAILURE!':'⚠ MODULE DESTROYED: '+bmA.name,'#ff6622');
-        } else { a.takeDamage(dmg, 'projectile'); }
-
-        if(b === player) {
-          b.takeDamage(dmg, 'projectile');
-          const bmB = b._damageModuleAtPoint(ix, iy, dmg * 0.5);
-          if(bmB) G.ui?.addMsg(bmB.slot==='core'?'⚠ CORE DESTROYED — CATASTROPHIC FAILURE!':'⚠ MODULE DESTROYED: '+bmB.name,'#ff6622');
-        } else { b.takeDamage(dmg, 'projectile'); }
+        this._applyHit(a, dmg, 'projectile', ix, iy, 0.5);
+        this._applyHit(b, dmg, 'projectile', ix, iy, 0.5);
 
         if(particles) particles.burst({x:ix,y:iy,minSpd:40,maxSpd:130,life:0.25,r:2.5,color:'#ff9955'},8);
         const _colDist = Math.hypot(ix-(player.x||0), iy-(player.y||0));
@@ -1129,11 +1136,7 @@ G.Space = class {
         const THRESHOLD = 25;
         if(impactSpeed > THRESHOLD) {
           const dmg = (impactSpeed - THRESHOLD) * 0.12;
-          ship.takeDamage(dmg, 'projectile');
-          if(ship === player) {
-            const bmAst = ship._damageModuleAtPoint(tw.x + nx*TR, tw.y + ny*TR, dmg * 0.5);
-            if(bmAst) G.ui?.addMsg(bmAst.slot==='core'?'⚠ CORE DESTROYED — CATASTROPHIC FAILURE!':'⚠ MODULE DESTROYED: '+bmAst.name,'#ff6622');
-          }
+          this._applyHit(ship, dmg, 'projectile', tw.x + nx*TR, tw.y + ny*TR, 0.5);
           if(particles) particles.burst({x:tw.x,y:tw.y,minSpd:30,maxSpd:100,life:0.2,r:2,color:'#cc8844'},5);
           if(ship === player) G.sound?.weaponHit?.('projectile', G.clamp((cl.x-player.x)/900,-1,1));
           // Tile takes scratch damage from hard collisions

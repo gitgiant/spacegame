@@ -194,6 +194,7 @@ G.ShipEntity = class {
 
   takeDamage(amount, type) {
     if((this._invulTimer || 0) > 0) return { shieldDmg: 0, hullDmg: 0 };
+    if(this === G.game?.player && G.game?._godMode) return { shieldDmg: 0, hullDmg: 0 };
     if(type !== 'emp' && type !== 'laser' && typeof this.armor === 'number') amount = Math.max(1, amount - this.armor);
     if(type === 'emp') return this._takeEmp(amount) || { shieldDmg: 0, hullDmg: 0 };
     if(this.disabled && this._stopsWhenDisabled()) return this._damageDisabled(amount);
@@ -764,40 +765,19 @@ G.genEnemyShips = function(sys, count) {
     const shapeMeta = _SHAPE_META[shapeId] || { name:'Unknown Ship', class:'Fighter' };
     const angle = rng()*Math.PI*2;
     const dist  = 1500+rng()*3000;
-    const hp = 120+danger*30 + rng()*80;
-    const shields = danger>3 ? (danger-3)*40+rng()*60 : 0;
-    const speed   = 280 + danger*40 + rng()*180;
-    const damage  = 10+danger*4+rng()*10;
     const credits = Math.floor(50+danger*30+rng()*100);
     const cargoDrops = Math.floor(rng()*3);
 
-    const shipTpl = G.SHIPS[shapeId] || Object.values(G.SHIPS).find(s=>s.shape===shapeId);
-    const startWpnIds = shipTpl?.startWeapons || ['laser_cannon'];
-    const weapons = startWpnIds.map(id => {
-      const def = G.WEAPONS[id];
-      if(!def) return null;
-      const scale = 0.85 + rng()*0.35;
-      return { weaponId:id, damage:(def.damage||15)*scale, fireRate:def.fireRate||1.2, projSpeed:def.projSpeed||800,
-        range:def.range||700, color:def.color||col, type:def.type||'laser',
-        splash:def.splash||0, empStrength:def.empStrength||0, tracking:def.tracking||false,
-        width:def.width||2, turret:def.turret||false, lastShot:0 };
-    }).filter(Boolean);
-    const primaryWpn = weapons.find(w=>!w.turret) || weapons[0];
+    // Stats (hp/shields/speed/turn/weapons) are derived from the backing module
+    // hull in EnemyAI via G.aiInitHull — pure module stats, no scalar formulas.
     enemies.push({
       type:'enemy',
       x:Math.cos(angle)*dist, y:Math.sin(angle)*dist,
       vx:0, vy:0, angle:0,
-      hp, maxHp:hp, shields, maxShields:shields,
       energy:100, maxEnergy:100,
-      speed, turnSpeed:1.5+rng()*1.5,
-      damage: primaryWpn?.damage ?? damage,
-      fireRate: primaryWpn?.fireRate ?? (1.2+rng()*1.2),
-      lastShot:0,
-      weapons,
-      weaponType: primaryWpn?.type ?? 'laser',
-      projColor: primaryWpn?.color ?? col,
       credits, cargoDrops,
       shapeId, color:col,
+      projColor: col,
       name:shapeMeta.name, class:shapeMeta.class,
       faction:shipFaction,
       aiState:'patrol',
@@ -811,17 +791,16 @@ G.genEnemyShips = function(sys, count) {
     });
   }
 
-  // Enemy fleet: randomly group into flagship + escorts (danger >= 4)
+  // Enemy fleet: randomly group into flagship + escorts (danger >= 4). Stat
+  // buffs are passed as multipliers and applied to the module hull at build.
   if(enemies.length >= 2 && danger >= 4 && rng() < 0.38) {
     const flagIdx = Math.floor(rng() * enemies.length);
     const flagship = enemies[flagIdx];
     const fleetId = 'fl'+(Math.floor(rng()*99999));
     flagship._fleetId = fleetId;
     flagship.isFleetFlagship = true;
-    flagship.hp = flagship.maxHp = (flagship.maxHp || flagship.hp) * 1.9;
-    flagship.size = (flagship.size || 1.0) * 1.5;
-    flagship.speed = (flagship.speed || 300) * 0.72;
-    flagship.damage = (flagship.damage || 15) * 1.4;
+    flagship._hullMult = 1.9;
+    flagship._sizeMult = 1.5;
     flagship.engageRange = 900;
     let assigned = 0;
     for(let i = 0; i < enemies.length && assigned < 2; i++) {

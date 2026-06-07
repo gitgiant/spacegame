@@ -3904,8 +3904,8 @@ G.UI = class {
 
     const game = G.game;
     const collisionsEnabled = game?.collisionsEnabled !== false;
-
     const fpsEnabled = game?._fpsEl != null;
+    const godmodeEnabled = game?._godMode ?? false;
 
     let html = '<div style="color:#ff88ff;margin-bottom:12px;letter-spacing:1px">DEBUG MENU</div>';
     html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:6px">';
@@ -3919,6 +3919,12 @@ G.UI = class {
     html += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer">';
     html += '<input type="checkbox" id="debug-fps-toggle" '+(fpsEnabled?'checked':'')+' style="accent-color:#ffdd44;width:13px;height:13px">';
     html += '<span id="debug-fps-label" style="font-size:6px;color:#ffdd44;font-family:\'Press Start 2P\',monospace">'+(fpsEnabled?'ON':'OFF')+'</span>';
+    html += '</label></div>';
+    html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:6px">';
+    html += '<span style="color:#aabbcc;min-width:80px">GOD MODE</span>';
+    html += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer">';
+    html += '<input type="checkbox" id="debug-godmode-toggle" '+(godmodeEnabled?'checked':'')+' style="accent-color:#ff44ff;width:13px;height:13px">';
+    html += '<span id="debug-godmode-label" style="font-size:6px;color:#ff44ff;font-family:\'Press Start 2P\',monospace">'+(godmodeEnabled?'ON':'OFF')+'</span>';
     html += '</label></div>';
     list.innerHTML = html;
 
@@ -3936,6 +3942,12 @@ G.UI = class {
         if(game) game._fpsEl = enabled ? fpsEl : null;
       }
       document.getElementById('debug-fps-label').textContent = enabled ? 'ON' : 'OFF';
+    });
+
+    document.getElementById('debug-godmode-toggle')?.addEventListener('change', e => {
+      const enabled = e.target.checked;
+      if(game) game._godMode = enabled;
+      document.getElementById('debug-godmode-label').textContent = enabled ? 'ON' : 'OFF';
     });
 
     overlay.classList.remove('hidden');

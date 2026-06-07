@@ -28,6 +28,14 @@ G.EnemyAI = class extends G.ShipEntity {
     this._locked = false;
     this._lockBeepT = 0;
     this._lockedAlert = false;
+    this._fireRateMult = 1;
+
+    // Backing module hull: positional damage + pure module stats. Sets ship,
+    // maxHp/hp, maxShields/shields, speed, turnSpeed, size, weapons (drop meta).
+    // Overrides any scalar stats left on `data`.
+    G.aiInitHull(this, this.shapeId, {
+      hullMult: data._hullMult, shieldMult: data._shieldMult, sizeMult: data._sizeMult,
+    });
   }
 
   update(dt, player, projectiles, particles, now) {
@@ -105,8 +113,7 @@ G.EnemyAI = class extends G.ShipEntity {
         }
         // Fight on — go berserker: close range, faster firing
         this._berserker = true;
-        this.fireRate *= 1.6;
-        if(this.weapons) { for(const wpn of this.weapons) wpn.fireRate *= 1.6; }
+        this._fireRateMult = 1.6;
         this.fleeHpPct = 0;  // no more flee checks
       }
 
@@ -124,8 +131,8 @@ G.EnemyAI = class extends G.ShipEntity {
         this._thrust(dt);
       }
 
-      // Missile lock-on: only if has missile weapon
-      const hasMissileWeapon = this.weapons?.some(w=>w.type==='missile') || this.weaponType==='missile';
+      // Missile lock-on: only if has a live missile weapon module
+      const hasMissileWeapon = G.aiHasMissile(this);
       if(hasMissileWeapon) {
         this._lockT ??= 0;
         this._locked ??= false;
@@ -159,72 +166,10 @@ G.EnemyAI = class extends G.ShipEntity {
       // Aim and fire
       const aimErr = this._berserker ? 0 : Math.sin(this.aiTimer*3)*0.22;
       const shootAngle = angleToPlayer + aimErr;
-      const angleDiff = Math.abs(G.wrapAngle(this.angle - shootAngle));
-
-      if(this.weapons && this.weapons.length > 0) {
-        // Multi-weapon fire: each weapon fires on its own cooldown
-        for(const wpn of this.weapons) {
-          const isMissileWpn = wpn.type === 'missile';
-          const inRange = distToPlayer < (wpn.range || this.engageRange);
-          const offCooldown = now - (wpn.lastShot || 0) > 1 / wpn.fireRate;
-          if(angleDiff < 0.6 && inRange && offCooldown && (!isMissileWpn || this._locked)) {
-            wpn.lastShot = now;
-            const spd = wpn.projSpeed || (wpn.type === 'laser' ? 850 : 600);
-            const fireOffset = 20 * (this.size || 1);
-            projectiles.push({
-              x: this.x+Math.sin(this.angle)*fireOffset,
-              y: this.y-Math.cos(this.angle)*fireOffset,
-              vx: Math.sin(shootAngle)*spd + this.vx*0.2,
-              vy: -Math.cos(shootAngle)*spd + this.vy*0.2,
-              damage: wpn.damage,
-              type: wpn.type,
-              splash: wpn.splash || 0,
-              empStrength: wpn.empStrength || 0,
-              range: wpn.range || 700, traveled: 0,
-              ttl: (wpn.range || 700) / spd,
-              color: wpn.color, width: wpn.width || 2,
-              sourceId: this.id,
-              tracking: isMissileWpn,
-              trackTarget: isMissileWpn ? {x: player.x, y: player.y} : null,
-            });
-            if(particles) particles.emit({
-              x: this.x+Math.sin(this.angle)*fireOffset, y: this.y-Math.cos(this.angle)*fireOffset,
-              minSpd:20, maxSpd:60, life:0.15, r:2, color: wpn.color,
-            });
-            G.sound?.enemyWeapon(wpn.type, distToPlayer, G.clamp((this.x-player.x)/900,-1,1));
-          }
-        }
-      } else {
-        // Legacy single-weapon fire
-        const canFire = angleDiff < 0.6 && distToPlayer < this.engageRange && now - this.lastShot > 1/this.fireRate;
-        const isMissile = this.weaponType === 'missile';
-        if(canFire && (!isMissile || this._locked)) {
-          this.lastShot = now;
-          const spd = this.weaponType==='laser' ? 850 : 600;
-          const fireOffset = 20 * (this.size || 1);
-          projectiles.push({
-            x: this.x+Math.sin(this.angle)*fireOffset,
-            y: this.y-Math.cos(this.angle)*fireOffset,
-            vx: Math.sin(shootAngle)*spd + this.vx*0.2,
-            vy: -Math.cos(shootAngle)*spd + this.vy*0.2,
-            damage:this.damage,
-            type:this.weaponType,
-            splash:this.weaponType==='explosion'?60:0,
-            empStrength:this.empStrength,
-            range:700, traveled:0,
-            ttl:0.9,
-            color:this.projColor, width:2,
-            sourceId:this.id,
-            tracking:this.weaponType==='missile',
-            trackTarget:this.weaponType==='missile'?{x:player.x,y:player.y}:null,
-          });
-          if(particles) particles.emit({
-            x:this.x+Math.sin(this.angle)*fireOffset, y:this.y-Math.cos(this.angle)*fireOffset,
-            minSpd:20, maxSpd:60, life:0.15, r:2, color:this.projColor,
-          });
-          G.sound?.enemyWeapon(this.weaponType, distToPlayer, G.clamp((this.x-player.x)/900,-1,1));
-        }
-      }
+      // Fire every live weapon module from its own hex cell. Destroyed weapon
+      // modules drop out automatically; missiles hold until locked.
+      G.aiSyncHull(this);
+      G.aiFireWeapons(this, shootAngle, player, now, projectiles, particles, { fireArc: 0.6, requireLock: true });
 
     } else {
       // Reset lock when leaving engage state

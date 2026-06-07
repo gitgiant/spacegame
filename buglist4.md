@@ -8,7 +8,7 @@ zoo
 npc fleets fly in formation - have them use tactics
 allow player a fleet command view, order ships around like RTS in the hex map
 have ship autopilot also fire and control throttle, use abilities
-comms on escort ship order to hold position, loiter, attack, defend
+comms on escort ship order to hold position, loiter, attack, defendaa
 lock in formation
 when disabled comms option beg for help, if friendly/allied will always come.
 allow friendly fire to ships in the players fleet but reduce damage to 50% and have the ship message the player when the player attacks them.
