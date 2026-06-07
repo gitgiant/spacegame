@@ -1295,20 +1295,12 @@ G.Renderer = class {
       }
       ctx.closePath();
     };
+    // Landing zone (spaceport hex only)
     for(const b of space.bodies) {
       if(b.hasSpaceport && b.hexQ != null) {
-        ctx.save(); ctx.strokeStyle='rgba(0,200,150,0.25)'; ctx.lineWidth=1.5;
+        ctx.save(); ctx.strokeStyle='rgba(0,200,150,0.35)'; ctx.lineWidth=2;
         drawHexOutline(b.hexQ, b.hexR);
-        ctx.stroke();
-        const neighbors = [
-          [b.hexQ+1, b.hexR], [b.hexQ+1, b.hexR-1], [b.hexQ, b.hexR-1],
-          [b.hexQ-1, b.hexR], [b.hexQ-1, b.hexR+1], [b.hexQ, b.hexR+1]
-        ];
-        for(const [nq, nr] of neighbors) {
-          drawHexOutline(nq, nr);
-          ctx.stroke();
-        }
-        ctx.restore();
+        ctx.stroke(); ctx.restore();
       }
     }
 
@@ -3261,11 +3253,7 @@ G.Game = class {
 
     // Interact prompts
     const pHex = G.worldToHex(p.x, p.y);
-    const nearPort = this.space.bodies.find(b => {
-      if(!b.hasSpaceport || b.hexQ == null) return false;
-      const dq = Math.abs(b.hexQ - pHex.q), dr = Math.abs(b.hexR - pHex.r);
-      return dq <= 1 && dr <= 1 && Math.abs(dq + dr) <= 2;
-    });
+    const nearPort = this.space.bodies.find(b => b.hasSpaceport && b.hexQ === pHex.q && b.hexR === pHex.r);
     if(nearPort) {
       const _pFac = nearPort.faction;
       const _landHostile = _pFac && _pFac !== 'neutral' && _pFac !== 'contested' && this.getRel(_pFac) < -30;
