@@ -161,6 +161,87 @@ G.fmtCredits = (n) => '$ '+Math.round(n).toLocaleString();
 // Rarity color helper
 G.rarityColor = (r) => G.RARITY[r]?.color || '#cccccc';
 
+// ── Asteroid hex-tile cluster helpers ────────────────────
+const _atk = (q,r) => q+','+r;
+// Recompute every tile's `exposed` flag (outer ring) + cluster bounding radius.
+G.astRefresh = (cl) => {
+  let maxd = 0;
+  for(const t of cl.tiles.values()){
+    let exposed = false;
+    for(const [dq,dr] of G.HEX_NEIGHBORS){ if(!cl.tiles.has(_atk(t.q+dq,t.r+dr))){ exposed=true; break; } }
+    t.exposed = exposed;
+    const p = G.astTileLocal(t.q,t.r);
+    const d = Math.hypot(p.x,p.y);
+    if(d>maxd) maxd=d;
+  }
+  cl.r = maxd + G.ASTEROID_TILE_R;
+  cl.tileCount = cl.tiles.size;
+};
+// World-space centre of a tile (applies cluster rotation).
+G.astTileWorld = (cl,t) => {
+  const p = G.astTileLocal(t.q,t.r);
+  const ca=Math.cos(cl.angle), sa=Math.sin(cl.angle);
+  return { x: cl.x + p.x*ca - p.y*sa, y: cl.y + p.x*sa + p.y*ca };
+};
+// Nearest exposed tile within hit radius of world point, or null.
+G.astHitTile = (cl, wx, wy, pad) => {
+  let best=null, bd=Infinity;
+  const rr = (G.ASTEROID_TILE_R+(pad||0))**2;
+  for(const t of cl.tiles.values()){
+    if(!t.exposed) continue;
+    const w = G.astTileWorld(cl,t);
+    const d=(w.x-wx)**2+(w.y-wy)**2;
+    if(d<rr && d<bd){ bd=d; best=t; }
+  }
+  return best;
+};
+// Remove one tile; newly-uncovered neighbours become exposed.
+G.astRemoveTile = (cl, t) => {
+  cl.tiles.delete(_atk(t.q,t.r));
+  for(const [dq,dr] of G.HEX_NEIGHBORS){
+    const n=cl.tiles.get(_atk(t.q+dq,t.r+dr));
+    if(n) n.exposed=true;
+  }
+  cl.tileCount = cl.tiles.size;
+};
+// Grow an irregular cluster of `size` hex tiles centred at world (cx,cy).
+G.astMakeCluster = (cx,cy,size,rng) => {
+  const fn = rng || Math.random;
+  const tiles = new Map();
+  const primary = G.astRandMat(fn);
+  const addT = (q,r) => {
+    const mat = fn()<0.7 ? primary : G.astRandMat(fn);
+    const md = G.ASTEROID_MAT[mat];
+    tiles.set(_atk(q,r), { q, r, mat, hp:md.hp, maxHp:md.hp });
+  };
+  addT(0,0);
+  let guard=0;
+  while(tiles.size < size && guard++ < size*40+50){
+    const keys=[...tiles.keys()];
+    const [bq,br]=keys[Math.floor(fn()*keys.length)].split(',').map(Number);
+    const nb=G.HEX_NEIGHBORS[Math.floor(fn()*6)];
+    const nq=bq+nb[0], nr=br+nb[1];
+    if(!tiles.has(_atk(nq,nr))) addT(nq,nr);
+  }
+  const cl = {
+    type:'asteroid', x:cx, y:cy,
+    vx:(fn()-0.5)*10, vy:(fn()-0.5)*10,
+    angle:fn()*Math.PI*2, rotSpeed:(fn()-0.5)*0.4/Math.max(1,Math.sqrt(size)),
+    tiles,
+  };
+  G.astRefresh(cl);
+  return cl;
+};
+// Cluster size roll: mostly tiny, rare giants up to ~1000 tiles.
+G.astRollSize = (rng, big) => {
+  const fn = rng || Math.random; const r=fn();
+  if(r<0.5)   return 1+Math.floor(fn()*4);
+  if(r<0.8)   return 5+Math.floor(fn()*12);
+  if(r<0.95)  return 18+Math.floor(fn()*40);
+  if(r<0.995) return 60+Math.floor(fn()*140);
+  return big ? 200+Math.floor(fn()*800) : 80+Math.floor(fn()*120);
+};
+
 // Generate a local system (planets, asteroids, stations) from system data
 G.generateLocalSystem = function(sys) {
   const rng = G.seededRng(sys.id + '_local');
@@ -199,7 +280,7 @@ G.generateLocalSystem = function(sys) {
       bodies.push({
         type:'station',
         x:Math.cos(angle)*dist, y:Math.sin(angle)*dist,
-        r:18, orbitR:dist, orbitAngle:angle, orbitSpeed:(rng()*0.000005)*(rng()<0.5?1:-1),
+        r:36, orbitR:dist, orbitAngle:angle, orbitSpeed:(rng()*0.000005)*(rng()<0.5?1:-1),
         stype, color:'#888899',
         name: sys.name+' '+stype,
         hasSpaceport: true,
@@ -215,43 +296,28 @@ G.generateLocalSystem = function(sys) {
       // Planet sizes scaled relative to Earth=18 using power-0.42 law for drama
       // Orbital distances: inner planets accurate, gas giants compressed for gameplay
       const solPlanets = [
-        { name:'Mercury', ptype:'rocky',  r:28,  dist:380,  hasPort:false, hasRings:false },
-        { name:'Venus',   ptype:'lava',   r:56,  dist:640,  hasPort:false, hasRings:false },
-        { name:'Earth',   ptype:'terran', r:72,  dist:980,  hasPort:true,  hasRings:false, hasMoon:true },
-        { name:'Mars',    ptype:'rocky',  r:40,  dist:1520, hasPort:true,  hasRings:false },
-        { name:'Jupiter', ptype:'gas',    r:208, dist:3400, hasPort:false, hasRings:false },
-        { name:'Saturn',  ptype:'gas',    r:176, dist:4600, hasPort:false, hasRings:true  },
-        { name:'Uranus',  ptype:'ice',    r:120, dist:5700, hasPort:false, hasRings:false },
-        { name:'Neptune', ptype:'ocean',  r:112, dist:6800, hasPort:false, hasRings:false },
+        { name:'Mercury', ptype:'rocky',  r:56,  dist:380,  hasPort:false, hasRings:false },
+        { name:'Venus',   ptype:'lava',   r:112, dist:640,  hasPort:false, hasRings:false },
+        { name:'Earth',   ptype:'terran', r:144, dist:980,  hasPort:true,  hasRings:false },
+        { name:'Mars',    ptype:'rocky',  r:80,  dist:1520, hasPort:true,  hasRings:false },
+        { name:'Jupiter', ptype:'gas',    r:416, dist:3400, hasPort:false, hasRings:false },
+        { name:'Saturn',  ptype:'gas',    r:352, dist:4600, hasPort:false, hasRings:true  },
+        { name:'Uranus',  ptype:'ice',    r:240, dist:5700, hasPort:false, hasRings:false },
+        { name:'Neptune', ptype:'ocean',  r:224, dist:6800, hasPort:false, hasRings:false },
       ];
       for(let i=0;i<solPlanets.length;i++){
         const sp = solPlanets[i];
         const angle = rng()*Math.PI*2;
         const orbitSpeed = (0.000004 + (solPlanets.length-i)*0.00000175)*(rng()<0.5?1:-1);
         const seed = sp.name.split('').reduce((a,c)=>a*31+c.charCodeAt(0),0) % 50000;
-        const bodyObj = {
+        bodies.push({
           type:'planet', x:Math.cos(angle)*sp.dist, y:Math.sin(angle)*sp.dist,
           r:sp.r, orbitR:sp.dist, orbitAngle:angle, orbitSpeed,
           ptype:sp.ptype, color:'#888888', name:sp.name,
           hasSpaceport:sp.hasPort, spaceportName:sp.hasPort?(sp.name+' Station'):null,
           hasRings:sp.hasRings, seed,
           faction:'earth',
-        };
-        bodies.push(bodyObj);
-        if(sp.hasMoon) {
-          const moonAngle = rng()*Math.PI*2;
-          const moonDist  = sp.r * 3.2;
-          bodies.push({
-            type:'planet', ptype:'rocky', color:'#999999', name:'Moon',
-            x: bodyObj.x + Math.cos(moonAngle)*moonDist,
-            y: bodyObj.y + Math.sin(moonAngle)*moonDist,
-            r: 20, orbitR: moonDist, orbitAngle: moonAngle,
-            orbitSpeed: 0.00028 * (rng()<0.5?1:-1),
-            orbitParent: bodyObj,
-            hasSpaceport: false, hasRings: false,
-            seed: 7777, faction:'earth',
-          });
-        }
+        });
       }
     } else {
       // Planets
@@ -262,10 +328,10 @@ G.generateLocalSystem = function(sys) {
         const angle = rng()*Math.PI*2;
         const ptype = planetTypes[Math.floor(rng()*planetTypes.length)];
         const sizeClass = rng();
-        const r = sizeClass>0.97 ? 220+rng()*120
-                : sizeClass>0.85 ? 140+rng()*80
-                : sizeClass>0.55 ? 80+rng()*48
-                : 32+rng()*40;
+        const r = sizeClass>0.97 ? 440+rng()*240
+                : sizeClass>0.85 ? 280+rng()*160
+                : sizeClass>0.55 ? 160+rng()*96
+                : 64+rng()*80;
         const hasPort  = rng() < (ptype==='terran'?0.9:ptype==='ocean'?0.6:r>30?0.4:0.15);
         const hasRings = ptype==='gas' && rng() < 0.35;
         const pname    = sys.name+' '+(['I','II','III','IV','V'][i]||'VI');
@@ -296,7 +362,7 @@ G.generateLocalSystem = function(sys) {
       bodies.push({
         type:'station',
         x:Math.cos(angle)*dist, y:Math.sin(angle)*dist,
-        r:18, orbitR:dist, orbitAngle:angle, orbitSpeed:(rng()*0.000005)*(rng()<0.5?1:-1),
+        r:36, orbitR:dist, orbitAngle:angle, orbitSpeed:(rng()*0.000005)*(rng()<0.5?1:-1),
         stype, color:'#aaaacc',
         name: sys.name+' '+stype,
         hasSpaceport: true,
@@ -350,8 +416,9 @@ G.generateLocalSystem = function(sys) {
   };
   if(sys.id === 'sol') {
     // Explicit, real-order Sol layout (pointy-top axial cells).
-    const solCells = { Mercury:[2,0], Venus:[-1,-1], Earth:[1,2], Moon:[2,1], Mars:[-2,-1],
-                       Jupiter:[5,0], Saturn:[-2,-3], Uranus:[6,-1], Neptune:[-3,-3] };
+    // Each planet on its own unique ring (2-5 inner, 7-10 outer); ring 6 = asteroid belt.
+    const solCells = { Mercury:[2,0], Venus:[-1,-2], Earth:[4,0], Mars:[-2,-3],
+                       Jupiter:[0,-7], Saturn:[-8,4], Uranus:[9,0], Neptune:[0,10] };
     for(const b of bodies) {
       if(b.type !== 'planet') continue;
       const c = solCells[b.name];
@@ -361,31 +428,19 @@ G.generateLocalSystem = function(sys) {
       b.x=w.x; b.y=w.y; b.hexQ=c[0]; b.hexR=c[1]; b.orbitR=0; // static at hex centre
       setTile(c[0],c[1],'planet');
     }
-    // Asteroid belt (ring 4, dense) and Kuiper belt (ring 7, sparse)
-    for(const h of G.hexRing(4)) addAsteroidTile(h.q,h.r,'dense');
-    G.hexRing(7).forEach((h,i) => { if(i%2===0) addAsteroidTile(h.q,h.r,'sparse'); });
+    // Asteroid belt (ring 6, dense) and Kuiper belt (ring 11, sparse)
+    for(const h of G.hexRing(6)) addAsteroidTile(h.q,h.r,'dense');
+    G.hexRing(11).forEach((h,i) => { if(i%2===0) addAsteroidTile(h.q,h.r,'sparse'); });
     // Place any Sol stations on free outer cells.
     for(const b of bodies) if(b.type==='station' && b.hexQ==null) placeBody(b, 3 + Math.floor(rng()*3));
     // One dust cloud out past Mars
     const dustCell = G.hexRing(3).find(h => !used.has(tkey(h.q,h.r)));
     if(dustCell) { setTile(dustCell.q,dustCell.r,'dust'); occupy(dustCell.q,dustCell.r); }
   } else {
-    // Generic: place bodies by orbit order onto compressed outward rings (2-7).
+    // Generic: each body on its own unique ring starting at 2 (innermost).
     const mains = bodies.filter(b => !b.orbitParent && (b.type==='planet'||b.type==='station'))
                         .sort((a,b)=>(a.orbitR||0)-(b.orbitR||0));
-    const maxOrb = mains.reduce((m,b)=>Math.max(m,b.orbitR||0),1);
-    for(const b of mains) placeBody(b, 2 + Math.round((b.orbitR||0)/maxOrb * 5));
-    // Moons next to their parent
-    for(const b of bodies) {
-      if(!b.orbitParent || b.hexQ != null) continue;
-      const p = b.orbitParent;
-      if(p.hexQ == null) continue;
-      const nb = G.hexNeighbors(p.hexQ,p.hexR).find(h => !used.has(tkey(h.q,h.r)));
-      const cell = nb || { q:p.hexQ, r:p.hexR };
-      occupy(cell.q,cell.r);
-      const w = G.hexToWorld(cell.q,cell.r); b.x=w.x; b.y=w.y; b.hexQ=cell.q; b.hexR=cell.r;
-      if(nb) setTile(cell.q,cell.r,'planet');
-    }
+    mains.forEach((b, i) => placeBody(b, 2 + i));
     // Asteroid tiles: a far ring (dense), or a few scattered cells (mixed).
     if(asteroidRingMode) {
       const rr = 4 + Math.floor(envRng()*3);
@@ -401,25 +456,17 @@ G.generateLocalSystem = function(sys) {
     for(let i=0;i<nDust && dpool.length;i++){ const h=dpool.splice(Math.floor(envRng()*dpool.length),1)[0]; setTile(h.q,h.r,'dust'); occupy(h.q,h.r); }
   }
 
-  // Spawn asteroids inside each asteroid tile (and nowhere else).
+  // Spawn hex-tile asteroid clusters inside each asteroid tile (and nowhere else).
   const aField = [];
-  const mkAsteroid = (x,y,atype,sz) => {
-    const a = { type:'asteroid', x, y, vx:(rng()-0.5)*12, vy:(rng()-0.5)*12, r:sz, atype,
-      angle:rng()*Math.PI*2, rotSpeed:(rng()-0.5)*0.5, maxHp:30+Math.floor(rng()*40), hp:0,
-      drops: G.ASTEROID_DROPS[atype] || G.ASTEROID_DROPS.rocky,
-      color: atype==='metallic'?'#998877':atype==='icy'?'#aaccdd':atype==='alien'?'#44cc88':'#776655' };
-    a.hp = a.maxHp; return a;
-  };
   for(const h of asteroidTiles) {
     const c = G.hexToWorld(h.q,h.r);
-    const atype = rng()<0.3?'metallic':rng()<0.3?'icy':(rng()<0.1&&dangerF>7?'alien':'rocky');
     const dense = h.density === 'dense';
-    const n = dense ? 18 + Math.floor(rng()*16) : 5 + Math.floor(rng()*6);
-    const spread = G.HEX_WORLD * (dense ? 0.82 : 0.7);
+    const n = dense ? 4 + Math.floor(rng()*4) : 2 + Math.floor(rng()*3);
+    const spread = G.HEX_WORLD * (dense ? 0.7 : 0.6);
     for(let a=0;a<n;a++){
       const ang=rng()*Math.PI*2, rad=Math.sqrt(rng())*spread;
-      const sz = dense ? 12+rng()*18 : 10+rng()*12;
-      aField.push(mkAsteroid(c.x+Math.cos(ang)*rad, c.y+Math.sin(ang)*rad, atype, sz));
+      const size = G.astRollSize(rng, dense);
+      aField.push(G.astMakeCluster(c.x+Math.cos(ang)*rad, c.y+Math.sin(ang)*rad, size, rng));
     }
   }
 

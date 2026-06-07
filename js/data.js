@@ -53,6 +53,17 @@ G.ITEMS = {
   rare_earth:   { id:'rare_earth',   name:'Rare Earth',       cat:'raw',     base:200,  mass:1, rarity:'r', desc:'Exotic rare-earth elements.' },
   alien_metal:  { id:'alien_metal',  name:'Alien Metal',      cat:'raw',     base:500,  mass:2, rarity:'e', desc:'Strange alloy from alien ships.' },
   dark_matter:  { id:'dark_matter',  name:'Dark Matter',      cat:'raw',     base:2000, mass:1, rarity:'l', desc:'Near-mythical exotic matter.' },
+  // Asteroid raw materials (mined from hex-tile clusters; increasing rarity)
+  rock:         { id:'rock',         name:'Rock',             cat:'raw',     base:15,   mass:2, rarity:'c', desc:'Plain silicate rock.' },
+  ice:          { id:'ice',          name:'Ice',              cat:'raw',     base:30,   mass:2, rarity:'c', desc:'Frozen volatiles.' },
+  iron:         { id:'iron',         name:'Iron',             cat:'raw',     base:55,   mass:3, rarity:'c', desc:'Raw iron.' },
+  nickel:       { id:'nickel',       name:'Nickel',           cat:'raw',     base:95,   mass:3, rarity:'u', desc:'Nickel ore.' },
+  copper:       { id:'copper',       name:'Copper',           cat:'raw',     base:130,  mass:2, rarity:'u', desc:'Copper ore.' },
+  tin:          { id:'tin',          name:'Tin',              cat:'raw',     base:180,  mass:2, rarity:'u', desc:'Tin ore.' },
+  gold:         { id:'gold',         name:'Gold',             cat:'raw',     base:380,  mass:3, rarity:'r', desc:'Native gold.' },
+  carbon:       { id:'carbon',       name:'Carbon',           cat:'raw',     base:560,  mass:1, rarity:'r', desc:'Crystalline carbon.' },
+  titanium:     { id:'titanium',     name:'Titanium',         cat:'raw',     base:900,  mass:2, rarity:'e', desc:'Titanium ore.' },
+  platinum:     { id:'platinum',     name:'Platinum',         cat:'raw',     base:1600, mass:3, rarity:'l', desc:'Native platinum.' },
   // Refined
   metals:       { id:'metals',       name:'Processed Metals', cat:'refined', base:80,   mass:2, rarity:'c', desc:'Refined metal stock.' },
   polymers:     { id:'polymers',     name:'Polymers',         cat:'refined', base:60,   mass:1, rarity:'c', desc:'Industrial polymers.' },
@@ -217,7 +228,7 @@ G.MODULES = {
     visual:'cockpit',
   },
   // Thrusters — single module type; direction set by rotation (rot 0=fwd 1=right 2=retro 3=left)
-  // 2 rot:0 required to fly and turn; 1 rot:2 for reverse; rot:1 + rot:3 pair for strafing
+  // 2 rot:0 required to fly and turn; any thruster can reverse (no dedicated rot:2 needed); rot:1 + rot:3 pair for strafing
   thruster: {
     id:'thruster', name:'Thruster', slot:'thruster',
     stats:{ thrustForce:+12000, mass:+22 },
@@ -264,23 +275,23 @@ G.MODULES = {
   // Cargo
   small_cargo: {
     id:'small_cargo', name:'Small Cargo Pod', slot:'cargo',
-    stats:{ cargoSpace:+10, mass:+20 },
+    stats:{ cargoSpace:+1, mass:+20 },
     energyDraw:0, hp:40, price:400, rarity:'c',
-    desc:'10 units extra cargo space.',
+    desc:'1 unit extra cargo space.',
     visual:'cargo',
   },
   medium_cargo: {
     id:'medium_cargo', name:'Cargo Hold', slot:'cargo',
-    stats:{ cargoSpace:+25, mass:+40 },
+    stats:{ cargoSpace:+3, mass:+40 },
     energyDraw:0, hp:60, price:1000, rarity:'c',
-    desc:'25 units extra cargo space.',
+    desc:'3 units extra cargo space.',
     visual:'cargo',
   },
   large_cargo: {
     id:'large_cargo', name:'Large Cargo Bay', slot:'cargo',
-    stats:{ cargoSpace:+50, mass:+80 },
+    stats:{ cargoSpace:+5, mass:+80 },
     energyDraw:0, hp:80, price:2200, rarity:'u',
-    desc:'50 units extra cargo space.',
+    desc:'5 units extra cargo space.',
     visual:'cargo',
   },
   // Fuel
@@ -432,62 +443,62 @@ G.MODULES = {
   // One per ship template. Encodes hull stats (maxHull, energy, fuel, cargo, mass, turnBase).
   // Required to fly. Cannot be removed. Not sold in outfitter.
   // shuttle class
-  core_shuttle:          { id:'core_shuttle',          name:'Shuttle Core',           slot:'core', class:'shuttle',     stats:{ maxHull:100,  maxEnergy:120, maxFuel:80,  cargoSpace:8,  mass:80,  turnBase:2.0  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Shuttle-class hull frame. Required to fly.',      visual:'special' },
-  core_earth_shuttle:    { id:'core_earth_shuttle',    name:'Courier Core',           slot:'core', class:'shuttle',     stats:{ maxHull:190,  maxEnergy:120, maxFuel:90,  cargoSpace:10, mass:90,  turnBase:2.0  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Earth Courier hull frame.',                      visual:'special' },
-  core_rebel_runner:     { id:'core_rebel_runner',     name:'Runner Core',            slot:'core', class:'shuttle',     stats:{ maxHull:140,  maxEnergy:130, maxFuel:90,  cargoSpace:8,  mass:75,  turnBase:2.4  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Rebel Runner hull frame.',                        visual:'special' },
-  core_pirate_skiff:     { id:'core_pirate_skiff',     name:'Skiff Core',             slot:'core', class:'shuttle',     stats:{ maxHull:120,  maxEnergy:120, maxFuel:70,  cargoSpace:6,  mass:65,  turnBase:2.6  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Pirate Skiff hull frame.',                        visual:'special' },
-  core_alien_pod:        { id:'core_alien_pod',        name:'Shard Pod Core',         slot:'core', class:'shuttle',     stats:{ maxHull:160,  maxEnergy:200, maxFuel:100, cargoSpace:6,  mass:60,  turnBase:3.0  }, energyDraw:0, hp:999, price:0, rarity:'r', desc:'Alien pod hull frame.',                           visual:'special' },
+  core_shuttle:          { id:'core_shuttle',          name:'Shuttle Core',           slot:'core', class:'shuttle',     stats:{ maxHull:100,  maxEnergy:120, maxFuel:80,  mass:80,  turnBase:2.0  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Shuttle-class hull frame. Required to fly.',      visual:'special' },
+  core_earth_shuttle:    { id:'core_earth_shuttle',    name:'Courier Core',           slot:'core', class:'shuttle',     stats:{ maxHull:190,  maxEnergy:120, maxFuel:90,  mass:90,  turnBase:2.0  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Earth Courier hull frame.',                      visual:'special' },
+  core_rebel_runner:     { id:'core_rebel_runner',     name:'Runner Core',            slot:'core', class:'shuttle',     stats:{ maxHull:140,  maxEnergy:130, maxFuel:90,    mass:75,  turnBase:2.4  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Rebel Runner hull frame.',                        visual:'special' },
+  core_pirate_skiff:     { id:'core_pirate_skiff',     name:'Skiff Core',             slot:'core', class:'shuttle',     stats:{ maxHull:120,  maxEnergy:120, maxFuel:70,    mass:65,  turnBase:2.6  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Pirate Skiff hull frame.',                        visual:'special' },
+  core_alien_pod:        { id:'core_alien_pod',        name:'Shard Pod Core',         slot:'core', class:'shuttle',     stats:{ maxHull:160,  maxEnergy:200, maxFuel:100,  mass:60,  turnBase:3.0  }, energyDraw:0, hp:999, price:0, rarity:'r', desc:'Alien pod hull frame.',                           visual:'special' },
   // miner class
-  core_miner_ship:       { id:'core_miner_ship',       name:'Prospector Core',        slot:'core', class:'miner',       stats:{ maxHull:280,  maxEnergy:130, maxFuel:80,  cargoSpace:20, mass:170, turnBase:1.0  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Prospector hull frame.',                          visual:'special' },
-  core_earth_miner:      { id:'core_earth_miner',      name:'Surveyor Core',          slot:'core', class:'miner',       stats:{ maxHull:280,  maxEnergy:140, maxFuel:88,  cargoSpace:24, mass:175, turnBase:1.2  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Earth Surveyor hull frame.',                      visual:'special' },
-  core_rebel_miner:      { id:'core_rebel_miner',      name:'Extractor Core',         slot:'core', class:'miner',       stats:{ maxHull:260,  maxEnergy:135, maxFuel:84,  cargoSpace:22, mass:165, turnBase:1.3  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Rebel Extractor hull frame.',                     visual:'special' },
+  core_miner_ship:       { id:'core_miner_ship',       name:'Prospector Core',        slot:'core', class:'miner',       stats:{ maxHull:280,  maxEnergy:130, maxFuel:80,   mass:170, turnBase:1.0  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Prospector hull frame.',                          visual:'special' },
+  core_earth_miner:      { id:'core_earth_miner',      name:'Surveyor Core',          slot:'core', class:'miner',       stats:{ maxHull:280,  maxEnergy:140, maxFuel:88,   mass:175, turnBase:1.2  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Earth Surveyor hull frame.',                      visual:'special' },
+  core_rebel_miner:      { id:'core_rebel_miner',      name:'Extractor Core',         slot:'core', class:'miner',       stats:{ maxHull:260,  maxEnergy:135, maxFuel:84,   mass:165, turnBase:1.3  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Rebel Extractor hull frame.',                     visual:'special' },
   // container class
-  core_container_ship:   { id:'core_container_ship',   name:'Bulk Hauler Core',       slot:'core', class:'container',   stats:{ maxHull:300,  maxEnergy:130, maxFuel:130, cargoSpace:50, mass:320, turnBase:0.7  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Bulk Hauler hull frame.',                         visual:'special' },
-  core_earth_hauler:     { id:'core_earth_hauler',     name:'Freighter Core',         slot:'core', class:'container',   stats:{ maxHull:380,  maxEnergy:140, maxFuel:138, cargoSpace:55, mass:345, turnBase:0.7  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Earth Freighter hull frame.',                     visual:'special' },
-  core_rebel_hauler:     { id:'core_rebel_hauler',     name:'Rebel Hauler Core',      slot:'core', class:'container',   stats:{ maxHull:280,  maxEnergy:140, maxFuel:110, cargoSpace:28, mass:200, turnBase:1.3  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Rebel Hauler hull frame.',                        visual:'special' },
+  core_container_ship:   { id:'core_container_ship',   name:'Bulk Hauler Core',       slot:'core', class:'container',   stats:{ maxHull:300,  maxEnergy:130, maxFuel:130, mass:320, turnBase:0.7  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Bulk Hauler hull frame.',                         visual:'special' },
+  core_earth_hauler:     { id:'core_earth_hauler',     name:'Freighter Core',         slot:'core', class:'container',   stats:{ maxHull:380,  maxEnergy:140, maxFuel:138, mass:345, turnBase:0.7  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Earth Freighter hull frame.',                     visual:'special' },
+  core_rebel_hauler:     { id:'core_rebel_hauler',     name:'Rebel Hauler Core',      slot:'core', class:'container',   stats:{ maxHull:280,  maxEnergy:140, maxFuel:110, mass:200, turnBase:1.3  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Rebel Hauler hull frame.',                        visual:'special' },
   // tanker class
-  core_tanker_ship:      { id:'core_tanker_ship',      name:'Tanker Core',            slot:'core', class:'tanker',      stats:{ maxHull:260,  maxEnergy:130, maxFuel:400, cargoSpace:20, mass:300, turnBase:0.7  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Fuel Tanker hull frame.',                         visual:'special' },
-  core_earth_tanker:     { id:'core_earth_tanker',     name:'Earth Tanker Core',      slot:'core', class:'tanker',      stats:{ maxHull:320,  maxEnergy:140, maxFuel:500, cargoSpace:22, mass:320, turnBase:0.7  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Earth Tanker hull frame.',                        visual:'special' },
+  core_tanker_ship:      { id:'core_tanker_ship',      name:'Tanker Core',            slot:'core', class:'tanker',      stats:{ maxHull:260,  maxEnergy:130, maxFuel:400, mass:300, turnBase:0.7  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Fuel Tanker hull frame.',                         visual:'special' },
+  core_earth_tanker:     { id:'core_earth_tanker',     name:'Earth Tanker Core',      slot:'core', class:'tanker',      stats:{ maxHull:320,  maxEnergy:140, maxFuel:500, mass:320, turnBase:0.7  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Earth Tanker hull frame.',                        visual:'special' },
   // fighter class
-  core_fighter:          { id:'core_fighter',          name:'Fighter Core',           slot:'core', class:'fighter',     stats:{ maxHull:100,  maxEnergy:150, maxFuel:85,  cargoSpace:2,  mass:90,  turnBase:2.6  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Fighter hull frame.',                             visual:'special' },
-  core_earth_fighter:    { id:'core_earth_fighter',    name:'Interceptor Core',       slot:'core', class:'fighter',     stats:{ maxHull:280,  maxEnergy:170, maxFuel:90,  cargoSpace:4,  mass:130, turnBase:2.1  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Earth Interceptor hull frame.',                   visual:'special' },
-  core_rebel_fighter:    { id:'core_rebel_fighter',    name:'Strike Fighter Core',    slot:'core', class:'fighter',     stats:{ maxHull:220,  maxEnergy:155, maxFuel:88,  cargoSpace:3,  mass:110, turnBase:2.6  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Rebel Strike Fighter hull frame.',                visual:'special' },
-  core_pirate_fighter:   { id:'core_pirate_fighter',   name:'Attack Fighter Core',    slot:'core', class:'fighter',     stats:{ maxHull:200,  maxEnergy:145, maxFuel:80,  cargoSpace:3,  mass:100, turnBase:2.7  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Pirate Attack Fighter hull frame.',               visual:'special' },
-  core_alien_fighter:    { id:'core_alien_fighter',    name:'Shard Strike Core',      slot:'core', class:'fighter',     stats:{ maxHull:260,  maxEnergy:280, maxFuel:110, cargoSpace:2,  mass:90,  turnBase:3.2  }, energyDraw:0, hp:999, price:0, rarity:'e', desc:'Alien Shard Strike hull frame.',                  visual:'special' },
+  core_fighter:          { id:'core_fighter',          name:'Fighter Core',           slot:'core', class:'fighter',     stats:{ maxHull:100,  maxEnergy:150, maxFuel:85,    mass:90,  turnBase:2.6  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Fighter hull frame.',                             visual:'special' },
+  core_earth_fighter:    { id:'core_earth_fighter',    name:'Interceptor Core',       slot:'core', class:'fighter',     stats:{ maxHull:280,  maxEnergy:170, maxFuel:90,    mass:130, turnBase:2.1  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Earth Interceptor hull frame.',                   visual:'special' },
+  core_rebel_fighter:    { id:'core_rebel_fighter',    name:'Strike Fighter Core',    slot:'core', class:'fighter',     stats:{ maxHull:220,  maxEnergy:155, maxFuel:88,    mass:110, turnBase:2.6  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Rebel Strike Fighter hull frame.',                visual:'special' },
+  core_pirate_fighter:   { id:'core_pirate_fighter',   name:'Attack Fighter Core',    slot:'core', class:'fighter',     stats:{ maxHull:200,  maxEnergy:145, maxFuel:80,    mass:100, turnBase:2.7  }, energyDraw:0, hp:999, price:0, rarity:'c', desc:'Pirate Attack Fighter hull frame.',               visual:'special' },
+  core_alien_fighter:    { id:'core_alien_fighter',    name:'Shard Strike Core',      slot:'core', class:'fighter',     stats:{ maxHull:260,  maxEnergy:280, maxFuel:110,  mass:90,  turnBase:3.2  }, energyDraw:0, hp:999, price:0, rarity:'e', desc:'Alien Shard Strike hull frame.',                  visual:'special' },
   // cruise_ship class
-  core_cruise_liner:     { id:'core_cruise_liner',     name:'Cruise Liner Core',      slot:'core', class:'cruise_ship', stats:{ maxHull:500,  maxEnergy:200, maxFuel:200, cargoSpace:30, mass:450, turnBase:0.5  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Cruise Liner hull frame.',                        visual:'special' },
-  core_earth_liner:      { id:'core_earth_liner',      name:'Star Liner Core',        slot:'core', class:'cruise_ship', stats:{ maxHull:600,  maxEnergy:220, maxFuel:220, cargoSpace:32, mass:500, turnBase:0.5  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Earth Star Liner hull frame.',                    visual:'special' },
+  core_cruise_liner:     { id:'core_cruise_liner',     name:'Cruise Liner Core',      slot:'core', class:'cruise_ship', stats:{ maxHull:500,  maxEnergy:200, maxFuel:200, mass:450, turnBase:0.5  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Cruise Liner hull frame.',                        visual:'special' },
+  core_earth_liner:      { id:'core_earth_liner',      name:'Star Liner Core',        slot:'core', class:'cruise_ship', stats:{ maxHull:600,  maxEnergy:220, maxFuel:220, mass:500, turnBase:0.5  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Earth Star Liner hull frame.',                    visual:'special' },
   // corvette class
-  core_corvette:         { id:'core_corvette',         name:'Corvette Core',          slot:'core', class:'corvette',    stats:{ maxHull:360,  maxEnergy:170, maxFuel:90,  cargoSpace:10, mass:175, turnBase:2.0  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Corvette hull frame.',                            visual:'special' },
-  core_earth_corvette:   { id:'core_earth_corvette',   name:'Earth Corvette Core',    slot:'core', class:'corvette',    stats:{ maxHull:360,  maxEnergy:185, maxFuel:90,  cargoSpace:8,  mass:165, turnBase:2.2  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Earth Corvette hull frame.',                      visual:'special' },
-  core_rebel_corvette:   { id:'core_rebel_corvette',   name:'Rebel Interceptor Core', slot:'core', class:'corvette',    stats:{ maxHull:320,  maxEnergy:165, maxFuel:85,  cargoSpace:7,  mass:155, turnBase:2.5  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Rebel Interceptor hull frame.',                   visual:'special' },
-  core_pirate_corvette:  { id:'core_pirate_corvette',  name:'Pirate Cutter Core',     slot:'core', class:'corvette',    stats:{ maxHull:280,  maxEnergy:160, maxFuel:80,  cargoSpace:6,  mass:145, turnBase:2.7  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Pirate Cutter hull frame.',                       visual:'special' },
+  core_corvette:         { id:'core_corvette',         name:'Corvette Core',          slot:'core', class:'corvette',    stats:{ maxHull:360,  maxEnergy:170, maxFuel:90,   mass:175, turnBase:2.0  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Corvette hull frame.',                            visual:'special' },
+  core_earth_corvette:   { id:'core_earth_corvette',   name:'Earth Corvette Core',    slot:'core', class:'corvette',    stats:{ maxHull:360,  maxEnergy:185, maxFuel:90,    mass:165, turnBase:2.2  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Earth Corvette hull frame.',                      visual:'special' },
+  core_rebel_corvette:   { id:'core_rebel_corvette',   name:'Rebel Interceptor Core', slot:'core', class:'corvette',    stats:{ maxHull:320,  maxEnergy:165, maxFuel:85,    mass:155, turnBase:2.5  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Rebel Interceptor hull frame.',                   visual:'special' },
+  core_pirate_corvette:  { id:'core_pirate_corvette',  name:'Pirate Cutter Core',     slot:'core', class:'corvette',    stats:{ maxHull:280,  maxEnergy:160, maxFuel:80,    mass:145, turnBase:2.7  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Pirate Cutter hull frame.',                       visual:'special' },
   // frigate class
-  core_frigate:          { id:'core_frigate',          name:'Frigate Core',           slot:'core', class:'frigate',     stats:{ maxHull:500,  maxEnergy:180, maxFuel:100, cargoSpace:10, mass:220, turnBase:1.7  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Frigate hull frame.',                             visual:'special' },
-  core_earth_patrol:     { id:'core_earth_patrol',     name:'Earth Frigate Core',     slot:'core', class:'frigate',     stats:{ maxHull:520,  maxEnergy:200, maxFuel:100, cargoSpace:8,  mass:195, turnBase:2.0  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Earth Frigate hull frame.',                       visual:'special' },
-  core_rebel_frigate:    { id:'core_rebel_frigate',    name:'Rebel Frigate Core',     slot:'core', class:'frigate',     stats:{ maxHull:480,  maxEnergy:185, maxFuel:95,  cargoSpace:8,  mass:210, turnBase:1.8  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Rebel Frigate hull frame.',                       visual:'special' },
-  core_pirate_raider:    { id:'core_pirate_raider',    name:'Pirate Raider Core',     slot:'core', class:'frigate',     stats:{ maxHull:420,  maxEnergy:178, maxFuel:88,  cargoSpace:12, mass:195, turnBase:1.9  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Pirate Raider hull frame.',                       visual:'special' },
-  core_alien_scout:      { id:'core_alien_scout',      name:'Shard Scout Core',       slot:'core', class:'frigate',     stats:{ maxHull:460,  maxEnergy:260, maxFuel:120, cargoSpace:6,  mass:175, turnBase:2.8  }, energyDraw:0, hp:999, price:0, rarity:'r', desc:'Alien Shard Scout hull frame.',                   visual:'special' },
+  core_frigate:          { id:'core_frigate',          name:'Frigate Core',           slot:'core', class:'frigate',     stats:{ maxHull:500,  maxEnergy:180, maxFuel:100, mass:220, turnBase:1.7  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Frigate hull frame.',                             visual:'special' },
+  core_earth_patrol:     { id:'core_earth_patrol',     name:'Earth Frigate Core',     slot:'core', class:'frigate',     stats:{ maxHull:520,  maxEnergy:200, maxFuel:100,  mass:195, turnBase:2.0  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Earth Frigate hull frame.',                       visual:'special' },
+  core_rebel_frigate:    { id:'core_rebel_frigate',    name:'Rebel Frigate Core',     slot:'core', class:'frigate',     stats:{ maxHull:480,  maxEnergy:185, maxFuel:95,    mass:210, turnBase:1.8  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Rebel Frigate hull frame.',                       visual:'special' },
+  core_pirate_raider:    { id:'core_pirate_raider',    name:'Pirate Raider Core',     slot:'core', class:'frigate',     stats:{ maxHull:420,  maxEnergy:178, maxFuel:88,   mass:195, turnBase:1.9  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Pirate Raider hull frame.',                       visual:'special' },
+  core_alien_scout:      { id:'core_alien_scout',      name:'Shard Scout Core',       slot:'core', class:'frigate',     stats:{ maxHull:460,  maxEnergy:260, maxFuel:120,  mass:175, turnBase:2.8  }, energyDraw:0, hp:999, price:0, rarity:'r', desc:'Alien Shard Scout hull frame.',                   visual:'special' },
   // bomber class
-  core_bomber:           { id:'core_bomber',           name:'Gunship Core',           slot:'core', class:'bomber',      stats:{ maxHull:560,  maxEnergy:190, maxFuel:100, cargoSpace:8,  mass:240, turnBase:1.4  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Gunship hull frame.',                             visual:'special' },
-  core_earth_bomber:     { id:'core_earth_bomber',     name:'Strike Craft Core',      slot:'core', class:'bomber',      stats:{ maxHull:600,  maxEnergy:200, maxFuel:100, cargoSpace:6,  mass:245, turnBase:1.4  }, energyDraw:0, hp:999, price:0, rarity:'r', desc:'Earth Strike Craft hull frame.',                  visual:'special' },
-  core_rebel_bomber:     { id:'core_rebel_bomber',     name:'Rebel Gunship Core',     slot:'core', class:'bomber',      stats:{ maxHull:540,  maxEnergy:195, maxFuel:95,  cargoSpace:8,  mass:232, turnBase:1.5  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Rebel Gunship hull frame.',                       visual:'special' },
-  core_pirate_marauder:  { id:'core_pirate_marauder',  name:'Marauder Core',          slot:'core', class:'bomber',      stats:{ maxHull:500,  maxEnergy:183, maxFuel:90,  cargoSpace:14, mass:228, turnBase:1.5  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Pirate Marauder hull frame.',                     visual:'special' },
+  core_bomber:           { id:'core_bomber',           name:'Gunship Core',           slot:'core', class:'bomber',      stats:{ maxHull:560,  maxEnergy:190, maxFuel:100,  mass:240, turnBase:1.4  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Gunship hull frame.',                             visual:'special' },
+  core_earth_bomber:     { id:'core_earth_bomber',     name:'Strike Craft Core',      slot:'core', class:'bomber',      stats:{ maxHull:600,  maxEnergy:200, maxFuel:100,  mass:245, turnBase:1.4  }, energyDraw:0, hp:999, price:0, rarity:'r', desc:'Earth Strike Craft hull frame.',                  visual:'special' },
+  core_rebel_bomber:     { id:'core_rebel_bomber',     name:'Rebel Gunship Core',     slot:'core', class:'bomber',      stats:{ maxHull:540,  maxEnergy:195, maxFuel:95,    mass:232, turnBase:1.5  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Rebel Gunship hull frame.',                       visual:'special' },
+  core_pirate_marauder:  { id:'core_pirate_marauder',  name:'Marauder Core',          slot:'core', class:'bomber',      stats:{ maxHull:500,  maxEnergy:183, maxFuel:90,   mass:228, turnBase:1.5  }, energyDraw:0, hp:999, price:0, rarity:'u', desc:'Pirate Marauder hull frame.',                     visual:'special' },
   // destroyer class
-  core_destroyer:        { id:'core_destroyer',        name:'Destroyer Core',         slot:'core', class:'destroyer',   stats:{ maxHull:700,  maxEnergy:210, maxFuel:110, cargoSpace:10, mass:280, turnBase:1.5  }, energyDraw:0, hp:999, price:0, rarity:'r', desc:'Destroyer hull frame.',                           visual:'special' },
-  core_earth_destroyer:  { id:'core_earth_destroyer',  name:'Earth Destroyer Core',   slot:'core', class:'destroyer',   stats:{ maxHull:720,  maxEnergy:225, maxFuel:115, cargoSpace:9,  mass:272, turnBase:1.6  }, energyDraw:0, hp:999, price:0, rarity:'r', desc:'Earth Destroyer hull frame.',                     visual:'special' },
-  core_rebel_destroyer:  { id:'core_rebel_destroyer',  name:'Rebel Destroyer Core',   slot:'core', class:'destroyer',   stats:{ maxHull:680,  maxEnergy:215, maxFuel:108, cargoSpace:10, mass:268, turnBase:1.6  }, energyDraw:0, hp:999, price:0, rarity:'r', desc:'Rebel Destroyer hull frame.',                     visual:'special' },
-  core_pirate_destroyer: { id:'core_pirate_destroyer', name:'Pirate Warship Core',    slot:'core', class:'destroyer',   stats:{ maxHull:650,  maxEnergy:200, maxFuel:105, cargoSpace:12, mass:285, turnBase:1.4  }, energyDraw:0, hp:999, price:0, rarity:'r', desc:'Pirate Warship hull frame.',                      visual:'special' },
+  core_destroyer:        { id:'core_destroyer',        name:'Destroyer Core',         slot:'core', class:'destroyer',   stats:{ maxHull:700,  maxEnergy:210, maxFuel:110, mass:280, turnBase:1.5  }, energyDraw:0, hp:999, price:0, rarity:'r', desc:'Destroyer hull frame.',                           visual:'special' },
+  core_earth_destroyer:  { id:'core_earth_destroyer',  name:'Earth Destroyer Core',   slot:'core', class:'destroyer',   stats:{ maxHull:720,  maxEnergy:225, maxFuel:115,  mass:272, turnBase:1.6  }, energyDraw:0, hp:999, price:0, rarity:'r', desc:'Earth Destroyer hull frame.',                     visual:'special' },
+  core_rebel_destroyer:  { id:'core_rebel_destroyer',  name:'Rebel Destroyer Core',   slot:'core', class:'destroyer',   stats:{ maxHull:680,  maxEnergy:215, maxFuel:108, mass:268, turnBase:1.6  }, energyDraw:0, hp:999, price:0, rarity:'r', desc:'Rebel Destroyer hull frame.',                     visual:'special' },
+  core_pirate_destroyer: { id:'core_pirate_destroyer', name:'Pirate Warship Core',    slot:'core', class:'destroyer',   stats:{ maxHull:650,  maxEnergy:200, maxFuel:105, mass:285, turnBase:1.4  }, energyDraw:0, hp:999, price:0, rarity:'r', desc:'Pirate Warship hull frame.',                      visual:'special' },
   // cruiser class
-  core_cruiser:          { id:'core_cruiser',          name:'Cruiser Core',           slot:'core', class:'cruiser',     stats:{ maxHull:1600, maxEnergy:240, maxFuel:120, cargoSpace:15, mass:550, turnBase:0.85 }, energyDraw:0, hp:999, price:0, rarity:'r', desc:'Cruiser hull frame.',                             visual:'special' },
-  core_earth_cruiser:    { id:'core_earth_cruiser',    name:'Battlecruiser Core',     slot:'core', class:'cruiser',     stats:{ maxHull:1900, maxEnergy:260, maxFuel:130, cargoSpace:15, mass:595, turnBase:0.85 }, energyDraw:0, hp:999, price:0, rarity:'e', desc:'Earth Battlecruiser hull frame.',                 visual:'special' },
-  core_rebel_cruiser:    { id:'core_rebel_cruiser',    name:'Rebel Battleship Core',  slot:'core', class:'cruiser',     stats:{ maxHull:1750, maxEnergy:245, maxFuel:120, cargoSpace:15, mass:565, turnBase:0.8  }, energyDraw:0, hp:999, price:0, rarity:'e', desc:'Rebel Battleship hull frame.',                    visual:'special' },
-  core_pirate_battleship:{ id:'core_pirate_battleship',name:'Dreadnaught Core',       slot:'core', class:'cruiser',     stats:{ maxHull:1600, maxEnergy:230, maxFuel:115, cargoSpace:18, mass:575, turnBase:0.75 }, energyDraw:0, hp:999, price:0, rarity:'e', desc:'Pirate Dreadnaught hull frame.',                  visual:'special' },
-  core_alien_warship:    { id:'core_alien_warship',    name:'Shard Warship Core',     slot:'core', class:'cruiser',     stats:{ maxHull:2200, maxEnergy:400, maxFuel:150, cargoSpace:12, mass:498, turnBase:1.0  }, energyDraw:0, hp:999, price:0, rarity:'l', desc:'Alien Shard Warship hull frame.',                 visual:'special' },
+  core_cruiser:          { id:'core_cruiser',          name:'Cruiser Core',           slot:'core', class:'cruiser',     stats:{ maxHull:1600, maxEnergy:240, maxFuel:120, mass:550, turnBase:0.85 }, energyDraw:0, hp:999, price:0, rarity:'r', desc:'Cruiser hull frame.',                             visual:'special' },
+  core_earth_cruiser:    { id:'core_earth_cruiser',    name:'Battlecruiser Core',     slot:'core', class:'cruiser',     stats:{ maxHull:1900, maxEnergy:260, maxFuel:130, mass:595, turnBase:0.85 }, energyDraw:0, hp:999, price:0, rarity:'e', desc:'Earth Battlecruiser hull frame.',                 visual:'special' },
+  core_rebel_cruiser:    { id:'core_rebel_cruiser',    name:'Rebel Battleship Core',  slot:'core', class:'cruiser',     stats:{ maxHull:1750, maxEnergy:245, maxFuel:120, mass:565, turnBase:0.8  }, energyDraw:0, hp:999, price:0, rarity:'e', desc:'Rebel Battleship hull frame.',                    visual:'special' },
+  core_pirate_battleship:{ id:'core_pirate_battleship',name:'Dreadnaught Core',       slot:'core', class:'cruiser',     stats:{ maxHull:1600, maxEnergy:230, maxFuel:115, mass:575, turnBase:0.75 }, energyDraw:0, hp:999, price:0, rarity:'e', desc:'Pirate Dreadnaught hull frame.',                  visual:'special' },
+  core_alien_warship:    { id:'core_alien_warship',    name:'Shard Warship Core',     slot:'core', class:'cruiser',     stats:{ maxHull:2200, maxEnergy:400, maxFuel:150, mass:498, turnBase:1.0  }, energyDraw:0, hp:999, price:0, rarity:'l', desc:'Alien Shard Warship hull frame.',                 visual:'special' },
   // carrier class
-  core_carrier:          { id:'core_carrier',          name:'Carrier Core',           slot:'core', class:'carrier',     stats:{ maxHull:2400, maxEnergy:300, maxFuel:200, cargoSpace:20, mass:800, turnBase:0.45 }, energyDraw:0, hp:999, price:0, rarity:'e', desc:'Carrier hull frame.',                             visual:'special' },
-  core_earth_carrier:    { id:'core_earth_carrier',    name:'Supercarrier Core',      slot:'core', class:'carrier',     stats:{ maxHull:2800, maxEnergy:340, maxFuel:220, cargoSpace:22, mass:845, turnBase:0.45 }, energyDraw:0, hp:999, price:0, rarity:'e', desc:'Earth Supercarrier hull frame.',                  visual:'special' },
-  core_rebel_carrier:    { id:'core_rebel_carrier',    name:'Dreadnought Core',       slot:'core', class:'carrier',     stats:{ maxHull:2600, maxEnergy:310, maxFuel:200, cargoSpace:20, mass:818, turnBase:0.45 }, energyDraw:0, hp:999, price:0, rarity:'e', desc:'Rebel Dreadnought hull frame.',                   visual:'special' },
+  core_carrier:          { id:'core_carrier',          name:'Carrier Core',           slot:'core', class:'carrier',     stats:{ maxHull:2400, maxEnergy:300, maxFuel:200, mass:800, turnBase:0.45 }, energyDraw:0, hp:999, price:0, rarity:'e', desc:'Carrier hull frame.',                             visual:'special' },
+  core_earth_carrier:    { id:'core_earth_carrier',    name:'Supercarrier Core',      slot:'core', class:'carrier',     stats:{ maxHull:2800, maxEnergy:340, maxFuel:220, mass:845, turnBase:0.45 }, energyDraw:0, hp:999, price:0, rarity:'e', desc:'Earth Supercarrier hull frame.',                  visual:'special' },
+  core_rebel_carrier:    { id:'core_rebel_carrier',    name:'Dreadnought Core',       slot:'core', class:'carrier',     stats:{ maxHull:2600, maxEnergy:310, maxFuel:200, mass:818, turnBase:0.45 }, energyDraw:0, hp:999, price:0, rarity:'e', desc:'Rebel Dreadnought hull frame.',                   visual:'special' },
 };
 
 // ── Ship Templates ────────────────────────────────────────
@@ -516,7 +527,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:14000, baseTurn:0, baseCargoSpace:0,
     slots:11,
-    startModules:['core_shuttle',{id:'thruster',rot:0},{id:'thruster',rot:0},{id:'thruster',rot:2},'reactor','jump_drive','small_cargo','light_shield','escape_pod'],
+    startModules:['core_shuttle',{id:'thruster',rot:0},{id:'thruster',rot:0},'reactor','jump_drive','small_cargo','light_shield','escape_pod'],
     startWeapons:['turret'],
     shape:'shuttle', color:'#8899bb', size:1.0,
     stats:'HULL:100  SHIELDS:80  CARGO:8',
@@ -528,7 +539,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:14000, baseTurn:0, baseCargoSpace:0,
     slots:12,
-    startModules:['core_earth_shuttle',{id:'thruster',rot:0},{id:'thruster',rot:0},{id:'thruster',rot:2},'reactor','jump_drive','small_cargo','small_cargo','basic_sensors','escape_pod'],
+    startModules:['core_earth_shuttle',{id:'thruster',rot:0},{id:'thruster',rot:0},'reactor','jump_drive','small_cargo','small_cargo','basic_sensors','escape_pod'],
     startWeapons:['turret'],
     shape:'earth_shuttle', color:'#4488ff', size:1.1,
     stats:'HULL:190  CARGO:10  GOV',
@@ -540,7 +551,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:17000, baseTurn:0, baseCargoSpace:0,
     slots:11,
-    startModules:['core_rebel_runner',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},'reactor','jump_drive','small_cargo','fuel_tank','escape_pod'],
+    startModules:['core_rebel_runner',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor','jump_drive','small_cargo','fuel_tank','escape_pod'],
     startWeapons:['turret'],
     shape:'rebel_fighter', color:'#ff6600', size:0.85,
     stats:'HULL:140  CARGO:8  FAST',
@@ -552,7 +563,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:18000, baseTurn:0, baseCargoSpace:0,
     slots:10,
-    startModules:['core_pirate_skiff',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},'reactor','jump_drive','small_cargo','escape_pod'],
+    startModules:['core_pirate_skiff',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor','jump_drive','small_cargo','escape_pod'],
     startWeapons:['turret'],
     shape:'pirate_fighter', color:'#cc3322', size:0.85,
     stats:'HULL:120  FAST  SCRAPPY',
@@ -564,7 +575,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:22000, baseTurn:0, baseCargoSpace:0,
     slots:11,
-    startModules:['core_alien_pod',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},'reactor','jump_drive','small_cargo','escape_pod'],
+    startModules:['core_alien_pod',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor','jump_drive','small_cargo','escape_pod'],
     startWeapons:['turret'],
     shape:'alien_fighter', color:'#00ff88', size:0.85,
     stats:'HULL:160  ALIEN TECH  FAST',
@@ -578,7 +589,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:8000, baseTurn:0, baseCargoSpace:0,
     slots:14,
-    startModules:['core_miner_ship',{id:'thruster',rot:0},{id:'thruster',rot:0},{id:'thruster',rot:2},'reactor','jump_drive','medium_cargo','medium_cargo','escape_pod'],
+    startModules:['core_miner_ship',{id:'thruster',rot:0},{id:'thruster',rot:0},'reactor','jump_drive','medium_cargo','medium_cargo','escape_pod'],
     startWeapons:['mining_laser_wpn','turret','turret','turret','turret'],
     shape:'miner', color:'#aa9966', size:1.4,
     stats:'HULL:280  CARGO:20  MINER',
@@ -590,7 +601,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:9500, baseTurn:0, baseCargoSpace:0,
     slots:15,
-    startModules:['core_earth_miner',{id:'thruster',rot:0},{id:'thruster',rot:0},{id:'thruster',rot:2},'reactor','jump_drive','medium_cargo','medium_cargo','basic_sensors','escape_pod'],
+    startModules:['core_earth_miner',{id:'thruster',rot:0},{id:'thruster',rot:0},'reactor','jump_drive','medium_cargo','medium_cargo','basic_sensors','escape_pod'],
     startWeapons:['laser_cannon','mining_laser_wpn','turret','turret','turret','turret'],
     shape:'earth_shuttle', color:'#4477cc', size:1.3,
     stats:'HULL:280  CARGO:24  SURVEY',
@@ -602,7 +613,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:10000, baseTurn:0, baseCargoSpace:0,
     slots:14,
-    startModules:['core_rebel_miner',{id:'thruster',rot:0},{id:'thruster',rot:0},{id:'thruster',rot:2},'reactor','jump_drive','medium_cargo','medium_cargo','escape_pod'],
+    startModules:['core_rebel_miner',{id:'thruster',rot:0},{id:'thruster',rot:0},'reactor','jump_drive','medium_cargo','medium_cargo','escape_pod'],
     startWeapons:['autocannon','mining_laser_wpn','turret','turret','turret','turret'],
     shape:'rebel_hauler', color:'#cc5500', size:1.3,
     stats:'HULL:260  CARGO:22  ARMED',
@@ -616,7 +627,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:6500, baseTurn:0, baseCargoSpace:0,
     slots:16,
-    startModules:['core_container_ship',{id:'thruster',rot:0},{id:'thruster',rot:0},{id:'thruster',rot:2},'reactor','jump_drive','large_cargo','large_cargo','large_cargo','escape_pod'],
+    startModules:['core_container_ship',{id:'thruster',rot:0},{id:'thruster',rot:0},'reactor','jump_drive','large_cargo','large_cargo','large_cargo','escape_pod'],
     startWeapons:['autocannon','turret','turret','turret','turret'],
     shape:'freighter', color:'#778855', size:2.5,
     stats:'HULL:300  CARGO:50  SLOW',
@@ -628,7 +639,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:7000, baseTurn:0, baseCargoSpace:0,
     slots:18,
-    startModules:['core_earth_hauler',{id:'thruster',rot:0},{id:'thruster',rot:0},{id:'thruster',rot:2},'reactor','jump_drive','large_cargo','large_cargo','large_cargo','hull_armor','escape_pod'],
+    startModules:['core_earth_hauler',{id:'thruster',rot:0},{id:'thruster',rot:0},'reactor','jump_drive','large_cargo','large_cargo','large_cargo','hull_armor','escape_pod'],
     startWeapons:['autocannon','turret','turret','turret','turret'],
     shape:'freighter', color:'#3366aa', size:2.6,
     stats:'HULL:380  CARGO:55  ARMORED',
@@ -640,7 +651,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:11000, baseTurn:0, baseCargoSpace:0,
     slots:17,
-    startModules:['core_rebel_hauler',{id:'thruster',rot:0},{id:'thruster',rot:0},{id:'thruster',rot:2},'reactor','jump_drive','medium_cargo','medium_cargo','medium_cargo','fuel_tank','escape_pod'],
+    startModules:['core_rebel_hauler',{id:'thruster',rot:0},{id:'thruster',rot:0},'reactor','jump_drive','medium_cargo','medium_cargo','medium_cargo','fuel_tank','escape_pod'],
     startWeapons:['laser_cannon','autocannon','turret','turret','turret','turret'],
     shape:'rebel_hauler', color:'#ff6600', size:1.6,
     stats:'HULL:280  CARGO:28  ARMED',
@@ -654,7 +665,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:6000, baseTurn:0, baseCargoSpace:0,
     slots:15,
-    startModules:['core_tanker_ship',{id:'thruster',rot:0},{id:'thruster',rot:0},{id:'thruster',rot:2},'reactor','jump_drive','fuel_tank','fuel_tank','large_cargo','escape_pod'],
+    startModules:['core_tanker_ship',{id:'thruster',rot:0},{id:'thruster',rot:0},'reactor','jump_drive','fuel_tank','fuel_tank','large_cargo','escape_pod'],
     startWeapons:['autocannon','turret','turret','turret','turret'],
     shape:'tanker', color:'#886644', size:2.4,
     stats:'HULL:260  FUEL:400  HAULER',
@@ -666,7 +677,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:6500, baseTurn:0, baseCargoSpace:0,
     slots:16,
-    startModules:['core_earth_tanker',{id:'thruster',rot:0},{id:'thruster',rot:0},{id:'thruster',rot:2},'reactor','jump_drive','fuel_tank','fuel_tank','fuel_tank','hull_armor','escape_pod'],
+    startModules:['core_earth_tanker',{id:'thruster',rot:0},{id:'thruster',rot:0},'reactor','jump_drive','fuel_tank','fuel_tank','fuel_tank','hull_armor','escape_pod'],
     startWeapons:['autocannon','turret','turret','turret','turret'],
     shape:'tanker', color:'#335599', size:2.5,
     stats:'HULL:320  FUEL:500  GOV',
@@ -680,7 +691,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:22000, baseTurn:0, baseCargoSpace:0,
     slots:14,
-    startModules:['core_fighter',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor','targeting_pod'],
+    startModules:['core_fighter',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor','targeting_pod'],
     startWeapons:['missile_launcher','autocannon'],
 
     shape:'fighter', color:'#8899cc', size:1.0,
@@ -693,7 +704,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:21000, baseTurn:0, baseCargoSpace:0,
     slots:15,
-    startModules:['core_earth_fighter',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor','light_shield'],
+    startModules:['core_earth_fighter',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor','light_shield'],
     startWeapons:['heavy_laser','laser_cannon'],
     shape:'fighter', color:'#4488ff', size:1.0,
     stats:'HULL:280  SHIELDS  GUNS:2',
@@ -705,7 +716,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:23000, baseTurn:0, baseCargoSpace:0,
     slots:13,
-    startModules:['core_rebel_fighter',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor'],
+    startModules:['core_rebel_fighter',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor'],
     startWeapons:['laser_cannon','autocannon','autocannon'],
     shape:'fighter', color:'#ff6600', size:0.95,
     stats:'HULL:220  FASTEST  GUNS:3',
@@ -717,7 +728,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:22000, baseTurn:0, baseCargoSpace:0,
     slots:13,
-    startModules:['core_pirate_fighter',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor'],
+    startModules:['core_pirate_fighter',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor'],
     startWeapons:['autocannon','autocannon','autocannon'],
     shape:'fighter', color:'#cc3322', size:0.9,
     stats:'HULL:200  GUNS:3  SCRAPPY',
@@ -729,7 +740,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:28000, baseTurn:0, baseCargoSpace:0,
     slots:13,
-    startModules:['core_alien_fighter',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor','light_shield'],
+    startModules:['core_alien_fighter',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor','light_shield'],
     startWeapons:['laser_cannon','laser_cannon'],
     shape:'fighter', color:'#00ff88', size:0.9,
     stats:'HULL:260  ALIEN  FASTEST',
@@ -743,7 +754,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:5500, baseTurn:0, baseCargoSpace:0,
     slots:22,
-    startModules:['core_cruise_liner',{id:'thruster',rot:0},{id:'thruster',rot:0},{id:'thruster',rot:2},'reactor','jump_drive','large_cargo','officer_block','officer_block','escape_pod'],
+    startModules:['core_cruise_liner',{id:'thruster',rot:0},{id:'thruster',rot:0},'reactor','jump_drive','large_cargo','officer_block','officer_block','escape_pod'],
     startWeapons:['autocannon','turret','turret','turret','turret'],
     shape:'carrier', color:'#ccbbaa', size:3.2,
     stats:'HULL:500  CREW  LUXURY',
@@ -755,7 +766,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:6000, baseTurn:0, baseCargoSpace:0,
     slots:24,
-    startModules:['core_earth_liner',{id:'thruster',rot:0},{id:'thruster',rot:0},{id:'thruster',rot:2},'reactor','jump_drive','large_cargo','officer_block','officer_block','medium_shield','escape_pod'],
+    startModules:['core_earth_liner',{id:'thruster',rot:0},{id:'thruster',rot:0},'reactor','jump_drive','large_cargo','officer_block','officer_block','medium_shield','escape_pod'],
     startWeapons:['autocannon','turret','turret','turret','turret'],
     shape:'carrier', color:'#4488ff', size:3.4,
     stats:'HULL:600  CREW  SHIELDED',
@@ -769,7 +780,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:19000, baseTurn:0, baseCargoSpace:0,
     slots:18,
-    startModules:['core_corvette',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor','light_shield','jump_drive','medium_cargo','escape_pod','targeting_pod'],
+    startModules:['core_corvette',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor','light_shield','jump_drive','medium_cargo','escape_pod','targeting_pod'],
     startWeapons:['laser_cannon','autocannon','missile_launcher','turret','turret','turret','turret'],
     shape:'corvette', color:'#7799cc', size:1.8,
     stats:'HULL:360  GUNS:2  BALANCED',
@@ -781,7 +792,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:22000, baseTurn:0, baseCargoSpace:0,
     slots:19,
-    startModules:['core_earth_corvette',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor','light_shield','jump_drive','escape_pod','targeting_pod'],
+    startModules:['core_earth_corvette',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor','light_shield','jump_drive','escape_pod','targeting_pod'],
     startWeapons:['laser_cannon','laser_cannon','autocannon','missile_launcher','turret','turret','turret','turret'],
     shape:'earth_patrol', color:'#4488ff', size:1.0,
     stats:'HULL:360  SHIELDS  PATROL',
@@ -793,7 +804,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:23000, baseTurn:0, baseCargoSpace:0,
     slots:18,
-    startModules:['core_rebel_corvette',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor','light_shield','jump_drive','escape_pod','targeting_pod'],
+    startModules:['core_rebel_corvette',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor','light_shield','jump_drive','escape_pod','targeting_pod'],
     startWeapons:['laser_cannon','autocannon','autocannon','missile_launcher','turret','turret','turret','turret'],
     shape:'rebel_fighter', color:'#ff6600', size:0.9,
     stats:'HULL:320  FAST  GUNS',
@@ -805,7 +816,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:25000, baseTurn:0, baseCargoSpace:0,
     slots:16,
-    startModules:['core_pirate_corvette',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor','jump_drive','escape_pod','targeting_pod'],
+    startModules:['core_pirate_corvette',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor','jump_drive','escape_pod','targeting_pod'],
     startWeapons:['laser_cannon','autocannon','autocannon','missile_launcher','turret','turret','turret','turret'],
     shape:'pirate_fighter', color:'#cc3322', size:0.95,
     stats:'HULL:280  FASTEST  GUNS',
@@ -819,7 +830,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:16000, baseTurn:0, baseCargoSpace:0,
     slots:20,
-    startModules:['core_frigate',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor','medium_shield','jump_drive','medium_cargo','escape_pod','targeting_pod','crew_quarters'],
+    startModules:['core_frigate',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor','medium_shield','jump_drive','medium_cargo','escape_pod','targeting_pod','crew_quarters'],
     startWeapons:['heavy_laser','autocannon','autocannon','missile_launcher','turret','turret','turret','turret','turret'],
     shape:'frigate', color:'#8899cc', size:1.0,
     stats:'HULL:500  SHIELDS  GUNS',
@@ -831,7 +842,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:20000, baseTurn:0, baseCargoSpace:0,
     slots:21,
-    startModules:['core_earth_patrol',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor','medium_shield','jump_drive','escape_pod','targeting_pod','crew_quarters'],
+    startModules:['core_earth_patrol',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor','medium_shield','jump_drive','escape_pod','targeting_pod','crew_quarters'],
     startWeapons:['heavy_laser','laser_cannon','autocannon','missile_launcher','turret','turret','turret','turret','turret'],
     shape:'frigate', color:'#4488ff', size:1.0,
     stats:'HULL:520  SHIELDS  FAST',
@@ -843,7 +854,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:17000, baseTurn:0, baseCargoSpace:0,
     slots:20,
-    startModules:['core_rebel_frigate',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor','medium_shield','jump_drive','escape_pod','targeting_pod','crew_quarters'],
+    startModules:['core_rebel_frigate',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor','medium_shield','jump_drive','escape_pod','targeting_pod','crew_quarters'],
     startWeapons:['heavy_laser','autocannon','autocannon','missile_launcher','turret','turret','turret','turret','turret'],
     shape:'frigate', color:'#ff6600', size:1.0,
     stats:'HULL:480  GUNS  REBEL',
@@ -855,7 +866,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:18000, baseTurn:0, baseCargoSpace:0,
     slots:19,
-    startModules:['core_pirate_raider',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor','light_shield','jump_drive','medium_cargo','escape_pod','targeting_pod','crew_quarters'],
+    startModules:['core_pirate_raider',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor','light_shield','jump_drive','medium_cargo','escape_pod','targeting_pod','crew_quarters'],
     startWeapons:['autocannon','autocannon','autocannon','missile_launcher','turret','turret','turret','turret','turret'],
     shape:'frigate', color:'#cc2200', size:1.0,
     stats:'HULL:420  CARGO:12  GUNS',
@@ -867,7 +878,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:26000, baseTurn:0, baseCargoSpace:0,
     slots:19,
-    startModules:['core_alien_scout',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor','light_shield','jump_drive','escape_pod','targeting_pod','crew_quarters'],
+    startModules:['core_alien_scout',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor','light_shield','jump_drive','escape_pod','targeting_pod','crew_quarters'],
     startWeapons:['laser_cannon','laser_cannon','missile_launcher','turret','turret','turret','turret','turret'],
     shape:'frigate', color:'#00ff88', size:1.0,
     stats:'HULL:460  ALIEN  FAST',
@@ -881,7 +892,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:14000, baseTurn:0, baseCargoSpace:0,
     slots:21,
-    startModules:['core_bomber',{id:'thruster',rot:0},{id:'thruster',rot:0},{id:'thruster',rot:2},{id:'thruster',rot:1},{id:'thruster',rot:3},'reactor','medium_shield','jump_drive','crew_quarters','hull_armor','escape_pod','targeting_pod'],
+    startModules:['core_bomber',{id:'thruster',rot:0},{id:'thruster',rot:0},'reactor','medium_shield','jump_drive','crew_quarters','hull_armor','escape_pod','targeting_pod'],
     startWeapons:['heavy_laser','autocannon','autocannon','autocannon','missile_launcher','turret','turret','turret','turret','turret','turret'],
     shape:'gunboat', color:'#8877aa', size:1.8,
     stats:'HULL:560  GUNS:4  SLOW',
@@ -893,7 +904,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:14500, baseTurn:0, baseCargoSpace:0,
     slots:22,
-    startModules:['core_earth_bomber',{id:'thruster',rot:0},{id:'thruster',rot:0},{id:'thruster',rot:2},{id:'thruster',rot:1},{id:'thruster',rot:3},'reactor','medium_shield','jump_drive','heavy_armor','escape_pod','targeting_pod','crew_quarters'],
+    startModules:['core_earth_bomber',{id:'thruster',rot:0},{id:'thruster',rot:0},'reactor','medium_shield','jump_drive','heavy_armor','escape_pod','targeting_pod','crew_quarters'],
     startWeapons:['heavy_laser','heavy_laser','autocannon','missile_launcher','turret','turret','turret','turret','turret','turret'],
     shape:'gunboat', color:'#336699', size:1.8,
     stats:'HULL:600  ARMOR  STRIKE',
@@ -905,7 +916,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:13500, baseTurn:0, baseCargoSpace:0,
     slots:21,
-    startModules:['core_rebel_bomber',{id:'thruster',rot:0},{id:'thruster',rot:0},{id:'thruster',rot:2},{id:'thruster',rot:1},{id:'thruster',rot:3},'reactor','medium_shield','jump_drive','escape_pod','targeting_pod','crew_quarters'],
+    startModules:['core_rebel_bomber',{id:'thruster',rot:0},{id:'thruster',rot:0},'reactor','medium_shield','jump_drive','escape_pod','targeting_pod','crew_quarters'],
     startWeapons:['heavy_laser','autocannon','autocannon','missile_launcher','turret','turret','turret','turret','turret','turret'],
     shape:'gunboat', color:'#ff6600', size:1.7,
     stats:'HULL:540  MISSILES  GUNS',
@@ -917,7 +928,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:13000, baseTurn:0, baseCargoSpace:0,
     slots:20,
-    startModules:['core_pirate_marauder',{id:'thruster',rot:0},{id:'thruster',rot:0},{id:'thruster',rot:2},{id:'thruster',rot:1},{id:'thruster',rot:3},'reactor','light_shield','jump_drive','medium_cargo','escape_pod','targeting_pod','crew_quarters'],
+    startModules:['core_pirate_marauder',{id:'thruster',rot:0},{id:'thruster',rot:0},'reactor','light_shield','jump_drive','medium_cargo','escape_pod','targeting_pod','crew_quarters'],
     startWeapons:['autocannon','autocannon','autocannon','autocannon','missile_launcher','turret','turret','turret','turret','turret','turret'],
     shape:'gunboat', color:'#bb2200', size:1.8,
     stats:'HULL:500  CARGO:14  GUNS',
@@ -931,7 +942,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:15000, baseTurn:0, baseCargoSpace:0,
     slots:23,
-    startModules:['core_destroyer',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor','medium_shield','medium_shield','jump_drive','hull_armor','escape_pod','targeting_pod','crew_quarters','crew_quarters'],
+    startModules:['core_destroyer',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor','medium_shield','medium_shield','jump_drive','hull_armor','escape_pod','targeting_pod','crew_quarters','crew_quarters'],
     startWeapons:['heavy_laser','heavy_laser','autocannon','missile_launcher','turret','turret','turret','turret','turret','turret'],
     shape:'corvette', color:'#6688aa', size:2.0,
     stats:'HULL:700  SHIELDS  ESCORT',
@@ -943,7 +954,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:16000, baseTurn:0, baseCargoSpace:0,
     slots:24,
-    startModules:['core_earth_destroyer',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor','medium_shield','medium_shield','jump_drive','military_sensors','escape_pod','targeting_pod','crew_quarters','crew_quarters'],
+    startModules:['core_earth_destroyer',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor','medium_shield','medium_shield','jump_drive','military_sensors','escape_pod','targeting_pod','crew_quarters','crew_quarters'],
     startWeapons:['heavy_laser','heavy_laser','autocannon','missile_launcher','turret','turret','turret','turret','turret','turret'],
     shape:'corvette', color:'#4488ff', size:2.0,
     stats:'HULL:720  SHIELDS  NAVY',
@@ -955,7 +966,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:15500, baseTurn:0, baseCargoSpace:0,
     slots:23,
-    startModules:['core_rebel_destroyer',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor','medium_shield','medium_shield','jump_drive','escape_pod','targeting_pod','crew_quarters','crew_quarters'],
+    startModules:['core_rebel_destroyer',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor','medium_shield','medium_shield','jump_drive','escape_pod','targeting_pod','crew_quarters','crew_quarters'],
     startWeapons:['heavy_laser','heavy_laser','railgun','autocannon','missile_launcher','turret','turret','turret','turret','turret','turret'],
     shape:'corvette', color:'#ff6600', size:2.0,
     stats:'HULL:680  RAILGUN  REBEL',
@@ -967,7 +978,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:14000, baseTurn:0, baseCargoSpace:0,
     slots:22,
-    startModules:['core_pirate_destroyer',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:2},{id:'thruster_imp',rot:1},{id:'thruster_imp',rot:3},'reactor','medium_shield','jump_drive','medium_cargo','escape_pod','targeting_pod','crew_quarters','crew_quarters'],
+    startModules:['core_pirate_destroyer',{id:'thruster_imp',rot:0},{id:'thruster_imp',rot:0},'reactor','medium_shield','jump_drive','medium_cargo','escape_pod','targeting_pod','crew_quarters','crew_quarters'],
     startWeapons:['heavy_laser','autocannon','autocannon','missile_launcher','turret','turret','turret','turret','turret','turret'],
     shape:'gunboat', color:'#993311', size:2.0,
     stats:'HULL:650  CARGO:12  GUNS',
@@ -981,7 +992,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:9000, baseTurn:0, baseCargoSpace:0,
     slots:27,
-    startModules:['core_cruiser',{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:2},{id:'thruster_mil',rot:1},{id:'thruster_mil',rot:3},'military_reactor','heavy_shield','jump_drive','heavy_armor','escape_pod','targeting_pod','officer_block'],
+    startModules:['core_cruiser',{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:0},'military_reactor','heavy_shield','jump_drive','heavy_armor','escape_pod','targeting_pod','officer_block'],
     startWeapons:['heavy_laser','heavy_laser','railgun','missile_launcher','turret','turret','turret','turret','turret','turret','turret','turret'],
     shape:'battlecruiser', color:'#5577aa', size:3.3,
     stats:'HULL:1600  FORTRESS  GUNS',
@@ -993,7 +1004,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:9500, baseTurn:0, baseCargoSpace:0,
     slots:29,
-    startModules:['core_earth_cruiser',{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:2},{id:'thruster_mil',rot:1},{id:'thruster_mil',rot:3},'military_reactor','heavy_shield','heavy_shield','jump_drive','heavy_armor','escape_pod','targeting_pod','officer_block'],
+    startModules:['core_earth_cruiser',{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:0},'military_reactor','heavy_shield','heavy_shield','jump_drive','heavy_armor','escape_pod','targeting_pod','officer_block'],
     startWeapons:['heavy_laser','heavy_laser','railgun','missile_launcher','turret','turret','turret','turret','turret','turret','turret','turret'],
     shape:'battlecruiser', color:'#336699', size:3.5,
     stats:'HULL:1900  SHIELDS  NAVY',
@@ -1005,7 +1016,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:8500, baseTurn:0, baseCargoSpace:0,
     slots:28,
-    startModules:['core_rebel_cruiser',{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:2},{id:'thruster_mil',rot:1},{id:'thruster_mil',rot:3},'military_reactor','heavy_shield','jump_drive','heavy_armor','escape_pod','targeting_pod','officer_block'],
+    startModules:['core_rebel_cruiser',{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:0},'military_reactor','heavy_shield','jump_drive','heavy_armor','escape_pod','targeting_pod','officer_block'],
     startWeapons:['heavy_laser','railgun','railgun','missile_launcher','turret','turret','turret','turret','turret','turret','turret','turret'],
     shape:'battlecruiser', color:'#ff6600', size:3.4,
     stats:'HULL:1750  RAILGUNS  REBEL',
@@ -1017,7 +1028,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:8000, baseTurn:0, baseCargoSpace:0,
     slots:26,
-    startModules:['core_pirate_battleship',{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:2},{id:'thruster_mil',rot:1},{id:'thruster_mil',rot:3},'reactor','heavy_shield','jump_drive','heavy_armor','escape_pod','targeting_pod','officer_block'],
+    startModules:['core_pirate_battleship',{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:0},'reactor','heavy_shield','jump_drive','heavy_armor','escape_pod','targeting_pod','officer_block'],
     startWeapons:['heavy_laser','autocannon','autocannon','missile_launcher','turret','turret','turret','turret','turret','turret','turret','turret'],
     shape:'battlecruiser', color:'#882200', size:3.4,
     stats:'HULL:1600  CARGO:18  SAVAGE',
@@ -1029,7 +1040,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:12000, baseTurn:0, baseCargoSpace:0,
     slots:29,
-    startModules:['core_alien_warship',{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:2},{id:'thruster_mil',rot:1},{id:'thruster_mil',rot:3},'military_reactor','heavy_shield','heavy_shield','jump_drive','escape_pod','targeting_pod','officer_block'],
+    startModules:['core_alien_warship',{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:0},'military_reactor','heavy_shield','heavy_shield','jump_drive','escape_pod','targeting_pod','officer_block'],
     startWeapons:['heavy_laser','heavy_laser','laser_cannon','missile_launcher','turret','turret','turret','turret','turret','turret','turret','turret'],
     shape:'alien_cruiser', color:'#00ff88', size:3.5,
     stats:'HULL:2200  ALIEN TECH  FAST',
@@ -1043,7 +1054,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:6000, baseTurn:0, baseCargoSpace:0,
     slots:31,
-    startModules:['core_carrier',{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:2},'military_reactor','heavy_shield','jump_drive','officer_block','officer_block','heavy_armor','heavy_armor','escape_pod','targeting_pod'],
+    startModules:['core_carrier',{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:0},'military_reactor','heavy_shield','jump_drive','officer_block','officer_block','heavy_armor','heavy_armor','escape_pod','targeting_pod'],
     startWeapons:['railgun','missile_launcher','turret','turret','turret','turret','turret','turret','turret','turret','turret','turret'],
     shape:'carrier', color:'#996633', size:4.2,
     stats:'HULL:2400  DRONES  FORTRESS',
@@ -1055,7 +1066,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:6200, baseTurn:0, baseCargoSpace:0,
     slots:33,
-    startModules:['core_earth_carrier',{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:2},'military_reactor','heavy_shield','heavy_shield','jump_drive','officer_block','officer_block','military_sensors','heavy_armor','heavy_armor','escape_pod','targeting_pod'],
+    startModules:['core_earth_carrier',{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:0},'military_reactor','heavy_shield','heavy_shield','jump_drive','officer_block','officer_block','military_sensors','heavy_armor','heavy_armor','escape_pod','targeting_pod'],
     startWeapons:['railgun','railgun','missile_launcher','turret','turret','turret','turret','turret','turret','turret','turret','turret','turret'],
     shape:'carrier', color:'#4488ff', size:4.5,
     stats:'HULL:2800  DRONES  NAVY',
@@ -1067,12 +1078,34 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:6000, baseTurn:0, baseCargoSpace:0,
     slots:32,
-    startModules:['core_rebel_carrier',{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:2},'military_reactor','heavy_shield','jump_drive','officer_block','officer_block','heavy_armor','escape_pod','targeting_pod'],
+    startModules:['core_rebel_carrier',{id:'thruster_mil',rot:0},{id:'thruster_mil',rot:0},'military_reactor','heavy_shield','jump_drive','officer_block','officer_block','heavy_armor','escape_pod','targeting_pod'],
     startWeapons:['railgun','railgun','missile_launcher','turret','turret','turret','turret','turret','turret','turret','turret','turret','turret'],
     shape:'dreadnought', color:'#ff6600', size:4.5,
     stats:'HULL:2600  DRONES  REBEL',
   },
 };
+
+// Normalize ship propulsion: strip any side/retro thrusters and give every
+// ship 2–8 rear-facing (rot:0) thrusters scaled by hull size. Preserves each
+// ship's original thruster module type. Runs once at load (MODULES already defined).
+(function(){
+  const countFor = (size) => Math.max(2, Math.min(8, Math.round(2 + ((size||1) - 0.85) * 1.64)));
+  for(const id in G.SHIPS){
+    const s = G.SHIPS[id];
+    if(!Array.isArray(s.startModules)) continue;
+    let thrId = 'thruster';
+    const rest = [];
+    for(const m of s.startModules){
+      const mid = typeof m === 'string' ? m : m.id;
+      if(G.MODULES[mid]?.slot === 'thruster'){ thrId = mid; continue; }
+      rest.push(m);
+    }
+    const thrusters = [];
+    for(let i=0, n=countFor(s.size); i<n; i++) thrusters.push({ id: thrId, rot: 0 });
+    // core stays first, thrusters next, remaining modules after
+    s.startModules = rest.length ? [rest[0], ...thrusters, ...rest.slice(1)] : thrusters;
+  }
+})();
 
 // ── Star Systems (100 systems) ────────────────────────────
 // pos: [x,y] on galaxy map (950x700 canvas, center ~475,345)
@@ -1294,12 +1327,38 @@ G.MISSION_TYPES = [
   },
 ];
 
-// ── Asteroid types ───────────────────────────────────────
-G.ASTEROID_DROPS = {
-  rocky:   ['ore','ore','ore','metals','crystals'],
-  icy:     ['fuel_cells','fuel_cells','polymers','crystals'],
-  metallic:['ore','ore','alloys','rare_earth'],
-  alien:   ['alien_metal','crystals','rare_earth','dark_matter'],
+// ── Asteroid hex-tile materials (increasing rarity → decreasing spawn weight) ─
+// Each tile of an asteroid cluster is one of these. `drop` = item id mined.
+// `base`/`vein`/`spec` drive procedural texture art in sprites.
+G.ASTEROID_TILE_R = 26;            // hex tile radius (centre→vertex, world px)
+G.ASTEROID_MATS = [
+  { id:'rock',     drop:'rock',     weight:46, hp:24, base:'#6e6258', vein:'#534a42', spec:'#8a7d70' },
+  { id:'ice',      drop:'ice',      weight:20, hp:18, base:'#9fc4d6', vein:'#cfe8f2', spec:'#e8f6ff' },
+  { id:'iron',     drop:'iron',     weight:16, hp:34, base:'#6b5a52', vein:'#8a4a38', spec:'#b08070' },
+  { id:'nickel',   drop:'nickel',   weight:11, hp:36, base:'#8a8c86', vein:'#6a6c66', spec:'#c8cac4' },
+  { id:'copper',   drop:'copper',   weight:8,  hp:32, base:'#9a5a3a', vein:'#3a7a5a', spec:'#d98a55' },
+  { id:'tin',      drop:'tin',      weight:6,  hp:30, base:'#8f8f96', vein:'#6e6e76', spec:'#c4c4cc' },
+  { id:'gold',     drop:'gold',     weight:3,  hp:40, base:'#9c7a2a', vein:'#7a5e1c', spec:'#ffe070' },
+  { id:'carbon',   drop:'carbon',   weight:2.4,hp:44, base:'#2b2b30', vein:'#16161a', spec:'#5a5a64' },
+  { id:'titanium', drop:'titanium', weight:1.2,hp:54, base:'#5c6a78', vein:'#3e4a56', spec:'#9ab0c4' },
+  { id:'platinum', drop:'platinum', weight:0.5,hp:64, base:'#b8c0c4', vein:'#8e9498', spec:'#f0f8fc' },
+];
+G.ASTEROID_MAT = Object.fromEntries(G.ASTEROID_MATS.map(m => [m.id, m]));
+G.ASTEROID_INNER = { base:'#4a423b', vein:'#3a332e', spec:'#5c534a' }; // generic interior texture
+// Pointy-top axial neighbours used to grow & analyse tile clusters
+G.HEX_NEIGHBORS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+// Local pixel offset of a tile (q,r) from cluster centre (pointy-top)
+G.astTileLocal = (q,r) => {
+  const R = G.ASTEROID_TILE_R, S = Math.sqrt(3);
+  return { x: R*(S*q + S/2*r), y: R*1.5*r };
+};
+// Weighted random material id from the spawn table
+G.astRandMat = (rng) => {
+  const fn = rng || Math.random;
+  let tot = 0; for(const m of G.ASTEROID_MATS) tot += m.weight;
+  let x = fn()*tot;
+  for(const m of G.ASTEROID_MATS){ x -= m.weight; if(x<=0) return m.id; }
+  return 'rock';
 };
 
 // ── Ship shape vertex definitions ────────────────────────
