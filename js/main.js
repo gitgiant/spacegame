@@ -1283,11 +1283,19 @@ G.Renderer = class {
     ctx.scale(_zoom, _zoom);
     ctx.translate(-(camX + G.CANVAS_W/2), -(camY + G.CANVAS_H/2));
 
-    // Landing radius hints
+    // Landing zone hexes
     for(const b of space.bodies) {
-      if(b.hasSpaceport) {
-        ctx.beginPath(); ctx.arc(b.x,b.y,b.r+80,0,Math.PI*2);
-        ctx.strokeStyle='rgba(0,200,150,0.12)'; ctx.lineWidth=1; ctx.stroke();
+      if(b.hasSpaceport && b.hexQ != null) {
+        const hexW = G.hexToWorld(b.hexQ, b.hexR);
+        const HEX_SIZE = G.HEX_WORLD / Math.sqrt(3);
+        ctx.save(); ctx.strokeStyle='rgba(0,200,150,0.25)'; ctx.lineWidth=1.5;
+        ctx.beginPath();
+        for(let i=0; i<6; i++) {
+          const a = Math.PI/6 + i*Math.PI/3;
+          const hx = hexW.x + HEX_SIZE*Math.cos(a), hy = hexW.y + HEX_SIZE*Math.sin(a);
+          i===0 ? ctx.moveTo(hx,hy) : ctx.lineTo(hx,hy);
+        }
+        ctx.closePath(); ctx.stroke(); ctx.restore();
       }
     }
 
@@ -3229,7 +3237,8 @@ G.Game = class {
     G.sound?.setZoomFactor(this.camZoom);
 
     // Interact prompts
-    const nearPort=this.space.nearestSpaceport(p.x,p.y,80);
+    const pHex = G.worldToHex(p.x, p.y);
+    const nearPort = this.space.bodies.find(b => b.hasSpaceport && b.hexQ === pHex.q && b.hexR === pHex.r);
     if(nearPort) {
       const _pFac = nearPort.faction;
       const _landHostile = _pFac && _pFac !== 'neutral' && _pFac !== 'contested' && this.getRel(_pFac) < -30;
