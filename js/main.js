@@ -1862,6 +1862,15 @@ G.Renderer = class {
       ctx.fillRect(x-2,y-2,5,5);
     }
 
+    // Missiles
+    for(const pr of space.projectiles||[]) {
+      if(pr.type !== 'missile') continue;
+      const {x,y}=wts(pr.x,pr.y);
+      if(x < 0 || x > G.CANVAS_W || y < 0 || y > G.CANVAS_H) continue;
+      ctx.fillStyle=pr.sourceId==='player'?'#00ff88':'#ff6666';
+      ctx.beginPath(); ctx.arc(x,y,2,0,Math.PI*2); ctx.fill();
+    }
+
     // Fleet ships (friendly)
     for(const fs of space.fleetShips||[]) {
       if(fs.dead||fs._deathDone||fs._inDust) continue;
