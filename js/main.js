@@ -2099,7 +2099,16 @@ G.Game = class {
       if(!best) {
         for(const cl of this.space.asteroids) {
           const d = Math.hypot(cl.x - wx, cl.y - wy);
-          if(d < Math.max(cl.r + 8/zoom, CLICK_RADIUS)) { best = cl; break; }
+          if(d < Math.max(cl.r + 8/zoom, CLICK_RADIUS)) {
+            const tile = G.astHitTile(cl, wx, wy, 6);
+            if(tile) {
+              const tw = G.astTileWorld(cl,tile);
+              best = { type:'asteroid_tile', cluster:cl, tile, x:tw.x, y:tw.y, r:G.ASTEROID_TILE_R };
+            } else {
+              best = cl;
+            }
+            break;
+          }
         }
       }
       if(!best) {
@@ -2793,10 +2802,15 @@ G.Game = class {
     if(this.target?.type === 'missile' && !this.space.projectiles.includes(this.target)) {
       this.target = null;
     }
+    if(this.target?.type === 'asteroid_tile') {
+      if(!this.space.asteroids.includes(this.target.cluster) || !this.target.cluster.tiles.has(this.target.tile.q + ',' + this.target.tile.r)) {
+        this.target = null;
+      }
+    }
 
     // V: comms with any targeted entity (ships or planets)
     if(this.input.pressed('KeyV')) {
-      if(this.target && (!this.target.dead || this.target.type==='planet' || this.target.type==='station')) {
+      if(this.target && (!this.target.dead || this.target.type==='planet' || this.target.type==='station') && this.target.type !== 'asteroid_tile') {
         this.ui.openComms(this.target);
       }
     }
