@@ -754,14 +754,18 @@ html, body {
   min-width: 300px;
 }
 
-#controls-overlay {
+#controls-overlay,
+#debug-overlay,
+#camera-overlay {
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
   background: rgba(0,0,0,0.82);
   display: flex; align-items: center; justify-content: center;
   z-index: 350;
 }
-#controls-overlay.hidden { display: none; }
+#controls-overlay.hidden,
+#debug-overlay.hidden,
+#camera-overlay.hidden { display: none; }
 #controls-box {
   background: var(--col-panel);
   border: 2px solid var(--col-border);
