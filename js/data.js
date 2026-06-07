@@ -589,7 +589,7 @@ G.SHIPS = {
     baseMass:0, baseHull:0, baseEnergy:0, baseFuel:0,
     baseThrust:8000, baseTurn:0, baseCargoSpace:0,
     slots:14,
-    startModules:['core_miner_ship',{id:'thruster',rot:0},{id:'thruster',rot:0},'reactor','jump_drive','medium_cargo','medium_cargo','escape_pod'],
+    startModules:['core_miner_ship',{id:'thruster',rot:0},{id:'thruster',rot:0},'reactor','jump_drive','basic_sensors','medium_cargo','medium_cargo','escape_pod'],
     startWeapons:['mining_laser_wpn','turret','turret'],
     shape:'miner', color:'#aa9966', size:1.4,
     stats:'HULL:280  CARGO:20  MINER',
