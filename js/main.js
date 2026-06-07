@@ -1939,6 +1939,31 @@ G.Renderer = class {
     hexPath(0, 0, 2);
     ctx.strokeStyle=`rgba(0,180,255,${pulse})`; ctx.lineWidth=1.2; ctx.stroke();
 
+    // Hex hover tooltip
+    const mx = game.input?.mouseX || 0, my = game.input?.mouseY || 0;
+    if(mx > 0 && mx < G.CANVAS_W && my > 0 && my < G.CANVAS_H) {
+      const wx = (mx - CX - offX) / S * G.HEX_WORLD + player.x;
+      const wy = (my - CY - offY) / S * G.HEX_WORLD + player.y;
+      const h = G.worldToHex(wx, wy);
+      const tile = space.hexTiles?.get(h.q + ',' + h.r);
+      if(tile || h.q === 0 && h.r === 0) {
+        const desc = tile?.type === 'asteroid' ? tile.type + ' (' + (tile.density||'sparse') + ')'
+          : tile?.type === 'sun' ? 'sun (hazard)'
+          : tile?.type === 'near_sun' ? 'near sun (hazard)'
+          : tile?.type === 'dust' ? 'dust cloud'
+          : tile?.type === 'planet' ? 'planet'
+          : tile?.type === 'station' ? 'station'
+          : 'system core';
+        ctx.save();
+        ctx.font = '5px "Press Start 2P",monospace';
+        ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.textAlign = 'left';
+        ctx.fillRect(mx+8, my+4, 60, 12);
+        ctx.fillStyle = '#00ffee';
+        ctx.fillText(desc, mx+10, my+13);
+        ctx.restore();
+      }
+    }
+
     // UI text overlay
     const sys = G.SYSTEMS?.find(s=>s.id===game.currentSysId);
     ctx.save();
