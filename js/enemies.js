@@ -90,9 +90,11 @@ G.EnemyAI = class extends G.ShipEntity {
         this.aiState = 'engage';
       }
     } else if(this.aiState === 'engage') {
-      // One-time flee-or-fight decision at low HP
-      if(!this._fleeMade && this.hp / this.maxHp < this.fleeHpPct) {
+      // One-time flee-or-fight decision when an internal module is shot out
+      // (reactor/weapon/etc) — there's no hp pool to threshold on any more.
+      if(!this._fleeMade && this._wantFleeCheck) {
         this._fleeMade = true;
+        this._wantFleeCheck = false;
         const cowardice = { pirate:0.30, earth:0.60, rebellion:0.45, alien:0.15 }[this.faction] ?? 0.50;
         if(Math.random() < cowardice) {
           this.aiState = 'flee';
@@ -208,13 +210,16 @@ G.EnemyAI = class extends G.ShipEntity {
       this._steerTo(this.x - dx*2, this.y - dy*2, dt);
       this._thrust(dt, true);
 
-      if(this.fleeTimer <= 0 && this.hp > 0) {
+      if(this.fleeTimer <= 0 && !this.dead && !this.disabled) {
         this._hyperEscape(particles);
       }
     }
 
     // Soft obstacle avoidance (ships + asteroids)
     this._avoidObstacles(dt, player);
+
+    // Engines shot off -> coast to a halt (still fights)
+    G.aiHaltIfNoEngines(this, dt);
 
     // Apply velocity to position
     this.x += this.vx * dt;
@@ -282,15 +287,5 @@ G.EnemyAI = class extends G.ShipEntity {
     }
   }
 
-  // Default EMP applies (shields −50%, stun). Post-disable damage destroys at 40% maxHp.
-  _damageDisabled(amount) {
-    this._postDisableDmg = (this._postDisableDmg || 0) + amount;
-    if(this._postDisableDmg >= this.maxHp * 0.4) this.dead = true;
-    return { shieldDmg: 0, hullDmg: amount };
-  }
-  _applyHullDamage(amount) {
-    this.hp -= amount;
-    if(this.hp <= 0) { this.hp = 0; this.disabled = true; this.aiState = 'disabled'; }
-  }
 };
 G.EnemyAI._uid = 0;

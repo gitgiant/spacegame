@@ -1122,6 +1122,15 @@ G.SHIPS = {
   }
 })();
 
+// Ship state is module-driven (no hull pool): a ship explodes only when its
+// CORE module is destroyed. Cores were effectively invincible (hp 999); lower
+// them so a sustained hull breach can reach and detonate the core. Still the
+// tankiest module, so it dies last — after weapons/reactor/cockpit are stripped.
+G.CORE_HP = 200;
+for(const id in G.MODULES){
+  if(G.MODULES[id].slot === 'core') G.MODULES[id].hp = G.CORE_HP;
+}
+
 // ── Star Systems (100 systems) ────────────────────────────
 // pos: [x,y] on galaxy map (950x700 canvas, center ~475,345)
 // Layout: concentric rings — Earth r=0-120, Contested r=170, Rebellion r=240, Pirate r=300, Alien r=320

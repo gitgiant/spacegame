@@ -515,18 +515,25 @@ G.UI = class {
     const cds = player?.abilityCooldowns || {};
     const LABELS = ['1','2','3','4','5','6','7','8','9','0'];
     let html = '';
+    const blocked = player?._abilityBlocked || {};
     for(let i=0;i<10;i++) {
       const aid = abilities[i];
       const def = aid ? G.ABILITIES?.[aid] : null;
       if(!def) continue;
       const cd = cds[aid] || 0;
-      html += `<div class="ability-slot" data-aid="${aid}" style="border-color:${def.color}88;box-shadow:0 0 6px ${def.color}33">
+      // Greyed out when the granting module is destroyed; hover shows the warning.
+      const blk = blocked[aid];
+      const style = blk
+        ? `border-color:#33333388;box-shadow:none;opacity:0.4;filter:grayscale(1)`
+        : `border-color:${def.color}88;box-shadow:0 0 6px ${def.color}33`;
+      const title = blk ? `${blk} destroyed — ${def.name} unavailable` : def.name;
+      html += `<div class="ability-slot${blk?' ability-blocked':''}" data-aid="${aid}" title="${title}" style="${style}">
         <div class="ability-slot-num">${LABELS[i]}</div>
         <div class="ability-slot-icon-wrap">
-          <div class="ability-slot-icon" style="color:${def.color}">${def.icon}</div>
-          ${cd>0?`<div class="ability-slot-cd">${Math.ceil(cd)}s</div>`:''}
+          <div class="ability-slot-icon" style="color:${blk?'#777':def.color}">${def.icon}</div>
+          ${blk?`<div class="ability-slot-cd" style="color:#ff6644">✖</div>`:(cd>0?`<div class="ability-slot-cd">${Math.ceil(cd)}s</div>`:'')}
         </div>
-        <div class="ability-slot-name" style="color:${def.color}dd">${def.name}</div>
+        <div class="ability-slot-name" style="color:${blk?'#777':def.color+'dd'}">${def.name}</div>
       </div>`;
     }
     bar.innerHTML = html;
@@ -534,11 +541,14 @@ G.UI = class {
 
   updateHUD(player, space, target) {
     const p=player, e=this.els;
-    const hPct=G.pct(p.hull,p.maxHull), sPct=G.pct(p.shields,Math.max(p.maxShields,1));
+    // No hull pool — the "hull" bar now shows CORE integrity (core destroyed =
+    // explosion). Module damage is read off the ship grid HUD.
+    const hPct = (p.coreIntegrity ? p.coreIntegrity() : 1) * 100;
+    const sPct=G.pct(p.shields,Math.max(p.maxShields,1));
     const fPct=G.pct(p.fuel,p.maxFuel);
     if(e['bar-hull']) {
       e['bar-hull'].style.width=hPct+'%';
-      e['bar-hull'].style.background = p.disabled ? '#556677' : (p._invulTimer > 0) ? '#ffffff' : '';
+      e['bar-hull'].style.background = (p._invulTimer > 0) ? '#ffffff' : (hPct < 35 ? '#ff4444' : '');
     }
     if(e['bar-shield']) e['bar-shield'].style.width=sPct+'%';
     if(e['bar-fuel'])   e['bar-fuel'].style.width=fPct+'%';
@@ -729,18 +739,13 @@ G.UI = class {
         if(e['tgt-hull-val']) e['tgt-hull-val'].textContent = 'SPD:'+spd;
         if(e['tgt-shld-bar']) e['tgt-shld-bar'].style.width = '0%';
         if(e['tgt-shld-val']) e['tgt-shld-val'].textContent = '0/0';
-      } else if(target.disabled) {
-        // Show post-disable damage as a shrinking orange bar
-        const maxPostDmg = target.disabledHp || (target.maxHp||target.maxHull) * 0.4;
-        const postDmg = target._postDisableDmg || 0;
-        const remaining = Math.max(0, maxPostDmg - postDmg);
-        if(e['tgt-hull-bar']) { e['tgt-hull-bar'].style.width=G.pct(remaining,maxPostDmg)+'%'; e['tgt-hull-bar'].style.background='#ff6600'; }
-        if(e['tgt-hull-val']) e['tgt-hull-val'].textContent = Math.ceil(remaining)+'/'+Math.ceil(maxPostDmg);
       } else {
-        const hullHp = target.hp||target.hull;
-        const maxHullHp = target.maxHp||target.maxHull;
-        if(e['tgt-hull-bar']) { e['tgt-hull-bar'].style.width=G.pct(hullHp,maxHullHp)+'%'; e['tgt-hull-bar'].style.background=''; }
-        if(e['tgt-hull-val']) e['tgt-hull-val'].textContent = Math.ceil(hullHp)+'/'+Math.ceil(maxHullHp);
+        // No hull pool — show CORE integrity (core destroyed = explosion).
+        const _coreFrac = target.coreIntegrity ? target.coreIntegrity()
+                        : (target.ship?.coreIntegrity ? target.ship.coreIntegrity() : 1);
+        const pct = Math.round(_coreFrac * 100);
+        if(e['tgt-hull-bar']) { e['tgt-hull-bar'].style.width=pct+'%'; e['tgt-hull-bar'].style.background = target.disabled ? '#ff6600' : (pct<35?'#ff4444':''); }
+        if(e['tgt-hull-val']) e['tgt-hull-val'].textContent = target.disabled ? 'DISABLED' : ('CORE '+pct+'%');
       }
       if(!isMissileTgt) {
         const shields = target.shields||0;
@@ -2909,18 +2914,15 @@ G.UI = class {
   // ── Repair ───────────────────────────────────────────────
   _buildRepairHTML(){
     const p=G.game.player;
-    const hCost=Math.ceil((p.maxHull-p.hull)*5), sCost=Math.ceil((p.maxShields-p.shields)*3);
+    const modDmg=Math.ceil(p.moduleDamage());
+    const hCost=Math.ceil(modDmg*5), sCost=Math.ceil((p.maxShields-p.shields)*3);
     const fCost=Math.ceil((p.maxFuel-p.fuel)*2);
     const broken=Object.entries(p.modules).filter(([,inst])=>inst.broken);
-    const disabledBanner = p.disabled
-      ? `<div style="background:#1a0800;border:1px solid #ff4444;padding:6px 10px;margin-bottom:8px;font-size:7px;color:#ff6644">
-           ⚠ SHIP DISABLED — Repair hull to restore systems and enable launch.
-         </div>` : '';
-    let html=`<div class="panel-title">REPAIR BAY</div>${disabledBanner}
+    let html=`<div class="panel-title">REPAIR BAY</div>
     <div class="two-col">
-    <div class="item-card"><div class="item-name">Hull Repair</div>
-      <div class="item-stats">Damage: ${Math.ceil(p.maxHull-p.hull)} HP — Cost: ${G.fmtCredits(hCost)}</div>
-      <button class="btn btn-buy" id="rep-hull" ${p.hull<p.maxHull?'':'disabled style="opacity:0.3"'}>REPAIR HULL</button>
+    <div class="item-card"><div class="item-name">Full Repair</div>
+      <div class="item-stats">Module damage: ${modDmg} HP — Cost: ${G.fmtCredits(hCost)}</div>
+      <button class="btn btn-buy" id="rep-hull" ${(modDmg>0||broken.length)?'':'disabled style="opacity:0.3"'}>REPAIR ALL</button>
     </div>
     <div class="item-card"><div class="item-name">Refuel</div>
       <div class="item-stats">Need: ${Math.ceil(p.maxFuel-p.fuel)} — Cost: ${G.fmtCredits(fCost)}</div>
@@ -2942,11 +2944,11 @@ G.UI = class {
       }
       html+='</div>';
     }
-    const damagedEscorts = (G.game.fleet || []).filter(e => e.ship && e.ship.hull < e.ship.maxHull);
+    const damagedEscorts = (G.game.fleet || []).filter(e => e.ship && e.ship.moduleDamage() > 0);
     if(damagedEscorts.length){
       html+=`<div class="section-title">ESCORT REPAIRS</div><div class="two-col">`;
       for(const entry of damagedEscorts){
-        const damage = Math.ceil(entry.ship.maxHull - entry.ship.hull);
+        const damage = Math.ceil(entry.ship.moduleDamage());
         const cost = Math.ceil(damage * 5);
         html+=`<div class="item-card"><div class="item-name" style="color:#44ff44">${entry.fleetName}</div>
         <div class="item-stats">Hull damage: ${damage} HP — Cost: ${G.fmtCredits(cost)}</div>
@@ -2965,23 +2967,17 @@ G.UI = class {
   _bindRepair(){
     document.getElementById('rep-hull')?.addEventListener('click',()=>{
       const p=G.game.player;
-      const damage = p.maxHull - p.hull;
-      if(damage <= 0) return;
-      const costPerHp = 5;
-      const fullCost = damage * costPerHp;
-      const repaired = Math.min(damage, Math.floor(G.game.credits / costPerHp));
-      const cost = repaired * costPerHp;
-      if(repaired > 0){
+      const damage = Math.ceil(p.moduleDamage());
+      const hasBroken = Object.values(p.modules).some(i=>i.broken);
+      if(damage <= 0 && !hasBroken) return;
+      const cost = Math.ceil(damage * 5);
+      if(G.game.credits >= cost){
         G.game.credits -= cost;
-        p.hull += repaired;
-        if(p.disabled && p.hull > 0) {
-          p.disabled = false;
-          p._postDisableDmg = 0;
-          this.addMsg('Ship systems restored — ready to launch.','#00ffee');
-        }
-        const msg = repaired === damage ? 'Hull repaired' : `Hull repaired ${repaired} of ${Math.ceil(damage)} HP`;
-        this.addMsg(msg,'#44ff44');
+        p.repairFull();   // restore every module to full + un-break (revives systems)
+        this.addMsg('All modules repaired — systems restored.','#44ff44');
         this.renderSpaceportTab('repair');
+      } else {
+        this.addMsg('Not enough credits for full repair.','#ff6644');
       }
     });
     document.getElementById('rep-fuel')?.addEventListener('click',()=>{
@@ -3028,19 +3024,18 @@ G.UI = class {
         const escortId = btn.dataset.repescort;
         const entry = (G.game.fleet||[]).find(e => e.id === escortId);
         if(!entry || !entry.ship) return;
-        const damage = entry.ship.maxHull - entry.ship.hull;
+        const damage = Math.ceil(entry.ship.moduleDamage());
         if(damage <= 0) return;
-        const costPerHp = 5;
-        const repaired = Math.min(damage, Math.floor(G.game.credits / costPerHp));
-        const cost = repaired * costPerHp;
-        if(repaired > 0){
+        const cost = damage * 5;
+        if(G.game.credits >= cost){
           G.game.credits -= cost;
-          entry.ship.hull += repaired;
+          entry.ship.repairFull();
           const activeFleetShip = G.game.space?.fleetShips?.find(fs => fs.fleetDataId === escortId);
-          if(activeFleetShip) activeFleetShip.hull += repaired;
-          const msg = repaired === damage ? entry.fleetName + ' repaired' : `${entry.fleetName} repaired ${repaired} of ${Math.ceil(damage)} HP`;
-          this.addMsg(msg,'#44ff44');
+          if(activeFleetShip) G.aiDeriveStats(activeFleetShip);
+          this.addMsg(entry.fleetName + ' fully repaired','#44ff44');
           this.renderSpaceportTab('repair');
+        } else {
+          this.addMsg('Not enough credits.','#ff6644');
         }
       });
     });

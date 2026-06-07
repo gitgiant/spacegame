@@ -487,3 +487,177 @@ G.PlanetSprites = {
     }
   },
 };
+
+// ── Planet surface terrain (hex tiles) ────────────────────────────────────
+// Procedural, seed-stable per planet. Elevation + moisture value-noise -> biomes,
+// biased by planet ptype; rivers traced downhill. Used by the landed planet scene.
+
+// Seeded fractal value-noise sampler over a continuous (x,y) domain.
+function _makeNoise(seedStr) {
+  const rng = G.seededRng(seedStr);
+  const perm = []; for(let i = 0; i < 256; i++) perm[i] = i;
+  for(let i = 255; i > 0; i--) { const j = (rng() * (i + 1)) | 0; const t = perm[i]; perm[i] = perm[j]; perm[j] = t; }
+  const p = i => perm[((i % 256) + 256) % 256];
+  const vh = (xi, yi) => p(xi + p(yi)) / 255;
+  const sm = t => t * t * (3 - 2 * t);
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const samp = (x, y) => {
+    const xi = Math.floor(x), yi = Math.floor(y), tx = sm(x - xi), ty = sm(y - yi);
+    return lerp(lerp(vh(xi, yi), vh(xi + 1, yi), tx), lerp(vh(xi, yi + 1), vh(xi + 1, yi + 1), tx), ty);
+  };
+  return (x, y, oct = 4) => {
+    let f = 1, a = 1, sum = 0, norm = 0;
+    for(let o = 0; o < oct; o++) { sum += samp(x * f, y * f) * a; norm += a; f *= 2; a *= 0.5; }
+    return sum / norm;
+  };
+}
+
+// Per-ptype terrain tuning: sea level, elevation bias, liquid type, palette flags.
+G.PTYPE_TERRAIN = {
+  terran: { sea: 0.46, elevBias: 0.00, liquid: 'water', cold: 0.78, arid: 0.28 },
+  ocean:  { sea: 0.64, elevBias: -0.10, liquid: 'water', cold: 0.82, arid: 0.20 },
+  desert: { sea: 0.30, elevBias: 0.06, liquid: 'water', cold: 0.92, arid: 0.62 },
+  rocky:  { sea: 0.28, elevBias: 0.04, liquid: 'water', cold: 0.85, arid: 0.50 },
+  ice:    { sea: 0.42, elevBias: 0.00, liquid: 'water', cold: 0.30, arid: 0.40 },
+  lava:   { sea: 0.40, elevBias: 0.05, liquid: 'lava',  cold: 0.99, arid: 0.70 },
+  gas:    { sea: 1.10, elevBias: 0.00, liquid: 'cloud', cold: 0.50, arid: 0.50 },
+};
+
+// Walkable-on-foot biomes (others block crew movement).
+G.TERRAIN_IMPASSABLE = new Set(['deep_water','ocean','shallow_water','mountain','glacier','liquid']);
+
+function _classifyBiome(elev, moist, lat, cfg) {
+  const sea = cfg.sea;
+  if(cfg.liquid === 'cloud') return elev > 0.66 ? 'ridge' : (elev > 0.5 ? 'rocks' : 'liquid'); // gas giant cloud bands
+  if(elev < sea - 0.14) return cfg.liquid === 'lava' ? 'liquid' : 'deep_water';
+  if(elev < sea - 0.06) return cfg.liquid === 'lava' ? 'liquid' : 'ocean';
+  if(elev < sea - 0.015) return cfg.liquid === 'lava' ? 'liquid' : 'shallow_water';
+  if(elev < sea + 0.02) return 'coast';
+  // land
+  if(lat > cfg.cold + 0.12) return 'glacier';
+  if(lat > cfg.cold) return 'tundra';
+  if(elev > 0.86) return 'mountain';
+  if(elev > 0.74) return 'ridge';
+  if(elev < sea + 0.10) return 'valley';
+  if(moist < cfg.arid) return (cfg.liquid === 'lava') ? 'rocks' : 'desert';
+  if(moist > 0.60) return 'grassland';
+  return (cfg.liquid === 'lava') ? 'rocks' : 'dirt';
+}
+
+function _traceRivers(tiles, R, elevN, rng) {
+  const land = [...tiles.values()].filter(t => !['deep_water','ocean','shallow_water','liquid','coast'].includes(t.biome));
+  if(!land.length) return;
+  const sources = land.filter(t => t.elev > 0.72);
+  const nRivers = Math.min(sources.length, 1 + (R / 5 | 0));
+  for(let i = 0; i < nRivers; i++) {
+    let cur = sources[(rng() * sources.length) | 0];
+    let steps = 0;
+    while(cur && steps++ < R * 3) {
+      if(['deep_water','ocean','shallow_water','liquid'].includes(cur.biome)) break;
+      if(cur.biome !== 'mountain' && cur.biome !== 'glacier') cur.biome = 'river', cur.walkable = true;
+      // step to lowest neighbour
+      let best = null, bestE = cur.elev;
+      for(const nb of G.hexNeighbors(cur.q, cur.r)) {
+        const t = tiles.get(G.hexKey(nb.q, nb.r));
+        if(t && t.elev < bestE) { bestE = t.elev; best = t; }
+      }
+      if(!best) break;
+      cur = best;
+    }
+  }
+}
+
+G.genPlanetTerrain = function(body) {
+  if(body._terrain) return body._terrain;
+  const ptype = body.ptype || 'rocky';
+  const cfg = G.PTYPE_TERRAIN[ptype] || G.PTYPE_TERRAIN.rocky;
+  const seed = (body.name || 'planet') + '|' + ptype;
+  const R = G.clamp(Math.round((body.r || 100) / 12), 6, 20);
+  const elevN = _makeNoise(seed + '|e'), moistN = _makeNoise(seed + '|m');
+  const rng = G.seededRng(seed + '|r');
+  const freq = 0.34;
+  const tiles = new Map();
+  for(let q = -R; q <= R; q++) {
+    for(let r = -R; r <= R; r++) {
+      if(Math.max(Math.abs(q), Math.abs(r), Math.abs(-q - r)) > R) continue;
+      // pointy-top pixel coords (size 1) for smooth, isotropic noise sampling
+      const px = G.hexToPixel(q, r, 1);
+      const nx = px.x * freq, ny = px.y * freq;
+      const ring = Math.max(Math.abs(q), Math.abs(r), Math.abs(-q - r)) / R;
+      let elev = elevN(nx + 5, ny + 5) * (1 - 0.30 * ring * ring) + cfg.elevBias;
+      const moist = moistN(nx - 9, ny - 9);
+      const lat = G.clamp(Math.abs(px.y) / (1.5 * R), 0, 1);   // poles at top/bottom
+      const biome = _classifyBiome(elev, moist, lat, cfg);
+      tiles.set(G.hexKey(q, r), { q, r, elev, moist, lat, biome, walkable: !G.TERRAIN_IMPASSABLE.has(biome) });
+    }
+  }
+  _traceRivers(tiles, R, elevN, rng);
+  for(const t of tiles.values()) t.walkable = !G.TERRAIN_IMPASSABLE.has(t.biome);
+  body._terrain = { R, tiles, ptype, seed, name: body.name, hasSpaceport: !!body.hasSpaceport };
+  return body._terrain;
+};
+
+// ── Terrain tile sprites (pointy-top hex icons) ───────────────────────────
+G.TERRAIN_COLORS = {
+  deep_water:   ['#0a2a55','#0d3469'], ocean: ['#114a86','#0f3f74'], shallow_water:['#2f7fb8','#2670a6'],
+  coast:        ['#d9c98f','#cdbb7c'], river: ['#3b8fd0','#317fbe'],
+  dirt:         ['#7a5b3a','#6b4f33'], rocks: ['#6f6a63','#5d5851'], grassland:['#4e8c3a','#447d33'],
+  mountain:     ['#8a8278','#6c655d'], desert:['#d7b56a','#caa658'], tundra:['#8fa39a','#7e9389'],
+  glacier:      ['#cfe6f0','#b9d6e6'], valley:['#5f9a4a','#538a40'], ridge:['#9a8d72','#857a63'],
+  liquid:       ['#d8451f','#b8350f'],
+};
+G.TerrainTiles = {
+  _cache: new Map(),
+  SZ: 48,
+  get(biome) {
+    if(this._cache.has(biome)) return this._cache.get(biome);
+    const SZ = this.SZ, R = SZ / 2;
+    const cvs = document.createElement('canvas'); cvs.width = SZ; cvs.height = SZ;
+    const c = cvs.getContext('2d');
+    const pal = G.TERRAIN_COLORS[biome] || ['#555','#444'];
+    // pointy-top hex fill
+    c.beginPath();
+    for(let i = 0; i < 6; i++) { const a = Math.PI/6 + i*Math.PI/3; const x = R + (R-0.5)*Math.cos(a), y = R + (R-0.5)*Math.sin(a); i ? c.lineTo(x,y) : c.moveTo(x,y); }
+    c.closePath();
+    const g = c.createLinearGradient(0,0,0,SZ); g.addColorStop(0,pal[0]); g.addColorStop(1,pal[1]);
+    c.fillStyle = g; c.fill();
+    c.strokeStyle = 'rgba(0,0,0,0.25)'; c.lineWidth = 1; c.stroke();
+    c.save(); c.clip();
+    this._motif(c, biome, SZ, R, pal);
+    c.restore();
+    this._cache.set(biome, cvs); return cvs;
+  },
+  _motif(c, biome, SZ, R, pal) {
+    const dark = 'rgba(0,0,0,0.30)', light = 'rgba(255,255,255,0.35)';
+    const dot = (x,y,r,col)=>{ c.fillStyle=col; c.beginPath(); c.arc(x,y,r,0,Math.PI*2); c.fill(); };
+    switch(biome) {
+      case 'deep_water': case 'ocean': case 'shallow_water': case 'river': case 'liquid': {
+        c.strokeStyle = light; c.lineWidth = 1;
+        for(let i=0;i<3;i++){ const yy=SZ*0.32+i*SZ*0.18; c.beginPath(); c.moveTo(SZ*0.18,yy); c.quadraticCurveTo(SZ*0.5,yy-3,SZ*0.82,yy); c.stroke(); }
+        break;
+      }
+      case 'mountain': case 'ridge': {
+        c.fillStyle = dark; c.beginPath(); c.moveTo(SZ*0.2,SZ*0.72); c.lineTo(SZ*0.42,SZ*0.34); c.lineTo(SZ*0.6,SZ*0.72); c.closePath(); c.fill();
+        c.fillStyle = light; c.beginPath(); c.moveTo(SZ*0.42,SZ*0.34); c.lineTo(SZ*0.5,SZ*0.5); c.lineTo(SZ*0.34,SZ*0.5); c.closePath(); c.fill();
+        c.fillStyle = dark; c.beginPath(); c.moveTo(SZ*0.5,SZ*0.74); c.lineTo(SZ*0.66,SZ*0.46); c.lineTo(SZ*0.82,SZ*0.74); c.closePath(); c.fill();
+        break;
+      }
+      case 'grassland': case 'valley': {
+        c.strokeStyle = light; c.lineWidth = 1.2;
+        for(let i=0;i<5;i++){ const x=SZ*0.2+i*SZ*0.15; c.beginPath(); c.moveTo(x,SZ*0.66); c.lineTo(x,SZ*0.5); c.stroke(); }
+        break;
+      }
+      case 'rocks': { dot(SZ*0.35,SZ*0.42,3,dark); dot(SZ*0.6,SZ*0.58,4,dark); dot(SZ*0.5,SZ*0.3,2,dark); break; }
+      case 'dirt': { dot(SZ*0.3,SZ*0.4,1.5,dark); dot(SZ*0.62,SZ*0.5,1.5,dark); dot(SZ*0.45,SZ*0.62,1.5,dark); break; }
+      case 'desert': { c.strokeStyle = dark; c.lineWidth=1; for(let i=0;i<2;i++){const yy=SZ*0.45+i*SZ*0.18; c.beginPath(); c.moveTo(SZ*0.2,yy); c.quadraticCurveTo(SZ*0.5,yy+4,SZ*0.8,yy); c.stroke();} break; }
+      case 'glacier': { c.strokeStyle = light; c.lineWidth=1; c.beginPath(); c.moveTo(SZ*0.3,SZ*0.3); c.lineTo(SZ*0.6,SZ*0.6); c.moveTo(SZ*0.62,SZ*0.32); c.lineTo(SZ*0.4,SZ*0.62); c.stroke(); break; }
+      case 'tundra': { dot(SZ*0.4,SZ*0.5,2,light); dot(SZ*0.6,SZ*0.45,1.5,dark); break; }
+      case 'coast': { c.strokeStyle='rgba(40,120,180,0.5)'; c.lineWidth=1.5; c.beginPath(); c.moveTo(SZ*0.2,SZ*0.6); c.quadraticCurveTo(SZ*0.5,SZ*0.5,SZ*0.8,SZ*0.62); c.stroke(); break; }
+    }
+  },
+};
+G.TERRAIN_LABEL = {
+  deep_water:'Deep Water', ocean:'Ocean', shallow_water:'Shallow Water', coast:'Coastline', river:'River',
+  dirt:'Dirt', rocks:'Rocks', grassland:'Grassland', mountain:'Mountains', desert:'Desert',
+  tundra:'Tundra', glacier:'Glacier', valley:'Valley', ridge:'Ridge', liquid:'Liquid',
+};

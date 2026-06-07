@@ -436,6 +436,58 @@ G.Renderer = class {
     return id + '|' + hullColor;
   }
 
+  // ── Crew view ────────────────────────────────────────────────────────────
+  _crewColor(role) {
+    return ({ pilot:'#66ccff', gunner:'#ff8844', engineer:'#ffcc44', medic:'#66ff99',
+              navigator:'#cc88ff', marine:'#ff6688' })[role] || '#ddddee';
+  }
+
+  // Draw aboard crew on the player ship grid + selection + order target.
+  drawCrew(player, selected) {
+    const ctx = this.ctx, z = G.game?.camZoom || 1;
+    const ca = Math.cos(player.angle), sa = Math.sin(player.angle);
+    const cellWorld = (q, r) => { const p = G.hexToPixel(q, r, G.HEX_R); return { x: player.x + p.x*ca - p.y*sa, y: player.y + p.x*sa + p.y*ca }; };
+    // Order target highlight for the selected crew.
+    if(selected && selected.order && !selected.eva) {
+      const o = selected.order;
+      if(o.q != null) {
+        const t = cellWorld(o.q, o.r);
+        ctx.save(); ctx.strokeStyle = o.type==='repair' ? '#44ff88' : '#ffff66';
+        ctx.lineWidth = 1.2/z; ctx.globalAlpha = 0.8;
+        ctx.beginPath(); ctx.arc(t.x, t.y, G.HEX_R*0.8, 0, Math.PI*2); ctx.stroke();
+        ctx.restore();
+      }
+    }
+    for(const cr of player.crew) {
+      if(cr.eva) continue;
+      const w = player._crewWorld(cr);
+      ctx.save(); ctx.translate(w.x, w.y);
+      if(cr === selected) {
+        ctx.beginPath(); ctx.arc(0,0,6.5,0,Math.PI*2);
+        ctx.strokeStyle='#ffff66'; ctx.lineWidth=1.5/z; ctx.stroke();
+      }
+      ctx.beginPath(); ctx.arc(0,0,3.4,0,Math.PI*2);
+      ctx.fillStyle=this._crewColor(cr.role); ctx.fill();
+      ctx.strokeStyle='#0a0a12'; ctx.lineWidth=0.9/z; ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // Draw EVA (disembarked) crew floating in space — always visible.
+  drawEvaCrew(player) {
+    const ctx = this.ctx, z = G.game?.camZoom || 1;
+    for(const cr of (player.crew||[])) {
+      if(!cr.eva) continue;
+      ctx.save(); ctx.translate(cr.ex||0, cr.ey||0);
+      if(cr === G.game?._selectedCrew) {
+        ctx.beginPath(); ctx.arc(0,0,7,0,Math.PI*2); ctx.strokeStyle='#ffff66'; ctx.lineWidth=1.5/z; ctx.stroke();
+      }
+      ctx.beginPath(); ctx.arc(0,0,3,0,Math.PI*2); ctx.fillStyle=this._crewColor(cr.role); ctx.fill();
+      ctx.strokeStyle='#cfe6ff'; ctx.lineWidth=1/z; ctx.stroke();   // suit ring
+      ctx.restore();
+    }
+  }
+
   // Aim angle a ship's turrets should point: toward its current target, else fwd.
   _shipAim(s) {
     let t = null;
@@ -839,14 +891,12 @@ G.Renderer = class {
 
   drawEnemyBars(enemy) {
     const ctx=this.ctx;
+    // No hull/hp bar — ship state is module-driven. Show only the shields buffer;
+    // module damage reads off the ship's hull silhouette (breach/scan reveals it).
     const bw=40, bh=4, bx=enemy.x-bw/2, by=enemy.y-(enemy.size||1)*24;
-    const hpFrac = Math.max(0, (enemy.hp||0) / (enemy.maxHp||1));
-    ctx.fillStyle='#1a2233'; ctx.fillRect(bx|0,by|0,bw,bh);
-    ctx.fillStyle = enemy.disabled ? '#667788' : '#44ff44';
-    ctx.fillRect(bx|0,by|0,(bw*hpFrac)|0,bh);
     if(enemy.maxShields>0) {
-      ctx.fillStyle='#111a2a'; ctx.fillRect(bx|0,(by+bh+1)|0,bw,bh);
-      ctx.fillStyle='#4488ff'; ctx.fillRect(bx|0,(by+bh+1)|0,(bw*(enemy.shields/Math.max(enemy.maxShields,1)))|0,bh);
+      ctx.fillStyle='#111a2a'; ctx.fillRect(bx|0,by|0,bw,bh);
+      ctx.fillStyle='#4488ff'; ctx.fillRect(bx|0,by|0,(bw*(enemy.shields/Math.max(enemy.maxShields,1)))|0,bh);
     }
     if(enemy.disabled) {
       ctx.fillStyle='rgba(180,180,200,0.85)'; ctx.font='6px "Press Start 2P",monospace';
@@ -1396,10 +1446,10 @@ G.Renderer = class {
         ctx.beginPath(); ctx.moveTo(0,-9); ctx.lineTo(9,0); ctx.lineTo(0,9); ctx.lineTo(-9,0); ctx.closePath();
         ctx.fill(); ctx.stroke();
         ctx.fillStyle=col; ctx.beginPath(); ctx.arc(0,0,2.5,0,Math.PI*2); ctx.fill();
-        if(t.hp < t.maxHp) {
+        if(t.maxShields > 0 && t.shields < t.maxShields) {   // shields buffer only (no hp pool)
           const bw=18;
           ctx.fillStyle='#222'; ctx.fillRect(-bw/2,-14,bw,3);
-          ctx.fillStyle='#ff4444'; ctx.fillRect(-bw/2,-14,bw*(t.hp/t.maxHp),3);
+          ctx.fillStyle='#4488ff'; ctx.fillRect(-bw/2,-14,bw*Math.max(0,t.shields/t.maxShields),3);
         }
         ctx.restore();
       }
@@ -1556,12 +1606,13 @@ G.Renderer = class {
       this.drawTurretOverlay(fs, fs.size||1, fsEntries, this._shipAim(fs));
       if(fs.shields>0)
         this.drawShieldOutline(fs, fsEntries, fs.size||1, space.time);
-      // Health bar
-      const bw=36, bh=3, bx=fs.x-18, by=fs.y-(fs.size||1)*24-12;
-      ctx.fillStyle='#0a1a0a'; ctx.fillRect(bx|0,by|0,bw,bh);
-      const hpF=Math.max(0,fs.hull/fs.maxHull);
-      ctx.fillStyle=hpF>0.5?'#44ff88':hpF>0.25?'#ffcc44':'#ff4444';
-      ctx.fillRect(bx|0,by|0,(bw*hpF)|0,bh);
+      // Shields buffer bar only (no hull pool — damage shows on the module grid)
+      if(fs.maxShields > 0) {
+        const bw=36, bh=3, bx=fs.x-18, by=fs.y-(fs.size||1)*24-12;
+        ctx.fillStyle='#0a1422'; ctx.fillRect(bx|0,by|0,bw,bh);
+        ctx.fillStyle='#4488ff';
+        ctx.fillRect(bx|0,by|0,(bw*Math.max(0,fs.shields/fs.maxShields))|0,bh);
+      }
       // Name + ring
       ctx.save();
       ctx.font=(5/_zoom)+'px "Press Start 2P",monospace';
@@ -1650,6 +1701,9 @@ G.Renderer = class {
     this.drawShipTileDisplay(player.x, player.y, 1, this._playerTileEntries(player), player.angle, null, null, turnDir);
     const playerTurretSlots = player.weaponSlots.filter(s => s.turret);
     if(playerTurretSlots.length) this.drawTurretOverlay(player, 1, this._playerTileEntries(player), playerTurretSlots);
+    if(G.game?._crewView) this.drawCrew(player, G.game._selectedCrew);
+    // EVA crew always render (they're out in space)
+    this.drawEvaCrew(player);
     if((player._frozenTimer||0) > 0) {
       ctx.save(); ctx.globalAlpha=0.45;
       ctx.beginPath(); ctx.arc(player.x,player.y,18,0,Math.PI*2);
@@ -1927,6 +1981,86 @@ G.Renderer = class {
       }
     }
     return result;
+  }
+
+  // ── Planet surface scene (procedural hex terrain) ────────────────────────
+  renderPlanet(game) {
+    const ctx = this.ctx, pl = game._planet; if(!pl) return;
+    ctx.fillStyle = '#05080f'; ctx.fillRect(0, 0, G.CANVAS_W, G.CANVAS_H);
+    const T = pl.terrain.tiles;
+    // Fit the whole map to the screen (unit-hex bbox -> scale S, origin ox,oy).
+    let mnx=Infinity,mxx=-Infinity,mny=Infinity,mxy=-Infinity;
+    for(const t of T.values()) { const u = G.hexToPixel(t.q, t.r, 1); if(u.x<mnx)mnx=u.x; if(u.x>mxx)mxx=u.x; if(u.y<mny)mny=u.y; if(u.y>mxy)mxy=u.y; }
+    const w = (mxx-mnx)||1, h = (mxy-mny)||1;
+    const S = Math.min((G.CANVAS_W*0.94)/(w+2), (G.CANVAS_H*0.80)/(h+2));
+    const ox = G.CANVAS_W/2 - (mnx+mxx)/2*S, oy = (G.CANVAS_H/2 - (mny+mxy)/2*S) - 6;
+    pl.layout = { ox, oy, S };
+    ctx.imageSmoothingEnabled = false;
+    const sz = Math.ceil(S * 1.20);
+    for(const t of T.values()) {
+      const u = G.hexToPixel(t.q, t.r, 1);
+      ctx.drawImage(G.TerrainTiles.get(t.biome), (ox + u.x*S - sz/2)|0, (oy + u.y*S - sz/2)|0, sz, sz);
+    }
+    // Player ship parked on its landing cell.
+    const su = G.hexToPixel(pl.ship.q, pl.ship.r, 1);
+    const sx = ox + su.x*S, sy = oy + su.y*S;
+    const shapeId = G.SHIPS[game.player.templateId]?.shape || 'shuttle';
+    const shipCol = G.SHIPS[game.player.templateId]?.color || '#8899bb';
+    this.drawShip(sx, sy, 0, shapeId, shipCol, Math.max(0.7, S/20));
+    ctx.beginPath(); ctx.arc(sx, sy, S*0.5, 0, Math.PI*2); ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.lineWidth=1; ctx.stroke();
+    // Crew + selection + order target.
+    for(const c of pl.crew) {
+      const x = ox + c.px*S, y = oy + c.py*S;
+      if(c === pl.selected && c.path && c.path.length) {
+        const last = c.path[c.path.length-1], lu = G.hexToPixel(last.q, last.r, 1);
+        ctx.save(); ctx.globalAlpha=0.6; ctx.strokeStyle='#ffff66'; ctx.lineWidth=1.5;
+        ctx.beginPath(); ctx.arc(ox+lu.x*S, oy+lu.y*S, S*0.4, 0, Math.PI*2); ctx.stroke(); ctx.restore();
+      }
+      ctx.save(); ctx.translate(x, y);
+      if(c === pl.selected) { ctx.beginPath(); ctx.arc(0,0,S*0.34,0,Math.PI*2); ctx.strokeStyle='#ffff66'; ctx.lineWidth=2; ctx.stroke(); }
+      ctx.beginPath(); ctx.arc(0,0,Math.max(2.5,S*0.18),0,Math.PI*2); ctx.fillStyle=this._crewColor(c.ref.role); ctx.fill();
+      ctx.strokeStyle='#0a0a12'; ctx.lineWidth=1; ctx.stroke(); ctx.restore();
+    }
+    this._drawPlanetHUD(game, pl);
+  }
+
+  _drawPlanetHUD(game, pl) {
+    const ctx = this.ctx; pl.buttons = [];
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#cfe6ff'; ctx.font = '12px "Press Start 2P",monospace';
+    ctx.fillText(pl.body.name.toUpperCase() + '  [' + (pl.body.ptype||'').toUpperCase() + ']', G.CANVAS_W/2, 30);
+    ctx.fillStyle = '#6f8aa6'; ctx.font = '7px "Press Start 2P",monospace';
+    ctx.fillText(pl.body.hasSpaceport ? 'SPACEPORT WORLD' : 'BARREN WORLD — no facilities', G.CANVAS_W/2, 46);
+    // Buttons (bottom-centre).
+    const btns = [];
+    if(pl.body.hasSpaceport) btns.push({ label:'SPACEPORT', col:'#44ddff', action:()=>game.ui.showSpaceport(pl.body.name, game.currentSysId) });
+    btns.push({ label:'LAUNCH [L]', col:'#ffcc44', action:()=>game.launch() });
+    const bw=156, bh=34, gap=16;
+    const totalW = btns.length*bw + (btns.length-1)*gap;
+    let bx = G.CANVAS_W/2 - totalW/2; const by = G.CANVAS_H - 52;
+    for(const b of btns) {
+      ctx.fillStyle = 'rgba(10,20,35,0.92)'; ctx.fillRect(bx, by, bw, bh);
+      ctx.strokeStyle = b.col; ctx.lineWidth = 2; ctx.strokeRect(bx, by, bw, bh);
+      ctx.fillStyle = b.col; ctx.font = '9px "Press Start 2P",monospace';
+      ctx.fillText(b.label, bx + bw/2, by + bh/2 + 4);
+      pl.buttons.push({ x:bx, y:by, w:bw, h:bh, action:b.action });
+      bx += bw + gap;
+    }
+    // Biome legend (present biomes) top-left.
+    const present = [...new Set([...pl.terrain.tiles.values()].map(t=>t.biome))];
+    ctx.textAlign = 'left';
+    let ly = 70;
+    ctx.font = '6px "Press Start 2P",monospace';
+    for(const bm of present) {
+      const pal = G.TERRAIN_COLORS[bm] || ['#888'];
+      ctx.fillStyle = pal[0]; ctx.fillRect(12, ly-6, 8, 8);
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth=1; ctx.strokeRect(12, ly-6, 8, 8);
+      ctx.fillStyle = '#9fb3c8'; ctx.fillText(G.TERRAIN_LABEL[bm] || bm, 24, ly);
+      ly += 11;
+    }
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#557'; ctx.font = '6px "Press Start 2P",monospace';
+    ctx.fillText('Click a crew member, then a tile to move • click the ship to board', 12, G.CANVAS_H - 16);
   }
 
   // Full hex-map view: tactical sector overlay between space flight and galaxy map
@@ -2241,6 +2375,9 @@ G.Game = class {
     // Camera options
     this.spacecam_maxZoom = 4.04;
     this.spacecam_sensitivity = 0.0008;
+    this.CREW_VIEW_ZOOM = 2.8;     // camZoom at/above which crew view engages
+    this._crewView = false;
+    this._selectedCrew = null;
     this.hexmapcam_minZoom = 0.3;
     this.hexmapcam_maxZoom = 3.5;
     this.hexmapcam_zoomIn = 1.15;
@@ -2312,6 +2449,13 @@ G.Game = class {
     // Click on game canvas → target the ship under the cursor
     this.canvas.addEventListener('click', e => {
       if(this.state === 'menu') { this.start(); return; }
+      // Planet surface: buttons + crew orders (when the spaceport menu isn't open).
+      if(this.state === 'landed' && this._planet && this.ui.els['spaceport-overlay']?.classList.contains('hidden')) {
+        const rect = this.canvas.getBoundingClientRect();
+        const ratio = G.CANVAS_W / rect.width;
+        const sx = (e.clientX - rect.left) * ratio, sy = (e.clientY - rect.top) * ratio;
+        if(this._handlePlanetClick(sx, sy)) return;
+      }
       // Hex map: pick the nearest object in screen space (ships use the scaled
       // world transform, bodies sit on their schematic hex cells).
       if(this.state === 'hexmap') {
@@ -2354,6 +2498,8 @@ G.Game = class {
       const zoom = this.camZoom || 1;
       const wx = (cx - G.CANVAS_W / 2) / zoom + this.camX + G.CANVAS_W / 2;
       const wy = (cy - G.CANVAS_H / 2) / zoom + this.camY + G.CANVAS_H / 2;
+      // Crew view: clicks select crew / issue orders before normal targeting.
+      if((this._crewView || this._selectedCrew) && this._handleCrewClick(wx, wy)) return;
       // Find nearest targetable ship within a generous click radius
       // Also check if click hits any module hex of the ship
       const CLICK_RADIUS = 48 / zoom; // world-space radius scales with zoom
@@ -2658,6 +2804,7 @@ G.Game = class {
     // Rebuild player ship from save
     const sd = d.player;
     this.player = new G.Ship(sd.templateId || 'shuttle');
+    this.player._isPlayer = true;   // never hard-disabled — crippled, not mission-killed
     // Overwrite module state directly
     this.player.modules = sd.modules || {};
     this.player.slots   = Array.isArray(sd.slots) ? sd.slots : this.player.slots;
@@ -2682,6 +2829,7 @@ G.Game = class {
     // Regenerate hex layout so saved positions don't persist stale linear arrangements.
     this.player._generateHexLayout();
     this.player._recompute();
+    this.player._assignCrewCells();   // place crew on the (possibly migrated) grid
     this.player.hull    = sd.hull    || this.player.maxHull;
     this.player.shields = sd.shields || 0;
     this.player.energy  = sd.energy  || this.player.maxEnergy;
@@ -2763,8 +2911,12 @@ G.Game = class {
 
     this.economy._marketCache = {};
     this.player = new G.Ship(charData.shipId || 'shuttle');
+    this.player._isPlayer = true;   // never hard-disabled — crippled, not mission-killed
     const startAbility = G.CLASSES[charData.classId]?.startAbility;
     this.player.abilities = startAbility ? [startAbility] : [];
+    // Re-derive module-granted abilities (scan / optical_target_lock / radar_scan)
+    // that the line above wiped — e.g. a Targeting Pod's Optical Target Lock.
+    this.player._recompute();
     this.space = new G.Space();
     this.space.loadSystem('sol');
     const earth = this.space.bodies.find(b => b.name === 'Earth');
@@ -2955,10 +3107,10 @@ G.Game = class {
     const _acd = p.abilityCooldowns || (p.abilityCooldowns = {});
     for(const k in _acd) { if(_acd[k] > 0) _acd[k] = Math.max(0, _acd[k] - dt); }
 
-    // Tick heal buff on player
+    // Tick heal buff on player — repairs modules (can revive broken ones)
     if((p._healBuffTimer||0) > 0) {
       p._healBuffTimer -= dt;
-      p.hull = Math.min(p.maxHull, p.hull + (p._healBuff||5) * dt);
+      p.repair((p._healBuff||5) * dt);
       if(p._healBuffTimer <= 0) { p._healBuff = 0; p._healBuffTimer = 0; }
     }
 
@@ -3004,7 +3156,8 @@ G.Game = class {
           for(const _fr of _friendlies) {
             if(_fr.dead || _fr._deathDone) continue;
             if(Math.hypot(_fr.x - _dr.x, _fr.y - _dr.y) <= _dr.range) {
-              _fr.hull = Math.min(_fr.maxHull, _fr.hull + 3);
+              if(_fr.repair) _fr.repair(3);                         // player ship
+              else if(_fr.ship) { _fr.ship.repair(3); G.aiDeriveStats(_fr); }  // AI hull
             }
           }
         }
@@ -3196,6 +3349,12 @@ G.Game = class {
       p.update(dt, this.input);
     }
 
+    // Warn when the player tries to fly with nobody at the cockpit.
+    if(p._noPilotWarn) {
+      this._noPilotMsgT = (this._noPilotMsgT || 0) - dt;
+      if(this._noPilotMsgT <= 0) { this._noPilotMsgT = 2.5; this.ui?.addMsg('⚠ NO PILOT IN COCKPIT','#ff6644'); }
+    }
+
     // Thruster plumes — one unified path for every ship (player, enemies, NPCs, fleet).
     this._emitShipTrail(p);
     for(const s of this.space.enemies) this._emitShipTrail(s);
@@ -3303,19 +3462,26 @@ G.Game = class {
     this.camZoom = G.lerp(this.camZoom, _zoomTarget, Math.min(dt * 3.2, 1));
     G.sound?.setZoomFactor(this.camZoom);
 
-    // Interact prompts
+    // Crew view: auto-engage when zoomed in close to the ship (crew become
+    // visible + selectable). Flight continues normally (keyboard still pilots).
+    const _wasCrewView = this._crewView;
+    this._crewView = this.camZoom >= this.CREW_VIEW_ZOOM;
+    if(this._crewView && !_wasCrewView) this.ui?.addMsg?.('CREW VIEW — click a crew member, then click an order target','#88ccff');
+    if(!this._crewView && _wasCrewView) this._selectedCrew = null;
+
+    // Interact prompts — land on ANY planet (spaceport or barren).
     const pHex = G.worldToHex(p.x, p.y);
-    const nearPort = this.space.bodies.find(b => b.hasSpaceport && b.hexQ === pHex.q && b.hexR === pHex.r);
+    const nearPort = this.space.bodies.find(b => b.type === 'planet' && b.hexQ === pHex.q && b.hexR === pHex.r);
     if(nearPort) {
       const _pFac = nearPort.faction;
-      const _landHostile = _pFac && _pFac !== 'neutral' && _pFac !== 'contested' && this.getRel(_pFac) < -30;
+      const _landHostile = nearPort.hasSpaceport && _pFac && _pFac !== 'neutral' && _pFac !== 'contested' && this.getRel(_pFac) < -30;
       if(_landHostile) {
         const _facName = G.FACTIONS[_pFac]?.name || _pFac;
         this._interactPromptText = 'HOSTILE TO '+_facName.toUpperCase()+' — LANDING DENIED';
         this._interactPromptTarget = nearPort;
         this.ui.setInteractPrompt(this._interactPromptText);
       } else {
-        this._interactPromptText = '[L] Land on '+nearPort.name;
+        this._interactPromptText = '[L] Land on '+nearPort.name + (nearPort.hasSpaceport ? '' : ' (barren)');
         this._interactPromptTarget = nearPort;
         this.ui.setInteractPrompt(this._interactPromptText);
         if(this.input.pressed('KeyL')) { G.sound.land(); this.land(nearPort); return; }
@@ -3577,6 +3743,7 @@ G.Game = class {
     this.state='launching';
     this._landFade=1;
     this.camZoom=1.35;
+    this._planet=null;   // leave the planet surface scene
     G.sound.launch();
     this.ui.hideSpaceport();
     this.ui.addMsg('Launching...','#00ffee');
@@ -3716,9 +3883,149 @@ G.Game = class {
     return t && !t.dead && !t._deathDone &&
       (t.type==='enemy' || t.type==='npc' || t.type==='derelict' || t.isFleetShip);
   }
+  // Crew-view click: select a crew member, or issue an order to the selected one.
+  // Returns true if it consumed the click.
+  _handleCrewClick(wx, wy) {
+    const p = this.player; if(!p) return false;
+    const z = this.camZoom || 1, pickR = 14 / z;
+    // 1) Pick a crew member (aboard or EVA).
+    let pick = null, pd = pickR;
+    for(const cr of p.crew) {
+      const w = cr.eva ? { x: cr.ex||0, y: cr.ey||0 } : p._crewWorld(cr);
+      const d = Math.hypot(w.x - wx, w.y - wy);
+      if(d < pd) { pd = d; pick = cr; }
+    }
+    if(pick) { this._selectedCrew = (this._selectedCrew === pick) ? null : pick; G.sound?.uiClick?.(); return true; }
+    // 2) Issue an order to the selected crew.
+    const cr = this._selectedCrew; if(!cr) return false;
+    // Click point -> ship-local hex (inverse of ship transform).
+    const ca = Math.cos(p.angle), sa = Math.sin(p.angle);
+    const dx = wx - p.x, dy = wy - p.y;
+    const lx = dx * ca + dy * sa, ly = -dx * sa + dy * ca;
+    const cell = G.pixelToHex(lx, ly, G.HEX_R);
+    // What's at that cell? (occupied incl. broken)
+    let instId = null, broken = false;
+    for(const [id, inst] of Object.entries(p.modules)) {
+      if(inst.q === cell.q && inst.r === cell.r) { instId = id; broken = inst.broken; break; }
+    }
+    if(cr.eva) {
+      if(instId) { p.orderCrew(cr, { type: 'board' }); this.ui?.addMsg(cr.name + ' returning to ship', '#88ccff'); }
+      else { cr.order = { type: 'evaMove', wx, wy }; }
+      return true;
+    }
+    if(instId) {
+      const inst = p.modules[instId];
+      const m = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+      const max = m?.hp || 50;
+      if(broken || inst.hp < max) {
+        if(p.orderCrew(cr, { type: 'repair', q: cell.q, r: cell.r, instId }))
+          this.ui?.addMsg(cr.name + ' → repair ' + (m?.name || 'module'), '#44ff88');
+      } else {
+        const station = ['cockpit','weapon','turret','power','thruster'].includes(m?.slot);
+        if(p.orderCrew(cr, { type: 'move', q: cell.q, r: cell.r }))
+          this.ui?.addMsg(cr.name + (station ? ' → man ' + (m?.name || m.slot) : ' → move'), '#88ccff');
+      }
+      return true;
+    }
+    // Clicked empty space outside the hull -> disembark toward there.
+    if(p.orderCrew(cr, { type: 'disembark', wx, wy }))
+      this.ui?.addMsg(cr.name + ' → disembark (EVA)', '#ffcc66');
+    return true;
+  }
+
+  // ── Planet surface scene ─────────────────────────────────────────────────
+  _enterPlanet(body) {
+    const terrain = G.genPlanetTerrain(body);
+    // Landing cell: walkable tile nearest the centre.
+    let ship = null, bd = Infinity;
+    for(const t of terrain.tiles.values()) {
+      if(!t.walkable) continue;
+      const d = Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(-t.q - t.r));
+      if(d < bd) { bd = d; ship = { q: t.q, r: t.r }; }
+    }
+    if(!ship) ship = { q: 0, r: 0 };
+    // Place crew on nearby walkable cells.
+    const used = new Set([G.hexKey(ship.q, ship.r)]);
+    const crew = [];
+    for(const ref of this.player.crew) {
+      let cell = null;
+      for(let rad = 1; rad <= 4 && !cell; rad++) {
+        const ring = [...terrain.tiles.values()].filter(t => t.walkable && !used.has(G.hexKey(t.q, t.r)) && G.hexDist(ship.q, ship.r, t.q, t.r) === rad);
+        if(ring.length) cell = ring[(Math.random() * ring.length) | 0];
+      }
+      cell = cell || ship;
+      used.add(G.hexKey(cell.q, cell.r));
+      const u = G.hexToPixel(cell.q, cell.r, 1);
+      crew.push({ ref, q: cell.q, r: cell.r, px: u.x, py: u.y, path: null });
+    }
+    this._planet = { body, terrain, ship, crew, selected: null, buttons: [], layout: null };
+    this.ui.addMsg('Landed on ' + body.name + (body.hasSpaceport ? '' : ' — barren surface'), '#88ddaa');
+  }
+
+  _planetPath(from, to) {
+    const T = this._planet?.terrain.tiles; if(!T) return null;
+    const walk = k => { const t = T.get(k); return t && t.walkable; };
+    const sK = G.hexKey(from.q, from.r), gK = G.hexKey(to.q, to.r);
+    if(!walk(gK)) return null;
+    const prev = new Map([[sK, null]]), q = [sK];
+    while(q.length) {
+      const ck = q.shift(); if(ck === gK) break;
+      const { q: cq, r: cr } = G.hexFromKey(ck);
+      for(const nb of G.hexNeighbors(cq, cr)) {
+        const nk = G.hexKey(nb.q, nb.r);
+        if(walk(nk) && !prev.has(nk)) { prev.set(nk, ck); q.push(nk); }
+      }
+    }
+    if(!prev.has(gK)) return null;
+    const path = []; let k = gK; while(k) { const { q: pq, r: pr } = G.hexFromKey(k); path.unshift({ q: pq, r: pr }); k = prev.get(k); }
+    path.shift();   // drop the start cell
+    return path;
+  }
+
+  updatePlanetCrew(dt) {
+    const pl = this._planet; if(!pl) return;
+    const spd = 2.4;   // unit-hex/sec
+    for(const c of pl.crew) {
+      if(!(c.path && c.path.length)) continue;
+      const n = c.path[0], u = G.hexToPixel(n.q, n.r, 1);
+      const dx = u.x - c.px, dy = u.y - c.py, d = Math.hypot(dx, dy), step = spd * dt;
+      if(d <= step) { c.px = u.x; c.py = u.y; c.q = n.q; c.r = n.r; c.path.shift(); }
+      else { c.px += dx / d * step; c.py += dy / d * step; }
+    }
+  }
+
+  // Click on the planet surface: buttons, then crew select / order.
+  _handlePlanetClick(sx, sy) {
+    const pl = this._planet; if(!pl) return false;
+    for(const b of pl.buttons) if(sx >= b.x && sx <= b.x + b.w && sy >= b.y && sy <= b.y + b.h) { b.action(); G.sound?.uiClick?.(); return true; }
+    const lay = pl.layout; if(!lay) return false;
+    let pick = null, pd = 18;
+    for(const c of pl.crew) { const x = lay.ox + c.px * lay.S, y = lay.oy + c.py * lay.S; const d = Math.hypot(x - sx, y - sy); if(d < pd) { pd = d; pick = c; } }
+    if(pick) { pl.selected = (pl.selected === pick) ? null : pick; G.sound?.uiClick?.(); return true; }
+    const c = pl.selected; if(!c) return false;
+    const cell = G.pixelToHex((sx - lay.ox) / lay.S, (sy - lay.oy) / lay.S, 1);
+    if(cell.q === pl.ship.q && cell.r === pl.ship.r) {
+      const path = this._planetPath({ q: c.q, r: c.r }, pl.ship);
+      if(path) { c.path = path; this.ui.addMsg(c.ref.name + ' → board ship', '#88ccff'); }
+      return true;
+    }
+    const t = pl.terrain.tiles.get(G.hexKey(cell.q, cell.r));
+    if(t && t.walkable) {
+      const path = this._planetPath({ q: c.q, r: c.r }, cell);
+      if(path) { c.path = path; this.ui.addMsg(c.ref.name + ' → move', '#88ccff'); }
+      else this.ui.addMsg('No route there', '#ff8844');
+    } else if(t) {
+      this.ui.addMsg((G.TERRAIN_LABEL[t.biome] || t.biome) + ' — impassable', '#ff8844');
+    }
+    return true;
+  }
+
   _useAbility(abilityId, ship) {
     const def = G.ABILITIES?.[abilityId];
     if(!def) return;
+    // Granting module destroyed -> ability is greyed out / unusable.
+    const blk = ship?._abilityBlocked?.[abilityId];
+    if(blk) { this.ui.addMsg(blk + ' destroyed — ' + def.name + ' unavailable', '#ff6644'); return; }
     // Scan needs a locked ship — check before spending energy/cooldown.
     if(abilityId === 'scan' && !(ship === this.player && this._isScannable(this.target))) {
       this.ui.addMsg('Scan: lock onto a ship first', '#ffaa44');
@@ -3986,8 +4293,7 @@ G.Game = class {
 
   commandeerShip(enemy) {
     const playerSize = G.SHIPS[this.player.templateId]?.size || 1.0;
-    const enemyHpScale = (enemy.maxHp || 120) / 120;
-    const enemySize = (enemy.size || 1.0) * enemyHpScale;
+    const enemySize = enemy.size || 1.0;
     // Disabled ships have weakened crew — much easier to commandeer
     const baseChance = enemy.disabled ? 0.90 : 0.65;
     const chance = G.clamp(baseChance * playerSize / enemySize, 0.10, 0.95);
@@ -3998,7 +4304,6 @@ G.Game = class {
       }
       const templateId = Object.keys(G.SHIPS).find(k=>G.SHIPS[k].shape===enemy.shapeId) || 'pirate_skiff';
       const capturedShip = new G.Ship(templateId);
-      capturedShip.hull = Math.max(10, enemy.hp || 10);
       capturedShip._recompute();
       const facName = (enemy.faction||'enemy').toUpperCase();
       const shipName = templateId.replace(/_/g,' ').toUpperCase();
@@ -4258,10 +4563,10 @@ G.Game.prototype._loop = function(ts) {
         const completed=this.economy.checkMissions(this.currentSysId,this.player);
         for(const m of completed) this.ui.addMsg('Mission complete: '+m.title+' +'+G.fmtCredits(m.reward),'#ffcc00');
         if(completed.length > 0) G.sound?.missionComplete();
-        this.ui.showSpaceport(port.name, this.currentSysId);
+        // Land on the planet's procedural hex surface (spaceport menu is a button).
+        this._enterPlanet(port);
         this.state='landed'; this.camZoom=1.0; this._landFade=0;
-        const _pod = this._podLanding; this._podLanding = null;
-        setTimeout(()=>this.ui.showSTCWelcome(port.name, port.faction||'neutral', _pod), 350);
+        this._podLanding = null;
       }
     }
 
@@ -4307,20 +4612,26 @@ G.Game.prototype._loop = function(ts) {
     this.renderer.renderSpace(this);
     this.galaxy.draw(this.currentSysId);
   } else if(this.state==='landed') {
-    if(this.input.pressed('KeyL')) this.launch();
-    if(this.ui._spTab === 'builder') {
-      if(this.input.pressed('KeyQ')) this.ui.builderRotate(-1);
-      if(this.input.pressed('KeyE')) this.ui.builderRotate(1);
-    }
-    // Regenerate energy and shields while docked
-    this.player?._regenPassive?.(dt, 0.5);
-    // Zoom out fully when viewing missions tab
-    if(this.ui._spTab === 'missions') {
-      this.camZoom = 0.22;
+    const _spOpen = !this.ui.els['spaceport-overlay']?.classList.contains('hidden');
+    if(_spOpen) {
+      // Spaceport menu overlay open over the surface — Esc returns to surface.
+      if(this.input.pressed('Escape')) { this.ui.hideSpaceport(); }
+      if(this.ui._spTab === 'builder') {
+        if(this.input.pressed('KeyQ')) this.ui.builderRotate(-1);
+        if(this.input.pressed('KeyE')) this.ui.builderRotate(1);
+      }
+      this.player?._regenPassive?.(dt, 0.5);
+      this.renderer.renderSpace(this);   // menu sits over the system view as before
+    } else if(this._planet) {
+      if(this.input.pressed('KeyL')) { this.launch(); }
+      this.player?._regenPassive?.(dt, 0.5);
+      this.updatePlanetCrew(dt);
+      this.renderer.renderPlanet(this);
     } else {
-      this.camZoom = 1.0;
+      if(this.input.pressed('KeyL')) this.launch();
+      this.player?._regenPassive?.(dt, 0.5);
+      this.renderer.renderSpace(this);
     }
-    this.renderer.renderSpace(this);
   } else if (this.state === 'menu') {
     this.renderer.renderMenuBg(dt);
     if(Object.keys(this.input.justPressed).length > 0) {

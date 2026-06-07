@@ -181,32 +181,25 @@ G.ShipEntity = class {
     this.empTimer = 5;
     return { shieldDmg: amount * 0.5, hullDmg: 0 };
   }
-  // While disabled (no power): bypass shields, accumulate raw damage. Override
-  // to change the destruction rule.
-  _damageDisabled(amount) {
-    this._postDisableDmg = (this._postDisableDmg || 0) + amount;
-    return { shieldDmg: 0, hullDmg: amount };
-  }
-  // Whether takeDamage short-circuits once disabled (fleet ships return false).
-  _stopsWhenDisabled() { return true; }
-  // Apply post-shield damage to the hull/hp field + handle disable/death.
-  _applyHullDamage(amount) { /* subclass-specific */ }
 
+  // Shields-only damage layer. There is NO hull/hp pool any more: ship state is
+  // driven entirely by modules. takeDamage burns shields (with 20% bleed-through)
+  // and RETURNS the penetrating amount as `hullDmg`; the caller (_applyHit)
+  // applies that to the nearest live module via _damageModuleAtPoint. EMP is
+  // handled separately. Disabled ships still take penetrating damage so a downed
+  // ship can still have its core blown (explosion).
   takeDamage(amount, type) {
     if((this._invulTimer || 0) > 0) return { shieldDmg: 0, hullDmg: 0 };
     if(this === G.game?.player && G.game?._godMode) return { shieldDmg: 0, hullDmg: 0 };
     if(type !== 'emp' && type !== 'laser' && typeof this.armor === 'number') amount = Math.max(1, amount - this.armor);
     if(type === 'emp') return this._takeEmp(amount) || { shieldDmg: 0, hullDmg: 0 };
-    if(this.disabled && this._stopsWhenDisabled()) return this._damageDisabled(amount);
     let shieldDmg = 0;
     if(this.shields > 0) {
       shieldDmg = Math.min(this.shields, amount);
       this.shields -= shieldDmg;
       amount = (amount - shieldDmg) * 0.2;   // bleed-through
     }
-    let hullDmg = 0;
-    if(amount > 0) { hullDmg = amount; this._applyHullDamage(amount); }
-    return { shieldDmg, hullDmg };
+    return { shieldDmg, hullDmg: amount > 0 ? amount : 0 };
   }
 
   // ── Shared steering / thrust (AI state machines call these) ──────────────

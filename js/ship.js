@@ -122,6 +122,7 @@ G.Ship = class extends G.ShipEntity {
     this.fuel    = this.maxFuel;
 
     this._initStartingCrew();
+    this._assignCrewCells();
   }
 
   _initStartingCrew() {
@@ -143,6 +144,235 @@ G.Ship = class extends G.ShipEntity {
         desc: role.desc,
       });
     }
+  }
+
+  // ── Crew positions / stations (crew-view mode) ───────────────────────────
+  // Crew live on the module hex grid. A crew member "mans" the module under it;
+  // sitting on a cockpit makes the ship pilotable, weapon/power/thruster cells
+  // grant station bonuses. CREW_SPEED is local px/sec along the interior.
+  CREW_SPEED() { return G.HEX_R * 2 * 3; }
+
+  // All non-broken module cells (interior the crew can stand on).
+  _interiorCells() {
+    const out = [];
+    for(const [id, inst] of Object.entries(this.modules)) {
+      if(inst.q == null || inst.broken) continue;
+      const m = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+      out.push({ q: inst.q, r: inst.r, instId: id, slot: m?.slot || 'special' });
+    }
+    return out;
+  }
+  // instId of the live module at cell (q,r), or null.
+  _moduleAt(q, r) {
+    for(const [id, inst] of Object.entries(this.modules))
+      if(inst.q === q && inst.r === r && !inst.broken) return id;
+    return null;
+  }
+  _slotAt(q, r) {
+    const id = this._moduleAt(q, r);
+    if(!id) return null;
+    const m = G.MODULES[this.modules[id].moduleId] || G.WEAPONS[this.modules[id].moduleId];
+    return m?.slot || 'special';
+  }
+
+  // Assign a starting cell to any crew that lacks a valid one. Pilots prefer the
+  // cockpit, gunners weapons, engineers reactors; the rest fill interior cells.
+  _assignCrewCells() {
+    const cells = this._interiorCells();
+    const used = new Set();
+    for(const cr of this.crew) {
+      if(cr.eva) continue;
+      if(cr.q != null && this._moduleAt(cr.q, cr.r) && !used.has(G.hexKey(cr.q, cr.r))) {
+        used.add(G.hexKey(cr.q, cr.r)); continue;          // keep valid saved cell
+      }
+      const claim = (pred) => cells.find(c => !used.has(G.hexKey(c.q, c.r)) && pred(c));
+      let cell = null;
+      if(cr.role === 'pilot')        cell = claim(c => c.slot === 'cockpit');
+      else if(cr.role === 'gunner')  cell = claim(c => c.slot === 'weapon' || c.slot === 'turret');
+      else if(cr.role === 'engineer')cell = claim(c => c.slot === 'power');
+      cell = cell || claim(c => c.slot !== 'hull') || claim(() => true);
+      if(cell) { cr.q = cell.q; cr.r = cell.r; used.add(G.hexKey(cell.q, cell.r)); }
+      else { cr.q = 0; cr.r = 0; }
+      cr.px = null; cr.py = null; cr.path = null; cr.order = null;
+    }
+  }
+
+  // True if a non-EVA crew member occupies a live cockpit cell.
+  hasPilot() {
+    for(const cr of this.crew) {
+      if(cr.eva) continue;
+      if(this._slotAt(cr.q, cr.r) === 'cockpit') return true;
+    }
+    return false;
+  }
+
+  // BFS over connected non-broken cells. Returns array of {q,r} incl. start+goal,
+  // or null if unreachable (e.g. goal across a hull breach).
+  _crewPath(fq, fr, tq, tr) {
+    const occ = new Set();
+    for(const inst of Object.values(this.modules))
+      if(inst.q != null && !inst.broken) occ.add(G.hexKey(inst.q, inst.r));
+    const sK = G.hexKey(fq, fr), gK = G.hexKey(tq, tr);
+    if(!occ.has(gK)) return null;
+    if(sK === gK) return [{ q: fq, r: fr }];
+    const prev = new Map([[sK, null]]); const queue = [sK];
+    while(queue.length) {
+      const ck = queue.shift();
+      if(ck === gK) break;
+      const { q, r } = G.hexFromKey(ck);
+      for(const nb of G.hexNeighbors(q, r)) {
+        const nk = G.hexKey(nb.q, nb.r);
+        if(occ.has(nk) && !prev.has(nk)) { prev.set(nk, ck); queue.push(nk); }
+      }
+    }
+    if(!prev.has(gK)) return null;
+    const path = []; let k = gK;
+    while(k) { const { q, r } = G.hexFromKey(k); path.unshift({ q, r }); k = prev.get(k); }
+    return path;
+  }
+
+  // Issue an order to a crew member. type: 'move' | 'repair' | 'station' (walk to
+  // a cell), 'disembark' (EVA out near world wx,wy), 'board' (EVA returns).
+  orderCrew(cr, order) {
+    if(!cr) return false;
+    if(order.type === 'disembark') {
+      // Walk to the nearest live hull-edge cell, then float out toward (wx,wy).
+      const edge = this._nearestHullEdgeCell(cr.q, cr.r) || { q: cr.q, r: cr.r };
+      cr.order = { type: 'disembark', q: edge.q, r: edge.r, wx: order.wx, wy: order.wy };
+      cr.path = cr.eva ? null : this._crewPath(cr.q, cr.r, edge.q, edge.r);
+      return true;
+    }
+    if(order.type === 'board') { cr.order = { type: 'board' }; return true; }
+    if(order.type === 'repair') {
+      // Can't stand on a broken cell — path onto the module if intact, else to a
+      // reachable neighbour and repair from there.
+      let path = this._crewPath(cr.q, cr.r, order.q, order.r);
+      if(!path) {
+        const adj = this._nearestReachableNeighbor(cr.q, cr.r, order.q, order.r);
+        path = adj ? this._crewPath(cr.q, cr.r, adj.q, adj.r) : null;
+      }
+      if(!path) return false;
+      cr.order = order; cr.path = path; return true;
+    }
+    // walk-to-cell orders (move / station)
+    const path = cr.eva ? null : this._crewPath(cr.q, cr.r, order.q, order.r);
+    if(!path && !cr.eva) return false;
+    cr.order = order; cr.path = path;
+    return true;
+  }
+
+  // Nearest live cell adjacent to (tq,tr) that is reachable from (fq,fr).
+  _nearestReachableNeighbor(fq, fr, tq, tr) {
+    const occ = new Set();
+    for(const inst of Object.values(this.modules))
+      if(inst.q != null && !inst.broken) occ.add(G.hexKey(inst.q, inst.r));
+    const cand = G.hexNeighbors(tq, tr)
+      .filter(nb => occ.has(G.hexKey(nb.q, nb.r)))
+      .sort((a, b) => G.hexDist(fq, fr, a.q, a.r) - G.hexDist(fq, fr, b.q, b.r));
+    for(const c of cand) if(this._crewPath(fq, fr, c.q, c.r)) return c;
+    return null;
+  }
+
+  _nearestHullEdgeCell(q, r) {
+    // A live cell that borders empty space (an outer cell) nearest to (q,r).
+    const occ = new Set();
+    for(const inst of Object.values(this.modules))
+      if(inst.q != null && !inst.broken) occ.add(G.hexKey(inst.q, inst.r));
+    let best = null, bestD = Infinity;
+    for(const k of occ) {
+      const { q: cq, r: cr2 } = G.hexFromKey(k);
+      const edge = G.hexNeighbors(cq, cr2).some(nb => !occ.has(G.hexKey(nb.q, nb.r)));
+      if(!edge) continue;
+      const d = G.hexDist(q, r, cq, cr2);
+      if(d < bestD) { bestD = d; best = { q: cq, r: cr2 }; }
+    }
+    return best;
+  }
+
+  // Cell-centre in ship-local pixels (scale 1 — player ship).
+  _cellLocal(q, r) { return G.hexToPixel(q, r, G.HEX_R); }
+
+  // Advance crew movement / orders. Called each frame from the player update.
+  updateCrew(dt) {
+    if(!this.crew?.length) return;
+    const spd = this.CREW_SPEED();
+    for(const cr of this.crew) {
+      if(cr.eva) { this._updateEvaCrew(cr, dt); continue; }
+      // Initialise pixel position at current cell.
+      if(cr.px == null) { const p = this._cellLocal(cr.q, cr.r); cr.px = p.x; cr.py = p.y; }
+      // Walk along path.
+      if(cr.path && cr.path.length) {
+        const next = cr.path[0];
+        const tp = this._cellLocal(next.q, next.r);
+        const dx = tp.x - cr.px, dy = tp.y - cr.py, d = Math.hypot(dx, dy);
+        const step = spd * dt;
+        if(d <= step) {
+          cr.px = tp.x; cr.py = tp.y; cr.q = next.q; cr.r = next.r; cr.path.shift();
+        } else { cr.px += dx / d * step; cr.py += dy / d * step; }
+      } else {
+        // Arrived — resolve order.
+        const o = cr.order;
+        if(o && o.type === 'repair') {
+          const inst = this.modules[o.instId];
+          const m = inst && (G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId]);
+          if(inst && m && (inst.broken || inst.hp < (m.hp || 50))) {
+            inst.hp = Math.min(m.hp || 50, inst.hp + 30 * (1 + (cr.skill || 1) * 0.3) * dt);
+            if(inst.broken && inst.hp > 0) { inst.broken = false; this._recompute(); }
+          } else { cr.order = null; }   // repaired (or module gone)
+        } else if(o && o.type === 'disembark') {
+          // At the hull edge — launch into space.
+          const w = this._crewWorld(cr);
+          cr.eva = true; cr.px = null; cr.py = null;
+          cr.ex = w.x; cr.ey = w.y;
+          const ang = Math.atan2(w.y - this.y, w.x - this.x);
+          cr.evx = this.vx + Math.cos(ang) * 40; cr.evy = this.vy + Math.sin(ang) * 40;
+          cr.order = { type: 'evaMove', wx: o.wx, wy: o.wy };
+        }
+      }
+    }
+  }
+
+  _updateEvaCrew(cr, dt) {
+    const o = cr.order || {};
+    let tx, ty, reboard = false;
+    if(o.type === 'board') {
+      const edge = this._nearestHullEdgeCell(0, 0);
+      const c = edge ? this._cellLocal(edge.q, edge.r) : { x: 0, y: 0 };
+      const ca = Math.cos(this.angle), sa = Math.sin(this.angle);
+      tx = this.x + c.x * ca - c.y * sa; ty = this.y + c.x * sa + c.y * ca;
+      reboard = true; cr._boardCell = edge;
+    } else { tx = o.wx ?? cr.ex; ty = o.wy ?? cr.ey; }
+    const dx = tx - cr.ex, dy = ty - cr.ey, d = Math.hypot(dx, dy);
+    const spd = 220;
+    if(d <= spd * dt) {
+      cr.ex = tx; cr.ey = ty;
+      if(reboard) { cr.eva = false; cr.q = cr._boardCell?.q ?? 0; cr.r = cr._boardCell?.r ?? 0; cr.px = null; cr.py = null; cr.order = null; }
+    } else { cr.ex += dx / d * spd * dt; cr.ey += dy / d * spd * dt; }
+    cr.evx = (cr.evx || 0) * 0.96; cr.evy = (cr.evy || 0) * 0.96;
+  }
+
+  // World position of an aboard crew member (ship-local px,py -> world).
+  _crewWorld(cr) {
+    if(cr.px == null) { const p = this._cellLocal(cr.q, cr.r); cr.px = p.x; cr.py = p.y; }
+    const ca = Math.cos(this.angle), sa = Math.sin(this.angle);
+    return { x: this.x + cr.px * ca - cr.py * sa, y: this.y + cr.px * sa + cr.py * ca };
+  }
+
+  // Station-bonus multipliers from crew currently seated on station modules.
+  // Each seated crew adds skill-scaled bonus; capped per channel.
+  crewStationMults() {
+    const m = { thrust: 1, turn: 1, regen: 1, fire: 1 };
+    for(const cr of this.crew) {
+      if(cr.eva || (cr.path && cr.path.length)) continue;   // must be seated, not walking
+      const slot = this._slotAt(cr.q, cr.r);
+      const b = 0.15 + (cr.skill || 1) * 0.08;
+      if(slot === 'thruster')               m.thrust += b;
+      else if(slot === 'power')             m.regen  += b;
+      else if(slot === 'weapon' || slot === 'turret') m.fire += b;
+      else if(slot === 'cockpit')           m.turn   += b * 0.5;
+    }
+    for(const k in m) m[k] = Math.min(m[k], 2.2);
+    return m;
   }
 
   // ── Module management ────────────────────────────────
@@ -496,6 +726,7 @@ G.Ship = class extends G.ShipEntity {
     this.flyable        = false; // true once cockpit + class core module installed
     let _hasCockpit     = false;
     let _hasCoreModule  = false;
+    let _livePower      = 0;    // live energy-generator modules (reactor / energyRegen)
     let _turnBase       = 0;    // set by core module stats.turnBase
 
     this.weaponSlots = [];
@@ -509,6 +740,7 @@ G.Ship = class extends G.ShipEntity {
 
       if(mod.slot === 'cockpit') _hasCockpit = true;
       if(mod.slot === 'core' && (!this._shipClass || mod.class === this._shipClass)) _hasCoreModule = true;
+      if(mod.slot === 'power' || (mod.stats?.energyRegen > 0)) _livePower++;
 
       // Weapons get added to weapon list
       if(mod.slot === 'weapon' || mod.slot === 'turret') {
@@ -566,6 +798,29 @@ G.Ship = class extends G.ShipEntity {
 
     this.flyable = _hasCockpit && _hasCoreModule && this._hullEnclosed();
 
+    // ── Module-driven vitals (no hull pool) ──────────────────────────────
+    // Count power modules that EVER existed (incl. broken) so a ship that was
+    // built with reactors becomes "powerless" only after they're all gone; a
+    // reactor-less hull (runs off its core) is never power-disabled.
+    let _totalPower = 0;
+    for(const inst of Object.values(this.modules)) {
+      const m = G.MODULES[inst.moduleId];
+      if(m && (m.slot === 'power' || (m.stats?.energyRegen > 0))) _totalPower++;
+    }
+    this._hasCore    = _hasCoreModule;
+    this._hasCockpit = _hasCockpit;
+    this._hasPower   = _livePower > 0;
+    this._hasThrusters = this._rearThrusterCount > 0 || this.thrustForward > 0;
+    this._coreDestroyed = !_hasCoreModule;
+    // Disabled (mission-kill: floats, lootable) = no cockpit, or all power
+    // generators destroyed. Engines/thrusters do NOT disable — a ship with its
+    // engines shot off is immobilized but still fights (handled in update()).
+    // The player is never hard-disabled: it stays controllable-but-crippled as
+    // its stats (turn/thrust/regen) emerge from surviving modules.
+    if(!this._isPlayer) {
+      this.disabled = !_hasCockpit || (_totalPower > 0 && _livePower === 0);
+    }
+
     // Turn: differential modulation of 2 rear thrusters; 0 thrusters = no turn
     const _turnFactor = this._rearThrusterCount < 2
       ? (this._rearThrusterCount > 0 ? 0.4 : 0.0)
@@ -601,37 +856,35 @@ G.Ship = class extends G.ShipEntity {
 
     this._totalEnergyDraw = totalEnergyDraw;
 
-    // A sensor module grants the Scan ability; keep the ability list in sync
-    // so it appears/disappears with the module (self-heals on load too).
-    this.abilities = this.abilities || [];
-    const _hasScan = this.abilities.includes('scan');
-    // Non-mutating so a shared template ability array is never corrupted.
-    if(this.canScan && !_hasScan)       this.abilities = [...this.abilities, 'scan'];
-    else if(!this.canScan && _hasScan)  this.abilities = this.abilities.filter(a => a !== 'scan');
-
-    const _hasRadarScan = this.abilities.includes('radar_scan');
-    if(this.canRadarScan && !_hasRadarScan)       this.abilities = [...this.abilities, 'radar_scan'];
-    else if(!this.canRadarScan && _hasRadarScan)  this.abilities = this.abilities.filter(a => a !== 'radar_scan');
-
     // Migrate old missile_lock ability ID from saves
-    this.abilities = this.abilities.filter(a => a !== 'missile_lock');
+    this.abilities = (this.abilities || []).filter(a => a !== 'missile_lock');
 
-    // Targeting pod grants optical_target_lock (independent ability)
-    const _hasOptLock = this.abilities.includes('optical_target_lock');
-    if(this.canOpticalLock && !_hasOptLock) {
-      this.abilities = [...this.abilities, 'optical_target_lock'];
-    } else if(!this.canOpticalLock && _hasOptLock) {
-      this.abilities = this.abilities.filter(a => a !== 'optical_target_lock');
-    }
-
-    // Missile launcher weapon grants missile_launch ability (independent of optical lock)
-    const _hasMissileWpn = this.weaponSlots.some(w => G.WEAPONS[w.weaponId]?.type === 'missile');
-    const _hasMLaunch = this.abilities.includes('missile_launch');
-    if(_hasMissileWpn && !_hasMLaunch) {
-      this.abilities = [...this.abilities, 'missile_launch'];
-    } else if(!_hasMissileWpn && _hasMLaunch) {
-      this.abilities = this.abilities.filter(a => a !== 'missile_launch');
-    }
+    // Module-granted abilities stay in the bar as long as the granting module is
+    // INSTALLED (even if destroyed); they're greyed out (blocked) when no LIVE
+    // module grants them. `_abilityBlocked[id] = label` drives the greyed button
+    // + "<label> destroyed" hover warning. Fully uninstalling the module removes
+    // the ability entirely.
+    this._abilityBlocked = {};
+    const _grants = (pred) => {
+      let any = false, live = false;
+      for(const inst of Object.values(this.modules)) {
+        const m = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+        if(!m || !pred(m)) continue;
+        any = true; if(!inst.broken) live = true;
+      }
+      return { any, live };
+    };
+    const _syncAbility = (abilId, pred, label) => {
+      const { any, live } = _grants(pred);
+      const has = this.abilities.includes(abilId);
+      if(any && !has)      this.abilities = [...this.abilities, abilId];
+      else if(!any && has) this.abilities = this.abilities.filter(a => a !== abilId);
+      if(any && !live)     this._abilityBlocked[abilId] = label;   // installed but destroyed
+    };
+    _syncAbility('scan',                m => m.stats?.canScan,        'Sensor');
+    _syncAbility('radar_scan',          m => m.stats?.canRadarScan,   'Radar Array');
+    _syncAbility('optical_target_lock', m => m.stats?.canOpticalLock, 'Targeting Pod');
+    _syncAbility('missile_launch',      m => G.WEAPONS[m.id]?.type === 'missile', 'Missile Launcher');
   }
 
   // ── Physics update ───────────────────────────────────
@@ -642,6 +895,7 @@ G.Ship = class extends G.ShipEntity {
       this.y += this.vy*dt;
       this.angle += 0.4 * dt; // spin slowly while disabled
       this._regenPassive(dt*0.3);
+      this.updateCrew(dt);   // crew still move (e.g. back to the cockpit)
       return;
     }
 
@@ -651,13 +905,25 @@ G.Ship = class extends G.ShipEntity {
     if((this._invulTimer||0) > 0) this._invulTimer = Math.max(0, this._invulTimer - dt);
     const stimMult = (this._stimTimer||0) > 0 ? 1.25 : 1.0;
 
+    // Crew: advance movement/orders, compute station bonuses + pilot gate. The
+    // ship is only pilotable (thrust/turn/strafe/reverse) with a crew member at
+    // the cockpit; main.js shows the "NO PILOT IN COCKPIT" warning off _noPilotWarn.
+    this.updateCrew(dt);
+    const _sm = this.crewStationMults();
+    this._crewRegenMult = _sm.regen;
+    this._crewFireMult  = _sm.fire;
+    const _piloted = this.hasPilot();
+    this._noPilotWarn = !_piloted && (inp.turnL || inp.turnR || inp.thrust || inp.reverse || inp.strafeL || inp.strafeR);
+
     // Power distribution affects effective stats
     const thrustEff = 0.5 + this.powerEngines;
     const shieldEff = this.powerShields;
 
-    // Turn
-    if(inp.turnL) this.angle -= this.turnSpeed * dt;
-    if(inp.turnR) this.angle += this.turnSpeed * dt;
+    // Turn (needs a pilot at the cockpit; cockpit crew adds a small turn bonus)
+    if(_piloted) {
+      if(inp.turnL) this.angle -= this.turnSpeed * _sm.turn * dt;
+      if(inp.turnR) this.angle += this.turnSpeed * _sm.turn * dt;
+    }
 
     // Boost: active as long as key held and energy available (no timer cutoff)
     const superBoostActive = (this._superboostTimer || 0) > 0;
@@ -680,8 +946,8 @@ G.Ship = class extends G.ShipEntity {
 
     // Thrust — requires rear thrusters
     const boostMult = boostActive ? 5.0 : 1.0;
-    if(inp.thrust && this.thrustForward > 0) {
-      const thrust = this.thrustForward * thrustEff * boostMult * stimMult / effectiveMass;
+    if(_piloted && inp.thrust && this.thrustForward > 0) {
+      const thrust = this.thrustForward * thrustEff * boostMult * stimMult * _sm.thrust / effectiveMass;
       this.vx += fwdX * thrust * dt;
       this.vy += fwdY * thrust * dt;
       if(boostActive && !superBoostActive) this.energy = Math.max(0, this.energy - 112.5 * dt);
@@ -703,7 +969,7 @@ G.Ship = class extends G.ShipEntity {
     }
     // Q = strafe left, E = strafe right — powered by main rear thrusters (no side thruster required)
     this._strafeCooldown = Math.max(0, (this._strafeCooldown || 0) - dt);
-    if(this._strafeCooldown <= 0 && this.thrustForward > 0) {
+    if(_piloted && this._strafeCooldown <= 0 && this.thrustForward > 0) {
       const dodgeAccel = this.thrustForward * 0.8 / effectiveMass;
       if(inp.strafeL) {
         this.vx -= latX * dodgeAccel * dt;
@@ -720,7 +986,7 @@ G.Ship = class extends G.ShipEntity {
     // S = braking, then reverse flight. Any thruster can reverse — no dedicated
     // backward thruster required. The 1s hold gate is the pause-when-stopped.
     const spd = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
-    if(inp.reverse) {
+    if(_piloted && inp.reverse) {
       this._reverseHeldTime += dt;
       const reverseAvail = this.thrustForward + this.thrustRetro;
       if(spd > 1 && this._reverseHeldTime < 1.0 && reverseAvail > 0) {
@@ -753,6 +1019,13 @@ G.Ship = class extends G.ShipEntity {
 
     // No speed cap - ships can accelerate indefinitely
 
+    // Engines shot off: no thrust source — bleed velocity to a stop. Ship is NOT
+    // disabled (it can still turn if cockpit alive, and still fire).
+    if(!this._hasThrusters) {
+      const d = Math.max(0, 1 - 3 * dt);
+      this.vx *= d; this.vy *= d;
+    }
+
     // Integrate position
     this.x += this.vx*dt;
     this.y += this.vy*dt;
@@ -760,10 +1033,8 @@ G.Ship = class extends G.ShipEntity {
     // Passive regen
     this._regenPassive(dt, shieldEff);
 
-    // Auto repair
-    if(this.autoRepair > 0) {
-      this.hull = Math.min(this.maxHull, this.hull + this.autoRepair*dt);
-    }
+    // Auto repair restores module hp (and can revive broken modules)
+    if(this.autoRepair > 0) this.repair(this.autoRepair * dt);
 
     // Update weapon cooldowns (stim reduces cooldown time)
     for(const w of this.weaponSlots) {
@@ -772,9 +1043,10 @@ G.Ship = class extends G.ShipEntity {
   }
 
   _regenPassive(dt, shieldEff=0.33) {
-    // Energy regen
+    // Energy regen (engineer at a reactor station boosts it via _crewRegenMult)
     const energyDraw = this._totalEnergyDraw || 0;
-    this.energy = G.clamp(this.energy + (this.energyRegen - energyDraw*0.5)*dt, 0, this.maxEnergy);
+    const regenMult = this._crewRegenMult || 1;
+    this.energy = G.clamp(this.energy + (this.energyRegen * regenMult - energyDraw*0.5)*dt, 0, this.maxEnergy);
     // Shield regen (requires energy, scaled by power setting)
     const sRegenEff = this.shieldRegen * shieldEff * 2;
     if(this.energy > 5 && sRegenEff > 0) {
@@ -792,9 +1064,58 @@ G.Ship = class extends G.ShipEntity {
     this.empTimer = 3 + amount*0.01;
     return { shieldDmg: amount*0.5, hullDmg: 0 };
   }
-  _applyHullDamage(amount) {
-    this.hull -= amount;
-    if(this.hull <= 0) { this.hull = 0; this._postDisableDmg = 0; this.disabled = true; }
+
+  // Restore module hp (and revive broken modules), filling the most-damaged
+  // first. Ship state is module-driven, so this is the only "healing" there is.
+  repair(amount) {
+    if(amount <= 0) return;
+    const damaged = [];
+    for(const inst of Object.values(this.modules)) {
+      const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+      if(!mod) continue;
+      const max = mod.hp || 50;
+      if(inst.broken || inst.hp < max) damaged.push({ inst, max });
+    }
+    if(!damaged.length) return;
+    damaged.sort((a, b) => a.inst.hp - b.inst.hp);
+    let pool = amount, revived = false;
+    for(const { inst, max } of damaged) {
+      if(pool <= 0) break;
+      const give = Math.min(max - inst.hp, pool);
+      inst.hp += give; pool -= give;
+      if(inst.broken && inst.hp > 0) { inst.broken = false; revived = true; }
+    }
+    if(revived) this._recompute();   // revived modules change stats/vitals
+  }
+
+  // Core module hp fraction (0 = destroyed -> explosion). The one "life" readout
+  // in a module-driven ship; drives the HUD core bar.
+  coreIntegrity() {
+    for(const inst of Object.values(this.modules)) {
+      const m = G.MODULES[inst.moduleId];
+      if(m?.slot === 'core') return G.clamp(inst.hp / (m.hp || 1), 0, 1);
+    }
+    return 0;
+  }
+
+  // Total missing module hp across the ship (for spaceport repair pricing).
+  moduleDamage() {
+    let d = 0;
+    for(const inst of Object.values(this.modules)) {
+      const m = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+      if(m) d += Math.max(0, (m.hp || 50) - inst.hp);
+    }
+    return d;
+  }
+
+  // Full repair (spaceport): every module to max hp, un-break all.
+  repairFull() {
+    for(const inst of Object.values(this.modules)) {
+      const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+      inst.hp = (mod?.hp) || 50;
+      inst.broken = false;
+    }
+    this._recompute();
   }
 
   // Bounding radius computed from installed module hex cells
@@ -829,8 +1150,7 @@ G.Ship = class extends G.ShipEntity {
       inst.hp -= dmg;
       if(inst.hp <= 0) {
         inst.broken = true;
-        this._recompute();
-        if(mod?.slot === 'core') { this.hull = 0; this.disabled = true; }
+        this._recompute();   // recomputes vitals: disabled / _coreDestroyed
         return { name: mod?.name || inst.moduleId, slot: mod?.slot || '' };
       }
     }
@@ -860,7 +1180,7 @@ G.Ship = class extends G.ShipEntity {
     const damage = wpn.damage * wpnPower;
 
     this.energy -= eCost;
-    slot.cooldown = 1 / wpn.fireRate;
+    slot.cooldown = 1 / (wpn.fireRate * (this._crewFireMult || 1));   // gunner station bonus
 
     // Aim direction — weapon's mounted facing = ship heading + its tile rotation
     const facing = this.angle + (slot.rot || 0) * (Math.PI / 2);
@@ -1041,14 +1361,14 @@ G.aiInitHull = function(w, tplId, opts = {}) {
   let ship = null;
   try { if(key) ship = new G.Ship(key); } catch(e) { ship = null; }
   w.ship = ship;
-  if(!ship) {                         // fallback: keep/seed scalar stats
-    w.maxHp = w.maxHp || 200; w.hp = w.hp || w.maxHp;
+  if(!ship) {                         // fallback: minimal scalar stats
     w.maxShields = w.maxShields || 0; w.shields = w.shields || 0;
     w.turnSpeed = w.turnSpeed || 2.0; w.speed = w.speed || 300;
     return null;
   }
-  if(opts.hullMult)   { ship.maxHull    *= opts.hullMult;   ship.hull    = ship.maxHull; }
   if(opts.shieldMult) { ship.maxShields *= opts.shieldMult; ship.shields = ship.maxShields; }
+  // No hull pool — "tankier" flagships get beefier module hp instead.
+  if(opts.hullMult) for(const inst of Object.values(ship.modules)) inst.hp *= opts.hullMult;
   w.size = (w.size || 1) * (opts.sizeMult || 1);
   ship.size = w.size;
   // Weapon metadata for loot/ammo drops (consumed by _dropLoot).
@@ -1057,30 +1377,40 @@ G.aiInitHull = function(w, tplId, opts = {}) {
   return ship;
 };
 
-// Max velocity cap from thrust/mass (AI caps speed; the player is uncapped with
-// drag). Tuned so typical hulls land ~300-450.
+// Max velocity cap from thrust/mass. Returns 0 when all thrusters are destroyed
+// (ship is immobilized — see aiHaltIfNoEngines). Speed scales with surviving
+// thrust, so each thruster lost slows the ship.
 G.aiMaxSpeed = function(ship) {
-  const accel = (ship.thrustForward || 0) / Math.max(1, ship.mass || 1);
-  return G.clamp(120 + accel * 1.4, 150, 680);
+  if(!ship.thrustForward || ship.thrustForward <= 0) return 0;
+  const accel = ship.thrustForward / Math.max(1, ship.mass || 1);
+  return G.clamp(60 + accel * 1.5, 80, 680);
 };
 
-// Re-derive wrapper stats from the backing hull. `refill` tops off health/shields
-// (spawn); else current values are clamped to the new maxima (after a break).
-// Handles both health conventions: EnemyAI/NPCShip use hp/maxHp, FleetShip uses
-// hull/maxHull.
+// Re-derive wrapper combat stats from the backing hull (shields buffer + mobility).
+// There is no hp/hull pool — ship life/death is driven by modules (vitals).
 G.aiDeriveStats = function(w, refill = false) {
   const s = w.ship; if(!s) return;
   w.maxShields = s.maxShields;
   w.turnSpeed  = s.turnSpeed || w.turnSpeed || 2.0;
   w.speed      = G.aiMaxSpeed(s);
-  if('hull' in w) {                       // hull-based wrapper (FleetShip)
-    w.maxHull = s.maxHull;
-    if(refill) w.hull = w.maxHull; else if(w.hull > w.maxHull) w.hull = w.maxHull;
-  } else {                                // hp-based wrapper (EnemyAI/NPCShip)
-    w.maxHp = s.maxHull;
-    if(refill) w.hp = w.maxHp; else if(w.hp > w.maxHp) w.hp = w.maxHp;
-  }
   if(refill) w.shields = w.maxShields; else if(w.shields > w.maxShields) w.shields = w.maxShields;
+};
+
+// Bleed an immobilized ship's velocity to a stop (all thrusters destroyed). The
+// ship is NOT disabled — it can still turn (if cockpit alive) and fire.
+G.aiHaltIfNoEngines = function(w, dt) {
+  if(w.ship && !w.ship._hasThrusters) { const d = Math.max(0, 1 - 3 * dt); w.vx *= d; w.vy *= d; }
+};
+
+// True if the backing hull has any broken or damaged module (drives AI "I'm hurt"
+// behaviours — call for help, self-heal — now that there's no hp threshold).
+G.aiDamaged = function(w) {
+  const s = w.ship; if(!s) return false;
+  for(const inst of Object.values(s.modules)) {
+    const d = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+    if(d && (inst.broken || inst.hp < (d.hp || 50))) return true;
+  }
+  return false;
 };
 
 // Copy the wrapper's live transform onto the backing hull so module world
@@ -1102,17 +1432,23 @@ G.aiWeaponMods = function(ship) {
   return out;
 };
 
-// React to a positional module break: re-derive stats, clamp hp, disable on
-// core loss. Bumps a render-cache version so the broken tile shows.
+// React to a positional module break: re-derive stats and read the backing
+// hull's vitals. Core gone -> dead (explosion). Power/cockpit gone -> disabled
+// (mission-kill: floats, lootable). Losing any internal module flags a flee
+// reconsideration. Bumps a render-cache version so the broken tile shows.
 G.aiOnModuleBroken = function(w, bm) {
-  if(!w.ship) return;
+  const s = w.ship; if(!s) return;
   w._damageVer = (w._damageVer || 0) + 1;
   G.aiDeriveStats(w, false);
-  if(bm && bm.slot === 'core') {
+  if(s._coreDestroyed) {
+    w.dead = true; w.disabled = true;
+    if('aiState' in w) w.aiState = 'disabled';
+  } else if(s.disabled && !w.disabled) {
     w.disabled = true;
-    if('hull' in w) w.hull = 0; else w.hp = 0;
     if('aiState' in w) w.aiState = 'disabled';
   }
+  // Internal (non-hull) module lost while still alive -> consider fleeing.
+  if(bm && bm.slot !== 'hull' && !w.dead && !w.disabled) w._wantFleeCheck = true;
 };
 
 // Fire every live weapon module along `aimAngle`, from each module's world cell.

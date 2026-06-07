@@ -681,7 +681,7 @@ G.Space = class {
                   if(n.dead||n._deathDone||n.id===shooter.id) continue;
                   if(!hostile[n.faction]) continue;
                   if(G.shipHexHit(n,p.x,p.y)){
-                    n.takeDamage(p.damage,p.type);
+                    this._applyHit(n,p.damage,p.type,p.x,p.y);
                     if(particles)particles.burst({x:p.x,y:p.y,minSpd:20,maxSpd:80,life:0.15,r:2,color:p.color},4);
                     if(p.type==='missile'&&particles) this._missileExplosion(p,particles);
                     if(!p.pierce){this.projectiles.splice(i,1);break;}
@@ -837,25 +837,26 @@ G.Space = class {
 
   // ── Damage handlers ─────────────────────────────────────
 
-  // Unified hit pipeline for ALL ships: shields/armor/hull via takeDamage, then
-  // positional module damage to the nearest module at (hx,hy). The player holds
-  // modules directly; AI ships (enemy/NPC/fleet) carry a backing G.Ship in
-  // `.ship`. Module-destroyed UI messages fire only for the player.
-  _applyHit(target, amount, type, hx, hy, factor = 0.3) {
+  // Unified hit pipeline for ALL ships. Shields absorb first (takeDamage), then
+  // the FULL penetrating remainder damages the nearest live module at (hx,hy) —
+  // there is no hull/hp pool. The player holds modules directly; AI ships carry a
+  // backing G.Ship in `.ship`. Breaking a module updates vitals: power/cockpit
+  // loss disables (AI), core loss kills (explosion). Player core loss = game over.
+  _applyHit(target, amount, type, hx, hy, factor = 1.0) {
     const res = target.takeDamage(amount, type);
     if(res.hullDmg > 0) {
       const hull = (target instanceof G.Ship) ? target : target.ship;
       if(hull && hull._damageModuleAtPoint) {
         if(target !== hull) G.aiSyncHull(target);   // align backing-hull transform
         const bm = hull._damageModuleAtPoint(hx, hy, res.hullDmg * factor);
-        if(bm) {
-          if(target !== hull) G.aiOnModuleBroken(target, bm);
-          if(target === G.game?.player) {
-            G.ui?.addMsg(bm.slot === 'core'
-              ? '⚠ CORE MODULE DESTROYED — CATASTROPHIC FAILURE!'
-              : '⚠ MODULE DESTROYED: ' + bm.name, bm.slot === 'core' ? '#ff1111' : '#ff6622');
-          }
+        if(bm && target !== hull) G.aiOnModuleBroken(target, bm);
+        if(bm && target === G.game?.player) {
+          G.ui?.addMsg(bm.slot === 'core'
+            ? '⚠ CORE MODULE DESTROYED — CATASTROPHIC FAILURE!'
+            : '⚠ MODULE DESTROYED: ' + bm.name, bm.slot === 'core' ? '#ff1111' : '#ff6622');
         }
+        // Player ship is the hull itself: core gone -> trigger death sequence.
+        if(target === G.game?.player && hull._coreDestroyed) G.game?._playerDied?.();
       }
     }
     return res;
@@ -1319,12 +1320,15 @@ G.Space = class {
       // Shockwave: damage nearby ships
       const shockR = 140 + sz * 120;
       const shockDmg = 800 + sz * 1600;
-      for(const other of [...this.npcs, ...this.enemies]) {
+      for(const other of [...this.npcs, ...this.enemies, ...(this.fleetShips||[])]) {
         if(other===ship||other.dead||other.boarded) continue;
         const d = Math.hypot(other.x-ship.x, other.y-ship.y);
         if(d < shockR) {
           const dmg = shockDmg*(1-d/shockR);
-          other.takeDamage?.(dmg, 'projectile');
+          // Hit a random spot on the victim (not dead-centre) so the blast
+          // chews modules without always one-shotting the core.
+          const r = G.shipCollisionRadius?.(other) || 20;
+          this._applyHit(other, dmg, 'projectile', other.x+(Math.random()-0.5)*r, other.y+(Math.random()-0.5)*r, 0.5);
           const knock = 8000 * (1-d/shockR);
           const ang = Math.atan2(other.y-ship.y, other.x-ship.x);
           other.vx += Math.cos(ang) * knock * 0.016;
@@ -1336,7 +1340,8 @@ G.Space = class {
         const dp = Math.hypot(pl.x-ship.x, pl.y-ship.y);
         if(dp < shockR) {
           const dmg = shockDmg*0.35*(1-dp/shockR);
-          pl.takeDamage(dmg, 'projectile');
+          const pr = G.shipCollisionRadius?.(pl) || 20;
+          this._applyHit(pl, dmg, 'projectile', pl.x+(Math.random()-0.5)*pr, pl.y+(Math.random()-0.5)*pr, 0.5);
           const knock = 6000 * (1-dp/shockR);
           const ang = Math.atan2(pl.y-ship.y, pl.x-ship.x);
           pl.vx += Math.cos(ang) * knock * 0.016;

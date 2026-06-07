@@ -529,6 +529,8 @@ G.NPCShip = class extends G.ShipEntity {
     if(this.dead||this.boarded) return;
 
     this._boosting = false;
+    // Engines shot off -> coast to a halt (still alive, can still fire)
+    G.aiHaltIfNoEngines(this, dt);
 
     // Hyperspace jump-in sequence (materialization)
     if(this.jumpingIn) {
@@ -574,10 +576,11 @@ G.NPCShip = class extends G.ShipEntity {
       return;
     }
 
-    // Heal over time buff (from Healing Nova)
+    // Heal over time buff (from Healing Nova) — repairs modules now
     if(this._healBuffTimer > 0 && this._healBuff > 0) {
       this._healBuffTimer -= dt;
-      this.hp = Math.min(this.maxHp, this.hp + this._healBuff * dt);
+      this.ship?.repair(this._healBuff * dt);
+      G.aiDeriveStats(this);
       if(this._healBuffTimer <= 0) { this._healBuff = 0; }
     }
 
@@ -588,7 +591,7 @@ G.NPCShip = class extends G.ShipEntity {
         const def = G.ABILITIES[abilId];
         if(!def?.npcUsable) continue;
         if((this.abilityCooldowns[abilId] || 0) > 0) { this.abilityCooldowns[abilId] -= dt; continue; }
-        if(abilId === 'healing_nova' && this.hp < this.maxHp * 0.6) {
+        if(abilId === 'healing_nova' && G.aiDamaged(this)) {
           this.abilityCooldowns[abilId] = def.cooldown + Math.random() * 10;
           particles.healing_nova(this.x, this.y, def.range);
           G.sound?.abilityHeal?.();
@@ -613,7 +616,7 @@ G.NPCShip = class extends G.ShipEntity {
       const d = Math.hypot(this.x - player.x, this.y - player.y);
       if(d < 800) {
         const bank = G.COMMS_LINES[this.faction]||G.COMMS_LINES.independent;
-        const needHelp = this.hp < this.maxHp * 0.4 && enemies.length > 0;
+        const needHelp = G.aiDamaged(this) && enemies.length > 0;
         const lines = needHelp
           ? ["Mayday — taking heavy fire! Any friendly ships?",
              "Requesting assistance! Ship critically damaged!",
@@ -1171,9 +1174,7 @@ G.NPCShip = class extends G.ShipEntity {
     this.vy=fwdY*vFwd+latY*vLat;
   }
 
-  _takeEmp() { this.empTimer = 4; this.shields = 0; }
-  _damageDisabled(amount) { this.hp -= amount; if(this.hp <= 0) this.dead = true; return { shieldDmg:0, hullDmg:amount }; }
-  _applyHullDamage(amount) { this.hp -= amount; if(this.hp <= 0) this.disabled = true; }
+  _takeEmp() { this.empTimer = 4; this.shields = 0; return { shieldDmg: 0, hullDmg: 0 }; }
 
   // Returns array of comms options
   getCommsOptions() {
@@ -1304,6 +1305,7 @@ G.FleetShip = class extends G.ShipEntity {
   }
 
   update(dt, player, target, projectiles, particles, now) {
+    G.aiHaltIfNoEngines(this, dt);   // engines shot off -> coast to a halt
     if(this.jumpingOut) {
       this.jumpOutTimer -= dt;
       this.x += this.vx*dt; this.y += this.vy*dt;
@@ -1402,14 +1404,6 @@ G.FleetShip = class extends G.ShipEntity {
 
   // _steerTo / _thrust inherited from G.ShipEntity.
 
-  _takeEmp() { /* fleet ignores EMP */ }
-  _stopsWhenDisabled() { return false; }   // keeps taking hull damage until destroyed
-  _applyHullDamage(amount) {
-    this.hull -= amount;
-    const entry = G.game?.fleet?.find(e => e.id === this.fleetDataId);
-    if(entry && entry.ship) entry.ship.hull = this.hull;
-    if(this.hull <= 0 && !this.disabled) this.disabled = true;
-    if(this.hull <= -this.maxHull*0.4) this.dead = true;
-  }
+  _takeEmp() { return { shieldDmg: 0, hullDmg: 0 }; }   // fleet ignores EMP
 };
 G.FleetShip._uid = 0;
