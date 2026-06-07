@@ -293,6 +293,7 @@ G.UI = class {
       const on = e.target.checked;
       document.getElementById('opt-music-label').textContent = on ? 'ON' : 'OFF';
       G.sound?.setMusicEnabled(on);
+      e.target.blur();
     });
     document.getElementById('opt-music-volume')?.addEventListener('input', e=>{
       const v = parseInt(e.target.value) / 100;
@@ -305,21 +306,17 @@ G.UI = class {
       this._voiceEnabled = e.target.checked;
       document.getElementById('opt-voice-label').textContent = this._voiceEnabled ? 'ON' : 'OFF';
       if(!this._voiceEnabled && window.speechSynthesis) speechSynthesis.cancel();
+      e.target.blur();
     });
     document.getElementById('opt-voice-volume')?.addEventListener('input', e=>{
       this._voiceVolume = parseInt(e.target.value) / 100;
       document.getElementById('opt-voice-vol-val').textContent = e.target.value + '%';
     });
-    document.getElementById('opt-fps-enabled')?.addEventListener('change', e=>{
-      const on = e.target.checked;
-      document.getElementById('opt-fps-label').textContent = on ? 'ON' : 'OFF';
-      const el = document.getElementById('fps-counter');
-      if(el) { el.classList.toggle('hidden', !on); G.game._fpsEl = on ? el : null; }
-    });
     document.getElementById('opt-bg-enabled')?.addEventListener('change', e=>{
       const on = e.target.checked;
       document.getElementById('opt-bg-label').textContent = on ? 'ON' : 'OFF';
       if(G.game) G.game._bgEnabled = on;
+      e.target.blur();
     });
     document.querySelectorAll('#opt-control-scheme .scheme-btn').forEach(btn=>{
       btn.addEventListener('click', ()=>{
@@ -1304,6 +1301,27 @@ G.UI = class {
   }
 
   // ── Mission Log ───────────────────────────────────────────
+  refreshMissionChatbox(){
+    const content = document.getElementById('mission-chatbox-content');
+    if(!content) return;
+    const active = G.game.activeMissions.filter(m=>!m.completed&&!m.failed);
+    if(!active.length) {
+      content.innerHTML = '<div style="color:#556677">No active missions.</div>';
+      return;
+    }
+    let html = '';
+    for(const m of active) {
+      const destId = this._getMissionDestId(m);
+      const dest = G.SYSTEMS.find(s=>s.id===destId);
+      const destStr = dest ? ' → '+dest.name : '';
+      html += `<div style="border-bottom:1px solid #223344;padding-bottom:4px;margin-bottom:4px">
+        <div style="color:#ffaa44">${m.title}</div>
+        <div style="font-size:5px;color:#888899;margin-top:2px">${m.desc}${destStr}</div>
+      </div>`;
+    }
+    content.innerHTML = html;
+  }
+
   _buildMissionLogHTML(){
     const active=G.game.activeMissions.filter(m=>!m.completed&&!m.failed);
     if(!active.length) return '<div style="color:var(--col-dim);font-size:8px;padding:20px">No active missions.</div>';
@@ -1884,6 +1902,20 @@ G.UI = class {
     const used = Object.keys(p.modules).filter(id => !hullInstIds.has(id)).length;
     const hullCount = hullInstIds.size;
 
+    // Calculate energy consumed/produced
+    let totalEnergyDraw = 0, totalEnergyRegen = 0;
+    for(const inst of Object.values(p.modules || {})) {
+      const m = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+      if(m) {
+        if(m.energyDraw) totalEnergyDraw += m.energyDraw;
+        if(m.energyCost) totalEnergyDraw += m.energyCost * 0.1;
+        const s = m.stats || {};
+        if(s.energyRegen) totalEnergyRegen += s.energyRegen;
+      }
+    }
+    const energyNet = totalEnergyRegen - totalEnergyDraw;
+    const energyCol = energyNet >= 0 ? '#44ff88' : '#ff6644';
+
     let flyTxt, flyCol;
     if(!p.flyable) {
       const _hc = Object.values(p.modules).some(i => G.MODULES[i.moduleId]?.slot === 'cockpit');
@@ -1962,7 +1994,7 @@ G.UI = class {
       .hull-color-swatch{width:14px;height:14px;border-radius:2px;cursor:pointer;border:1px solid #444;box-sizing:border-box;display:inline-block}
       .hull-color-swatch:hover{transform:scale(1.2)}
     </style>
-    <div class="panel-title">SHIP BUILDER — ${p.name.toUpperCase()} &nbsp;<span style="font-size:6px;color:${flyCol}">${flyTxt}</span> &nbsp;<span style="font-size:6px;color:#66aacc">${used} MODULE${used!==1?'S':''}</span> &nbsp;<span style="font-size:6px;color:#667799">${hullCount} HULL</span>
+    <div class="panel-title">SHIP BUILDER — ${p.name.toUpperCase()} &nbsp;<span style="font-size:6px;color:${flyCol}">${flyTxt}</span> &nbsp;<span style="font-size:6px;color:#66aacc">${used} MODULE${used!==1?'S':''}</span> &nbsp;<span style="font-size:6px;color:#667799">${hullCount} HULL</span> &nbsp;<span style="font-size:6px;color:${energyCol}">ENERGY: +${totalEnergyRegen.toFixed(0)}/-${totalEnergyDraw.toFixed(1)}</span>
       &nbsp;<button class="btn" style="font-size:5px;padding:2px 8px;margin-left:8px" onclick="G.ui.builderToggleInv()">${invOpen?'CLOSE INV':'INVENTORY ('+inv.length+')'}</button>
     </div>
     <div style="font-size:5px;color:#66aacc;margin:2px 0 6px">Click a module to select (rotate/remove). Click a hull-edge hex to recolor or install. Drag a module to move it. ${invOpen?'Drag from inventory onto a hull hex to install.':''}</div>
@@ -2210,7 +2242,7 @@ G.UI = class {
         // Selection outline
         if(this._builderSel === id) {
           ctx.beginPath();
-          for(let k=0;k<6;k++){ const a=Math.PI/180*60*k; const vx=px+BR*Math.cos(a), vy=py+BR*Math.sin(a); k?ctx.lineTo(vx,vy):ctx.moveTo(vx,vy); }
+          for(let k=0;k<6;k++){ const a=Math.PI/180*(60*k-90); const vx=px+BR*Math.cos(a), vy=py+BR*Math.sin(a); k?ctx.lineTo(vx,vy):ctx.moveTo(vx,vy); }
           ctx.closePath();
           ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
         }
@@ -3753,59 +3785,116 @@ G.UI = class {
     const list = document.getElementById('controls-list');
     if(!overlay || !list) return;
 
+    const keyCodeToName = (code) => {
+      const names = {
+        'KeyW':'W', 'KeyA':'A', 'KeyS':'S', 'KeyD':'D',
+        'KeyQ':'Q', 'KeyE':'E', 'KeyC':'C', 'KeyT':'T', 'KeyY':'Y', 'KeyR':'R', 'KeyP':'P',
+        'KeyM':'M', 'KeyJ':'J', 'KeyL':'L', 'KeyI':'I', 'KeyN':'N', 'KeyV':'V', 'KeyX':'X',
+        'ArrowUp':'↑', 'ArrowDown':'↓', 'ArrowLeft':'←', 'ArrowRight':'→',
+        'ShiftLeft':'SHIFT', 'ShiftRight':'SHIFT', 'Space':'SPACE', 'Escape':'ESC',
+      };
+      return names[code] || code;
+    };
+
     const controls = [
-      { name: 'THRUST', keys: 'W / ↑' },
-      { name: 'BRAKE', keys: 'S / ↓' },
-      { name: 'TURN LEFT', keys: 'A / ←' },
-      { name: 'TURN RIGHT', keys: 'D / →' },
-      { name: 'DODGE LEFT', keys: 'Q' },
-      { name: 'DODGE RIGHT', keys: 'E' },
-      { name: 'BOOST', keys: 'SHIFT' },
-      { name: 'REVERSE THRUST', keys: 'S (hold 1s)' },
-      { name: 'FIRE WEAPONS', keys: 'SPACE' },
-      { name: 'FIRE MISSILE', keys: 'X' },
-      { name: 'CHARACTER', keys: 'C' },
-      { name: 'CYCLE TARGET', keys: 'T / Y' },
-      { name: 'NEAREST TARGET', keys: 'R' },
-      { name: 'AUTOPILOT', keys: 'P' },
-      { name: 'GALAXY MAP', keys: 'M' },
-      { name: 'HYPERSPACE JUMP', keys: 'J (hold)' },
-      { name: 'LAND/BOARD', keys: 'L' },
-      { name: 'INVENTORY', keys: 'I' },
-      { name: 'MISSION LOG', keys: 'N' },
-      { name: 'COMMS', keys: 'V' },
-      { name: 'OPTIONS', keys: 'ESC' },
+      { action: 'thrust', name: 'THRUST' },
+      { action: 'reverse', name: 'BRAKE' },
+      { action: 'turnL', name: 'TURN LEFT' },
+      { action: 'turnR', name: 'TURN RIGHT' },
+      { action: 'strafeL', name: 'DODGE LEFT' },
+      { action: 'strafeR', name: 'DODGE RIGHT' },
+      { action: 'boost', name: 'BOOST' },
+      { action: 'fire', name: 'FIRE WEAPONS' },
+      { action: 'fireMissile', name: 'FIRE MISSILE' },
+      { action: 'charPanel', name: 'CHARACTER' },
+      { action: 'cycleTarget', name: 'CYCLE TARGET' },
+      { action: 'nearestTarget', name: 'NEAREST TARGET' },
+      { action: 'autopilot', name: 'AUTOPILOT' },
+      { action: 'galaxyMap', name: 'GALAXY MAP' },
+      { action: 'hyperspace', name: 'HYPERSPACE JUMP' },
+      { action: 'land', name: 'LAND/BOARD' },
+      { action: 'inventory', name: 'INVENTORY' },
+      { action: 'missionLog', name: 'MISSION LOG' },
+      { action: 'comms', name: 'COMMS' },
+      { action: 'options', name: 'OPTIONS' },
     ];
 
-    const gamepad = [
-      { name: 'MOVE / TURN', keys: 'L-STICK / D-PAD' },
-      { name: 'STRAFE', keys: 'R-STICK ◄►' },
-      { name: 'FIRE', keys: 'RT' },
-      { name: 'BOOST', keys: 'LT' },
-      { name: 'MISSILE', keys: 'LB' },
-      { name: 'CYCLE WEAPON', keys: 'RB' },
-      { name: 'LAND / BOARD', keys: 'A' },
-      { name: 'NEAREST TARGET', keys: 'B' },
-      { name: 'CYCLE TARGET', keys: 'R3' },
-      { name: 'COMMS', keys: 'X' },
-      { name: 'HYPERSPACE JUMP', keys: 'Y (hold)' },
-      { name: 'AUTOPILOT', keys: 'L3' },
-      { name: 'GALAXY MAP', keys: 'BACK' },
-      { name: 'OPTIONS', keys: 'START' },
-    ];
-
+    const input = G.game?.input;
     let html = '';
-    html += `<div style="color:#ffaa44;margin-bottom:8px;letter-spacing:1px">KEYBOARD</div>`;
+    html += `<div style="color:#ffaa44;margin-bottom:8px;letter-spacing:1px">KEYBOARD (Click to rebind)</div>`;
     for(const ctrl of controls) {
-      html += `<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>${ctrl.name}</span><span style="color:#ffaa44">${ctrl.keys}</span></div>`;
+      const keys = (input?.keymap?.[ctrl.action] || []).map(keyCodeToName).join(' / ') || '?';
+      html += `<div style="display:flex;justify-content:space-between;margin-bottom:6px;cursor:pointer" id="remap-${ctrl.action}" data-action="${ctrl.action}"><span>${ctrl.name}</span><span style="color:#ffaa44;border:1px solid #ffaa44;padding:1px 4px">${keys}</span></div>`;
     }
-    html += `<div style="color:#44ffcc;margin:14px 0 8px;letter-spacing:1px">CONTROLLER</div>`;
-    for(const ctrl of gamepad) {
-      html += `<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>${ctrl.name}</span><span style="color:#44ffcc">${ctrl.keys}</span></div>`;
+    html += `<button id="reset-keymap" style="margin-top:12px;padding:6px 12px;background:#667788;color:#fff;border:1px solid #aabbcc;cursor:pointer;font-family:monospace;font-size:6px">RESET TO DEFAULTS</button>`;
+
+    // Add control mode selection
+    html += `<div style="color:#44ffcc;margin:16px 0 8px;letter-spacing:1px">CONTROL MODE</div>`;
+    const game = G.game;
+    const currentScheme = game ? game._controlScheme : 'auto';
+    html += `<div style="display:flex;gap:6px;margin-bottom:12px">`;
+    for(const scheme of ['auto', 'keyboard', 'touch', 'gamepad']) {
+      const isActive = scheme === currentScheme;
+      const label = scheme === 'auto' ? 'AUTO' : scheme === 'keyboard' ? 'KEYS' : scheme === 'touch' ? 'TOUCH' : 'PAD';
+      html += `<button id="scheme-${scheme}" data-scheme="${scheme}" style="flex:1;padding:4px;background:${isActive?'#44ffcc':'#556677'};color:${isActive?'#000':'#aabbcc'};border:1px solid ${isActive?'#44ffcc':'#778899'};cursor:pointer;font-family:monospace;font-size:6px;font-weight:bold">${label}</button>`;
     }
-    html += '<div style="margin-top:12px;font-size:5px;color:#667788">Touch & controller controls can be selected in Options. Remapping coming soon!</div>';
+    html += `</div>`;
+
     list.innerHTML = html;
     overlay.classList.remove('hidden');
+
+    // Control scheme buttons
+    for(const scheme of ['auto', 'keyboard', 'touch', 'gamepad']) {
+      document.getElementById('scheme-'+scheme)?.addEventListener('click', () => {
+        if(game) game.setControlScheme(scheme);
+        this.showControlsMenu();
+      });
+    }
+
+    // Rebinding: click a row, then press a key. Use currentTarget (the row div)
+    // so clicks on the child <span>s still resolve the action.
+    // Shift+key adds to existing bindings, plain key replaces all bindings.
+    this._rebindTarget = null;
+    const startRebind = (e) => {
+      const action = e.currentTarget.dataset.action;
+      if(!action) return;
+      this._rebindTarget = action;
+      const el = document.getElementById('remap-'+action);
+      if(el && el.lastElementChild) {
+        el.lastElementChild.textContent = 'PRESS KEY (Shift to add)…';
+        el.lastElementChild.style.color = '#ff6666';
+        el.lastElementChild.style.borderColor = '#ff6666';
+      }
+    };
+    for(const ctrl of controls) {
+      const el = document.getElementById('remap-'+ctrl.action);
+      if(el) el.addEventListener('click', startRebind);
+    }
+    document.getElementById('reset-keymap')?.addEventListener('click', () => {
+      if(input) input.resetKeymap();   // resetKeymap() persists to localStorage
+      this.showControlsMenu();
+    });
+
+    // One persistent capture-phase key listener (installed once). It only acts
+    // while the controls overlay is visible and a rebind is pending, and it
+    // swallows the key so the game doesn't also react to it.
+    if(!this._rebindKeyHandler) {
+      this._rebindKeyHandler = (e) => {
+        if(!this._rebindTarget) return;
+        const overlay = document.getElementById('controls-overlay');
+        if(!overlay || overlay.classList.contains('hidden')) { this._rebindTarget = null; return; }
+        e.preventDefault(); e.stopPropagation();
+        const code = e.code;
+        const inp = G.game?.input;
+        if(code !== 'Escape' && inp) {
+          const addToExisting = e.shiftKey;
+          inp.rebindKey(this._rebindTarget, code, addToExisting);
+        }
+        this._rebindTarget = null;
+        this.showControlsMenu();
+      };
+      window.addEventListener('keydown', this._rebindKeyHandler, true);
+    }
   }
 
   showDebugMenu() {
@@ -3816,6 +3905,8 @@ G.UI = class {
     const game = G.game;
     const collisionsEnabled = game?.collisionsEnabled !== false;
 
+    const fpsEnabled = game?._fpsEl != null;
+
     let html = '<div style="color:#ff88ff;margin-bottom:12px;letter-spacing:1px">DEBUG MENU</div>';
     html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:6px">';
     html += '<span style="color:#aabbcc;min-width:80px">COLLISIONS</span>';
@@ -3823,12 +3914,28 @@ G.UI = class {
     html += '<input type="checkbox" id="debug-collisions-toggle" '+(collisionsEnabled?'checked':'')+' style="accent-color:#ff88ff;width:13px;height:13px">';
     html += '<span id="debug-collisions-label" style="font-size:6px;color:#ff88ff;font-family:\'Press Start 2P\',monospace">'+(collisionsEnabled?'ON':'OFF')+'</span>';
     html += '</label></div>';
+    html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:6px">';
+    html += '<span style="color:#aabbcc;min-width:80px">FPS</span>';
+    html += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer">';
+    html += '<input type="checkbox" id="debug-fps-toggle" '+(fpsEnabled?'checked':'')+' style="accent-color:#ffdd44;width:13px;height:13px">';
+    html += '<span id="debug-fps-label" style="font-size:6px;color:#ffdd44;font-family:\'Press Start 2P\',monospace">'+(fpsEnabled?'ON':'OFF')+'</span>';
+    html += '</label></div>';
     list.innerHTML = html;
 
     document.getElementById('debug-collisions-toggle')?.addEventListener('change', e => {
       const enabled = e.target.checked;
       if(game) game.collisionsEnabled = enabled;
       document.getElementById('debug-collisions-label').textContent = enabled ? 'ON' : 'OFF';
+    });
+
+    document.getElementById('debug-fps-toggle')?.addEventListener('change', e => {
+      const enabled = e.target.checked;
+      const fpsEl = document.getElementById('fps-counter');
+      if(fpsEl) {
+        fpsEl.classList.toggle('hidden', !enabled);
+        if(game) game._fpsEl = enabled ? fpsEl : null;
+      }
+      document.getElementById('debug-fps-label').textContent = enabled ? 'ON' : 'OFF';
     });
 
     overlay.classList.remove('hidden');
@@ -4216,6 +4323,18 @@ G.UI = class {
 
   closeDisabledShipPopup() {
     document.getElementById('disabled-ship-popup')?.classList.add('hidden');
+  }
+
+  showLaunchFailedPopup(title, message) {
+    const popup = document.getElementById('disabled-ship-popup');
+    if(!popup) return;
+    const titleEl = popup.querySelector('.panel-title');
+    const infoEl = document.getElementById('disabled-ship-info');
+    const optsEl = document.getElementById('disabled-ship-options');
+    if(titleEl) titleEl.textContent = title;
+    if(infoEl) infoEl.textContent = message;
+    if(optsEl) optsEl.innerHTML = '';
+    popup.classList.remove('hidden');
   }
 
   // ── Fleet management ──────────────────────────────────────

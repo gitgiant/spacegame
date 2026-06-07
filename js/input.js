@@ -15,7 +15,72 @@ G.Input = class {
     // `keys` so the controller never clobbers physical keyboard state.
     this.padKeys = {};
     this.gamepadIndex = null;
+
+    // Key mapping: action -> [keys]
+    this.keymap = this._defaultKeymap();
+    this._loadKeymap();
     this._bind();
+  }
+
+  _defaultKeymap() {
+    return {
+      thrust: ['KeyW', 'ArrowUp'],
+      reverse: ['KeyS', 'ArrowDown'],
+      turnL: ['KeyA', 'ArrowLeft'],
+      turnR: ['KeyD', 'ArrowRight'],
+      strafeL: ['KeyQ'],
+      strafeR: ['KeyE'],
+      boost: ['ShiftLeft', 'ShiftRight'],
+      fire: ['Space'],
+      charPanel: ['KeyC'],
+      cycleTarget: ['KeyT', 'KeyY'],
+      nearestTarget: ['KeyR'],
+      autopilot: ['KeyP'],
+      galaxyMap: ['KeyM'],
+      hyperspace: ['KeyJ'],
+      land: ['KeyL'],
+      inventory: ['KeyI'],
+      missionLog: ['KeyN'],
+      comms: ['KeyV'],
+      options: ['Escape'],
+      fireMissile: ['KeyX'],
+    };
+  }
+
+  _loadKeymap() {
+    try {
+      const saved = localStorage.getItem('spacegame_keymap');
+      if(saved) Object.assign(this.keymap, JSON.parse(saved));
+    } catch(e) {}
+  }
+
+  saveKeymap() {
+    localStorage.setItem('spacegame_keymap', JSON.stringify(this.keymap));
+  }
+
+  resetKeymap() {
+    this.keymap = this._defaultKeymap();
+    this.saveKeymap();
+  }
+
+  rebindKey(action, keyCode, addToExisting=false) {
+    if(this.keymap[action]) {
+      // Strip this key from every other action so it maps to exactly one thing.
+      for(const a in this.keymap) {
+        if(a === action) continue;
+        this.keymap[a] = this.keymap[a].filter(k => k !== keyCode);
+      }
+      if(addToExisting) {
+        // Add key if not already bound to this action
+        if(!this.keymap[action].includes(keyCode)) {
+          this.keymap[action].push(keyCode);
+        }
+      } else {
+        // Replace all bindings with this key
+        this.keymap[action] = [keyCode];
+      }
+      this.saveKeymap();
+    }
   }
 
   _menuOpen() {
@@ -29,6 +94,65 @@ G.Input = class {
 
   _bind() {
     window.addEventListener('keydown', e => {
+      // If chatbox input is focused, only allow Enter and Escape
+      const chatboxInput = document.getElementById('mission-chatbox-input');
+      if(document.activeElement === chatboxInput) {
+        if(e.code === 'Enter') {
+          const chatbox = document.getElementById('mission-chatbox');
+          const cmd = chatboxInput.value.trim();
+          chatboxInput.value = '';
+          chatbox.classList.add('hidden');
+          e.preventDefault();
+          return;
+        }
+        if(e.code === 'Escape') {
+          const chatbox = document.getElementById('mission-chatbox');
+          chatbox.classList.add('hidden');
+          e.preventDefault();
+          return;
+        }
+        // All other keys just go to the input, ignore game controls
+        return;
+      }
+
+      // Enter opens/closes mission chatbox in spaceflight
+      if(e.code === 'Enter' && G.game?.state === 'space') {
+        const chatbox = document.getElementById('mission-chatbox');
+        const input = document.getElementById('mission-chatbox-input');
+        if(chatbox && input) {
+          const isChatboxOpen = !chatbox.classList.contains('hidden');
+          if(!isChatboxOpen) {
+            // Open chatbox
+            chatbox.classList.remove('hidden');
+            G.game?.ui?.refreshMissionChatbox();
+            input.focus();
+          }
+          e.preventDefault();
+          return;
+        }
+      }
+
+      // Escape closes any open popup/menu
+      if(e.code === 'Escape') {
+        const chatbox = document.getElementById('mission-chatbox');
+        if(chatbox && !chatbox.classList.contains('hidden')) {
+          chatbox.classList.add('hidden');
+          e.preventDefault();
+          return;
+        }
+        const popups = ['options-overlay','spaceport-overlay','inventory-overlay',
+                       'mission-log-overlay','boarding-popup','disabled-ship-popup','mission-result-popup',
+                       'controls-overlay','fleet-overlay','ship-overlay','debug-overlay','camera-overlay'];
+        for(const id of popups) {
+          const el = document.getElementById(id);
+          if(el && !el.classList.contains('hidden')) {
+            el.classList.add('hidden');
+            e.preventDefault();
+            return;
+          }
+        }
+      }
+
       // Don't let movement keys register while any menu is open
       const movementKey = ['KeyW','KeyA','KeyS','KeyD',
                            'ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code);
@@ -153,13 +277,22 @@ G.Input = class {
     this.mouseJustUp  = false;
   }
 
-  get thrust()   { return this.is('KeyW') || this.is('ArrowUp'); }
-  get reverse()  { return this.is('KeyS') || this.is('ArrowDown'); }
-  get turnL()    { return this.is('KeyA') || this.is('ArrowLeft'); }
-  get turnR()    { return this.is('KeyD') || this.is('ArrowRight'); }
-  get strafeL()  { return this.is('KeyQ'); }
-  get strafeR()  { return this.is('KeyE'); }
-  get boost()    { return this.is('ShiftLeft') || this.is('ShiftRight'); }
-  get fire()     { return this.is('Space'); }
-  get fireTap()  { return this.pressed('Space'); }
+  _checkKeys(action) {
+    const keys = this.keymap[action] || [];
+    return keys.some(k => this.is(k));
+  }
+  _pressedKeys(action) {
+    const keys = this.keymap[action] || [];
+    return keys.some(k => this.pressed(k));
+  }
+
+  get thrust()   { return this._checkKeys('thrust'); }
+  get reverse()  { return this._checkKeys('reverse'); }
+  get turnL()    { return this._checkKeys('turnL'); }
+  get turnR()    { return this._checkKeys('turnR'); }
+  get strafeL()  { return this._checkKeys('strafeL'); }
+  get strafeR()  { return this._checkKeys('strafeR'); }
+  get boost()    { return this._checkKeys('boost'); }
+  get fire()     { return this._checkKeys('fire'); }
+  get fireTap()  { return this._pressedKeys('fire'); }
 };

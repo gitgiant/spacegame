@@ -174,9 +174,21 @@ G.Renderer = class {
         // Exhaust plume — soft, elongated glow trailing behind the flame
         const plumeLen = len * 2.4;
         const plumeW = ew * (boosting ? 1.4 : 1.0);
+        let plumeCol0, plumeCol1;
+        if(superBoost) {
+          plumeCol0 = 'rgba(40,255,140,0.65)';
+          plumeCol1 = 'rgba(0,200,80,0.32)';
+        } else if(boosting) {
+          const hue = (performance.now() * 0.18 + Math.random() * 30) % 360;
+          plumeCol0 = `hsla(${hue|0},100%,60%,0.55)`;
+          plumeCol1 = `hsla(${(hue+50)%360|0},100%,50%,0.28)`;
+        } else {
+          plumeCol0 = 'rgba(255,170,40,0.55)';
+          plumeCol1 = 'rgba(255,90,0,0.28)';
+        }
         const pgrad = ctx.createLinearGradient(ex,ey, ex,ey+plumeLen);
-        pgrad.addColorStop(0, superBoost?'rgba(40,255,140,0.65)':boosting?'rgba(120,180,255,0.55)':'rgba(255,170,40,0.55)');
-        pgrad.addColorStop(0.4, superBoost?'rgba(0,200,80,0.32)':boosting?'rgba(40,110,255,0.28)':'rgba(255,90,0,0.28)');
+        pgrad.addColorStop(0, plumeCol0);
+        pgrad.addColorStop(0.4, plumeCol1);
         pgrad.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.beginPath();
         ctx.moveTo(ex-plumeW, ey);
@@ -187,9 +199,19 @@ G.Renderer = class {
         ctx.fill();
 
         // Sharp inner flame triangle
+        let col1, col2;
+        if(superBoost) { col1='#00ff88'; col2='rgba(0,220,100,0.5)'; }
+        else if(boosting) {
+          const hue = (performance.now() * 0.18 + Math.random() * 30) % 360;
+          col1 = `hsl(${hue|0},100%,65%)`;
+          col2 = `hsl(${(hue+50)%360|0},100%,45%)`;
+        } else {
+          col1 = '#ffaa22';
+          col2 = 'rgba(255,80,0,0.5)';
+        }
         const grad = ctx.createLinearGradient(ex,ey, ex,ey+len);
-        grad.addColorStop(0, superBoost?'#00ff88':boosting?'#44aaff':'#ffaa22');
-        grad.addColorStop(0.5, superBoost?'rgba(0,220,100,0.5)':boosting?'rgba(0,100,255,0.5)':'rgba(255,80,0,0.5)');
+        grad.addColorStop(0, col1);
+        grad.addColorStop(0.5, col2);
         grad.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.beginPath();
         ctx.moveTo(ex-ew*0.35, ey);
@@ -207,9 +229,18 @@ G.Renderer = class {
     if(strafeDir !== 0) {
       const sx = strafeDir > 0 ? -10 : 10;
       const fx = strafeDir > 0 ? -18 : 18;
+      let strafeCol0, strafeCol1;
+      if(boosting) {
+        const hue = (performance.now() * 0.18 + Math.random() * 30) % 360;
+        strafeCol0 = `hsl(${hue|0},100%,65%)`;
+        strafeCol1 = `hsl(${(hue+50)%360|0},100%,45%)`;
+      } else {
+        strafeCol0 = '#ffaa22';
+        strafeCol1 = 'rgba(255,100,0,0.5)';
+      }
       const grad = ctx.createLinearGradient(sx, 0, fx, 0);
-      grad.addColorStop(0, boosting ? '#44aaff' : '#ffaa22');
-      grad.addColorStop(0.4, boosting ? 'rgba(0,100,255,0.5)' : 'rgba(255,100,0,0.5)');
+      grad.addColorStop(0, strafeCol0);
+      grad.addColorStop(0.4, strafeCol1);
       grad.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.beginPath();
       ctx.moveTo(sx, -2.5); ctx.lineTo(sx, 2.5); ctx.lineTo(fx, 0);
@@ -220,13 +251,66 @@ G.Renderer = class {
     ctx.restore();
   }
 
-  // Draw a ship as a flat-top hex module assembly centred at (x,y) in world
+  // Draw a ship as a pointy-top hex module assembly centred at (x,y) in world
   // space. entries: [{ q, r, visual, slot, broken, color }] — `color` is the
   // hull-panel tint for hull entries. Hull tiles draw first (perimeter), inner
   // modules on top. `bbox` (optional) is a precomputed {ox,oy,maxy} centring.
-  drawShipTileDisplay(x, y, scale, entries, angle = 0, _unused = null, overrideCtx = null, turnDir = 0) {
+  // Bake a ship's hex assembly to a single offscreen canvas (scale 1). Cached by
+  // `key` — NPC/enemy/fleet layouts are static per (template+hull colour), so the
+  // whole crowd reuses a handful of sprites instead of redrawing N tiles each.
+  _shipSprite(key, entries) {
+    this._shipSpriteCache ??= new Map();
+    let s = this._shipSpriteCache.get(key);
+    if(s) return s;
+    const R = G.HEX_R, T = R * 2;
+    let mnx=Infinity,mxx=-Infinity,mny=Infinity,mxy=-Infinity;
+    for(const e of entries) {
+      const p = G.hexToPixel(e.q, e.r, R);
+      if(p.x<mnx)mnx=p.x; if(p.x>mxx)mxx=p.x; if(p.y<mny)mny=p.y; if(p.y>mxy)mxy=p.y;
+    }
+    if(!isFinite(mnx)) return null;
+    const cw = Math.ceil(mxx-mnx + T + 2), ch = Math.ceil(mxy-mny + T + 2);
+    const cvs = document.createElement('canvas'); cvs.width = cw; cvs.height = ch;
+    const c = cvs.getContext('2d'); c.imageSmoothingEnabled = false;
+    const cox = cw/2, coy = ch/2, ox = (mnx+mxx)/2, oy = (mny+mxy)/2;
+    for(const e of entries) {                       // hull pass
+      if(e.slot !== 'hull') continue;
+      const p = G.hexToPixel(e.q, e.r, R);
+      const tile = G.Sprites.getHexTile('hull', e.color || e.hullColor || '#667799', false);
+      c.drawImage(tile, (cox + p.x-ox - R)|0, (coy + p.y-oy - R)|0, T, T);
+    }
+    for(const e of entries) {                       // inner module pass
+      if(e.slot === 'hull') continue;
+      const p = G.hexToPixel(e.q, e.r, R);
+      const slotCol = G.SLOT_RING[e.slot]?.color || '#334455';
+      const tile = G.Sprites.getHexTile(e.visual || 'special', slotCol, e.broken);
+      const rot = (e.rot || 0) % 4;
+      const tx = (cox + p.x-ox)|0, ty = (coy + p.y-oy)|0;
+      if(rot) { c.save(); c.translate(tx, ty); c.rotate(rot*Math.PI/2); c.drawImage(tile, -R, -R, T, T); c.restore(); }
+      else c.drawImage(tile, (tx-R)|0, (ty-R)|0, T, T);
+    }
+    s = { canvas: cvs, ox: cox, oy: coy };
+    this._shipSpriteCache.set(key, s);
+    return s;
+  }
+
+  drawShipTileDisplay(x, y, scale, entries, angle = 0, _unused = null, overrideCtx = null, turnDir = 0, cacheKey = null) {
     if(!entries || entries.length === 0) return;
     const ctx = overrideCtx || this.ctx;
+    // Crowds (NPC/enemy/fleet) blit a cached baked sprite — one rotated drawImage.
+    if(cacheKey) {
+      const spr = this._shipSprite(cacheKey, entries);
+      if(spr) {
+        ctx.save();
+        ctx.translate(x|0, y|0);
+        if(angle) ctx.rotate(angle);
+        if(scale && scale !== 1) ctx.scale(scale, scale);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(spr.canvas, -spr.ox, -spr.oy);
+        ctx.restore();
+        return;
+      }
+    }
     const sc = scale || 1;
     const R = G.HEX_R * sc, T = R * 2;
     // Centre the assembly on its hex bounding-box centre.
@@ -266,24 +350,6 @@ G.Renderer = class {
         ctx.drawImage(tile, (p.x - ox - R) | 0, (p.y - oy - R) | 0, T, T);
       }
     }
-    // Rear thruster flame flicker when turning
-    if(turnDir !== 0) {
-      const thrustX = (turnDir > 0 ? -1 : 1) * R * 0.7;
-      const baseY = maxy - oy;
-      const flameLen = (12 + Math.random() * 6) * sc, flameW = 3 * sc;
-      const grad = ctx.createLinearGradient(thrustX, baseY, thrustX, baseY + flameLen);
-      grad.addColorStop(0, '#ffaa22');
-      grad.addColorStop(0.5, 'rgba(255,140,20,0.5)');
-      grad.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.moveTo(thrustX - flameW, baseY);
-      ctx.lineTo(thrustX + flameW, baseY);
-      ctx.lineTo(thrustX + flameW * 0.3, baseY + flameLen);
-      ctx.lineTo(thrustX - flameW * 0.3, baseY + flameLen);
-      ctx.closePath();
-      ctx.fill();
-    }
     ctx.restore();
   }
 
@@ -318,37 +384,48 @@ G.Renderer = class {
       : e);
   }
 
-  // Draw rotating turret barrels on top of the player's turret module hexes,
-  // aimed per slot's tracked angle. playerTurretSlots: weaponSlots with turret.
-  drawTurretOverlay(player, scale, playerTurretSlots) {
-    if(!player?.modules) return;
+  // Aim angle a ship's turrets should point: toward its current target, else fwd.
+  _shipAim(s) {
+    let t = null;
+    if(s.type === 'enemy') t = (s.aiState === 'engage') ? this.player : null;
+    else if(s.combatTarget) t = s.combatTarget;
+    else if(s.attackTarget) t = s.attackTarget;
+    if(t && !t.dead) return Math.atan2(t.x - s.x, -(t.y - s.y));
+    return s.angle || 0;
+  }
+
+  // Draw rotating turret barrels over a ship's turret hexes. Works for ANY ship.
+  // `aim` = array of weapon slots (player: per-slot tracked angle) OR a number
+  // (single aim angle, AI) OR null (point forward).
+  drawTurretOverlay(ship, scale, entries, aim) {
+    if(!entries || !entries.length) return;
     const R = G.HEX_R * scale;
-    // bbox centre over all positioned modules (matches drawShipTileDisplay)
+    // bbox centre (matches drawShipTileDisplay)
     let minx=Infinity,maxx=-Infinity,miny=Infinity,maxy=-Infinity;
     const turrets = [];
-    for(const inst of Object.values(player.modules)) {
-      if(inst.q == null) continue;
-      const p = G.hexToPixel(inst.q, inst.r, R);
+    for(const e of entries) {
+      const p = G.hexToPixel(e.q, e.r, R);
       if(p.x<minx)minx=p.x; if(p.x>maxx)maxx=p.x; if(p.y<miny)miny=p.y; if(p.y>maxy)maxy=p.y;
-      const m = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
-      if(!inst.broken && m && (m.slot === 'turret' || m.turret)) turrets.push(p);
+      if(!e.broken && (e.slot === 'turret' || e.turret)) turrets.push(p);
     }
     if(!turrets.length) return;
     const ox=(minx+maxx)/2, oy=(miny+maxy)/2;
     const ctx = this.ctx;
     const sprite = G.Sprites.getTurret();
     const TSZ = G.Sprites.TSZ * scale, half = TSZ / 2;
-    const ca = Math.cos(player.angle), sa = Math.sin(player.angle);
+    const ca = Math.cos(ship.angle), sa = Math.sin(ship.angle);
+    const slots = Array.isArray(aim) ? aim : null;
+    const fixed = (typeof aim === 'number') ? aim : null;
     ctx.save();
-    ctx.translate(player.x|0, player.y|0);
+    ctx.translate(ship.x|0, ship.y|0);
     ctx.imageSmoothingEnabled = false;
     for(let i=0; i<turrets.length; i++) {
       const lx = turrets[i].x - ox, ly = turrets[i].y - oy;
       const wx = lx*ca - ly*sa, wy = lx*sa + ly*ca;
-      const aim = playerTurretSlots?.[i]?._turretAngle;
+      const a = slots ? (slots[i]?._turretAngle ?? ship.angle) : (fixed != null ? fixed : ship.angle);
       ctx.save();
       ctx.translate(wx, wy);
-      ctx.rotate(aim != null ? aim : player.angle);
+      ctx.rotate(a);
       ctx.drawImage(sprite, -half, -half, TSZ, TSZ);
       ctx.restore();
     }
@@ -475,30 +552,45 @@ G.Renderer = class {
   // Draw a hex-tile asteroid cluster. Outer-ring tiles show their material
   // texture; interior tiles show the generic asteroid texture. vcx/vcy + half
   // view extents allow per-tile culling on large clusters.
+  // Clusters are baked to a single offscreen canvas once (re-baked only when
+  // mined), so each frame is one rotated drawImage instead of N per-tile draws.
+  _bakeCluster(cl) {
+    const { W, H } = G.AsteroidTiles.dims();
+    let mnx=Infinity, mxx=-Infinity, mny=Infinity, mxy=-Infinity;
+    for(const t of cl.tiles.values()) {
+      const p = G.astTileLocal(t.q, t.r);
+      if(p.x<mnx)mnx=p.x; if(p.x>mxx)mxx=p.x; if(p.y<mny)mny=p.y; if(p.y>mxy)mxy=p.y;
+    }
+    if(!isFinite(mnx)) { cl._sprite = null; cl._dirty = false; return; }
+    const cw = Math.ceil((mxx-mnx) + W + 2), ch = Math.ceil((mxy-mny) + H + 2);
+    const cvs = cl._spriteCanvas || document.createElement('canvas');
+    cvs.width = cw; cvs.height = ch;                 // also clears it
+    const c = cvs.getContext('2d');
+    const ox = -mnx + W/2 + 1, oy = -mny + H/2 + 1;  // canvas px where local (0,0) sits
+    for(const t of cl.tiles.values()) {
+      const p = G.astTileLocal(t.q, t.r);
+      const spr = t.exposed ? G.AsteroidTiles.get(t.mat) : G.AsteroidTiles.get('__inner');
+      const dx = (ox + p.x - W/2)|0, dy = (oy + p.y - H/2)|0;
+      c.drawImage(spr, dx, dy, W, H);
+      if(t.hp < t.maxHp*0.55) {
+        c.globalAlpha = 0.3*(1 - t.hp/t.maxHp);
+        c.fillStyle = '#000'; c.fillRect(dx, dy, W, H);
+        c.globalAlpha = 1;
+      }
+    }
+    cl._spriteCanvas = cvs; cl._sprite = cvs;
+    cl._sprX = -ox; cl._sprY = -oy;                  // blit offset: local (0,0) → cluster centre
+    cl._dirty = false;
+  }
+
   drawAsteroidCluster(cl, vcx, vcy, hvw, hvh) {
     const ctx = this.ctx;
-    const { W, H } = G.AsteroidTiles.dims();
-    const cull = cl.tileCount > 80;
-    const ca = Math.cos(cl.angle), sa = Math.sin(cl.angle);
+    if(!cl._sprite || cl._dirty) this._bakeCluster(cl);
+    if(!cl._sprite) return;
     ctx.save();
     ctx.translate(cl.x|0, cl.y|0);
     ctx.rotate(cl.angle);
-    for(const t of cl.tiles.values()) {
-      const p = G.astTileLocal(t.q, t.r);
-      if(cull) {
-        const wx = cl.x + p.x*ca - p.y*sa, wy = cl.y + p.x*sa + p.y*ca;
-        if(Math.abs(wx-vcx) > hvw || Math.abs(wy-vcy) > hvh) continue;
-      }
-      const spr = t.exposed ? G.AsteroidTiles.get(t.mat) : G.AsteroidTiles.get('__inner');
-      ctx.drawImage(spr, (p.x - W/2)|0, (p.y - H/2)|0, W, H);
-      // damage darkening on chipped tiles
-      if(t.hp < t.maxHp*0.55) {
-        ctx.globalAlpha = 0.3*(1 - t.hp/t.maxHp);
-        ctx.fillStyle = '#000';
-        ctx.fillRect((p.x - W/2)|0, (p.y - H/2)|0, W, H);
-        ctx.globalAlpha = 1;
-      }
-    }
+    ctx.drawImage(cl._sprite, cl._sprX, cl._sprY);
     ctx.restore();
   }
 
@@ -599,64 +691,97 @@ G.Renderer = class {
     ctx.restore();
   }
 
-  // Recent-shield-hit flash amount (0..1) for an entity, decaying over 250ms.
-  shieldFlashAmt(o) {
-    if(!o || !o._shieldFlash) return 0;
-    const t = Date.now() - o._shieldFlash;
-    return t < 250 ? (1 - t/250) : 0;
+  // Build a pointy-top hex subpath into ctx at local (cx,cy), circumradius rad.
+  // Matches G.hexToPixel / Sprites._hexTilePath orientation exactly so shield
+  // hexes line up cell-for-cell with the ship's module tiles.
+  _hexSubpath(ctx, cx, cy, rad) {
+    for(let d=0; d<6; d++) {
+      const a = Math.PI/3 * d - Math.PI/2;          // vertex at −90° (top)
+      ctx[d ? 'lineTo' : 'moveTo'](cx + rad*Math.cos(a), cy + rad*Math.sin(a));
+    }
+    ctx.closePath();
   }
 
-  // Shield perimeter: a ring of hex tiles hugging the entire ship's outline,
-  // drawn whenever the ship has shields up. Flashes white on hit.
-  drawShieldOutline(x, y, angle, scale, shieldRatio, time, entries, gridCenter=null, flash=0) {
-    if(shieldRatio <= 0 || !entries || entries.length === 0) return;
-    const ctx = this.ctx;
-    const sc = scale || 1;
-    const R = G.HEX_R * sc;
-    // Bounding-box centre (must match drawShipTileDisplay)
-    let minx=Infinity,maxx=-Infinity,miny=Infinity,maxy=-Infinity;
-    for(const e of entries) {
-      const p = G.hexToPixel(e.q, e.r, R);
-      if(p.x<minx)minx=p.x; if(p.x>maxx)maxx=p.x; if(p.y<miny)miny=p.y; if(p.y>maxy)maxy=p.y;
-    }
-    const ox=(minx+maxx)/2, oy=(miny+maxy)/2;
-    // Ring hugs the hull-panel assembly only — thrusters sit outside the hull,
-    // so their cells land in the perimeter and the shield draws over them.
-    const hullCells = entries.filter(e => e.slot !== 'thruster');
-    const src = hullCells.length ? hullCells : entries;
-    const occ = new Set(src.map(e => G.hexKey(e.q, e.r)));
+  // Cached shield perimeter (axial cells hugging the hull, thrusters excluded).
+  // Only recomputed when the ship's module layout changes — NPC/enemy layouts are
+  // static (keyed by template), the player's by a module-count token.
+  _shieldPerim(obj, entries) {
+    const tok = (obj instanceof G.Ship)
+      ? obj._nextModId + ':' + Object.keys(obj.modules).length
+      : (obj.shipId || obj.shapeId || obj.templateId || '?');
+    if(obj._shieldPerimTok === tok && obj._shieldPerim) return obj._shieldPerim;
+    const occ = new Set();
+    for(const e of entries) if(e.slot !== 'thruster') occ.add(G.hexKey(e.q, e.r));
     const perim = new Map();
-    for(const e of src) {
+    for(const e of entries) {
+      if(e.slot === 'thruster') continue;
       for(const nb of G.HEX_DIRS) {
         const q=e.q+nb[0], r=e.r+nb[1], k=G.hexKey(q,r);
         if(!occ.has(k) && !perim.has(k)) perim.set(k, {q,r});
       }
     }
-    const vx = k => Math.cos(Math.PI/180*60*k), vy = k => Math.sin(Math.PI/180*60*k);
-    const f = Math.max(0, Math.min(1, flash));
-    const lerp = (a,b,t) => a+(b-a)*t;
-    const baseA   = 0.10 + 0.14*shieldRatio;
-    const fillA   = baseA + (0.55 - baseA)*f;
-    const strokeA = Math.min(1, (0.4 + 0.4*shieldRatio) + f*0.6);
-    const cr = Math.round(lerp(90,255,f)), cg = Math.round(lerp(170,255,f)), cb = 255;
+    obj._shieldPerim = [...perim.values()];
+    obj._shieldPerimTok = tok;
+    return obj._shieldPerim;
+  }
+
+  // Shield: a ring of hex tiles hugging the ship's hull outline. One merged path
+  // (single fill = no seams), flat faint cycling-rainbow colour — no per-frame
+  // gradient/Set/Map. Individual tiles flash white where recently hit.
+  drawShieldOutline(obj, entries, scale, time) {
+    if(!entries || entries.length === 0) return;
+    const ratio = obj.shields / Math.max(obj.maxShields || 1, 1);
+    if(ratio <= 0) return;
+    const perim = this._shieldPerim(obj, entries);
+    if(!perim.length) return;
+    const ctx = this.ctx;
+    const R = G.HEX_R * (scale || 1);
+    // bbox centre (over all entries) so the ring aligns with the ship draw
+    let minx=Infinity,maxx=-Infinity,miny=Infinity,maxy=-Infinity;
+    for(const e of entries) {
+      const p = G.hexToPixel(e.q, e.r, R);
+      if(p.x<minx)minx=p.x; if(p.x>maxx)maxx=p.x; if(p.y<miny)miny=p.y; if(p.y>maxy)maxy=p.y;
+    }
+    const ox=(minx+maxx)/2, oy=(miny+maxy)/2, Rd = R * 1.08;
+    const x = obj.x, y = obj.y, angle = obj.angle || 0;
+
     ctx.save();
     ctx.translate(x|0, y|0);
     ctx.rotate(angle);
+
+    // Base ring: one merged path, flat cycling-rainbow colour (alpha baked in).
     ctx.beginPath();
-    for(const cell of perim.values()) {
-      const p = G.hexToPixel(cell.q, cell.r, R);
-      const cx = p.x - ox, cy = p.y - oy;
-      ctx.moveTo(cx + R*vx(0), cy + R*vy(0));
-      for(let d=1; d<6; d++) ctx.lineTo(cx + R*vx(d), cy + R*vy(d));
-      ctx.closePath();
-    }
-    ctx.fillStyle = `rgba(${cr},${cg},${cb},${fillA})`;
+    for(const cell of perim) { const p = G.hexToPixel(cell.q, cell.r, R); this._hexSubpath(ctx, p.x-ox, p.y-oy, Rd); }
+    const hue = (time * 40) % 360;
+    ctx.fillStyle = `hsla(${hue},95%,66%,${0.35 + 0.30*ratio})`;
     ctx.fill();
-    ctx.strokeStyle = `rgba(${cr},${cg},${cb},${strokeA})`;
-    ctx.lineWidth = (1 + f) * sc;
-    if(f > 0) { ctx.shadowColor = `rgba(255,255,255,${f})`; ctx.shadowBlur = 10*sc; }
-    ctx.stroke();
-    ctx.shadowBlur = 0;
+
+    // Per-tile white flash for recently-hit tiles.
+    const hits = obj._shieldHits;
+    if(hits && hits.length) {
+      const now = Date.now(), FLASH_MS = 320, inr = R * 0.95;
+      const ca = Math.cos(-angle), sa = Math.sin(-angle);
+      const lh = [];
+      for(const h of hits) {
+        const age = now - h.t; if(age >= FLASH_MS) continue;
+        const dx = h.x - x, dy = h.y - y;
+        lh.push({ lx: dx*ca - dy*sa, ly: dx*sa + dy*ca, f: 1 - age/FLASH_MS });
+      }
+      if(lh.length) for(const cell of perim) {
+        const p = G.hexToPixel(cell.q, cell.r, R);
+        const cx = p.x-ox, cy = p.y-oy;
+        let f = 0;
+        for(const h of lh) {
+          const dd = (h.lx-cx)**2 + (h.ly-cy)**2;
+          if(dd < inr*inr) { const ff = h.f * (1 - Math.sqrt(dd)/inr); if(ff > f) f = ff; }
+        }
+        if(f <= 0) continue;
+        ctx.beginPath();
+        this._hexSubpath(ctx, cx, cy, Rd);
+        ctx.fillStyle = `rgba(255,255,255,${Math.min(0.95, 0.45 + 0.55*f)})`;
+        ctx.fill();
+      }
+    }
     ctx.restore();
   }
 
@@ -1093,31 +1218,50 @@ G.Renderer = class {
     }
   }
 
-  _drawNebulaFog(nebula) {
-    const ctx = this.ctx;
-    const cx  = G.CANVAS_W / 2, cy = G.CANVAS_H / 2;
-    ctx.save();
-
-    // Fullscreen color tint
-    ctx.globalAlpha = nebula.intensity * 0.16;
-    ctx.fillStyle   = nebula.fog;
-    ctx.fillRect(0, 0, G.CANVAS_W, G.CANVAS_H);
-
-    // A few large radial gradient blobs for cloud-like depth
+  // Bake the static nebula fog (tint + cloud blobs) to an offscreen canvas once.
+  // Re-baked only if the viewport size changes. The animated rainbow stays live.
+  _bakeNebulaFog(nebula) {
+    const W = G.CANVAS_W, H = G.CANVAS_H, cx = W/2, cy = H/2;
+    const cvs = nebula._fogCanvas || document.createElement('canvas');
+    cvs.width = W; cvs.height = H;
+    const c = cvs.getContext('2d');
+    c.globalAlpha = nebula.intensity * 0.16;
+    c.fillStyle = nebula.fog;
+    c.fillRect(0, 0, W, H);
     const blobSeeds = [0.13, 0.47, 0.72, 0.31];
     for(let i = 0; i < 4; i++) {
-      const bx = cx + (blobSeeds[i] - 0.5) * G.CANVAS_W * 1.6;
-      const by = cy + (blobSeeds[(i+2)%4] - 0.5) * G.CANVAS_H * 1.4;
+      const bx = cx + (blobSeeds[i] - 0.5) * W * 1.6;
+      const by = cy + (blobSeeds[(i+2)%4] - 0.5) * H * 1.4;
       const br = 180 + blobSeeds[(i+1)%4] * 260;
-      const grad = ctx.createRadialGradient(bx, by, 0, bx, by, br);
+      const grad = c.createRadialGradient(bx, by, 0, bx, by, br);
       grad.addColorStop(0, nebula.fog + Math.round(nebula.intensity * 0.45 * 255).toString(16).padStart(2,'0'));
       grad.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.globalAlpha = nebula.intensity * 0.22;
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, G.CANVAS_W, G.CANVAS_H);
+      c.globalAlpha = nebula.intensity * 0.22;
+      c.fillStyle = grad;
+      c.fillRect(0, 0, W, H);
     }
+    c.globalAlpha = 1;
+    nebula._fogCanvas = cvs; nebula._fog = cvs; nebula._fogW = W; nebula._fogH = H;
+  }
 
-    ctx.globalAlpha = 1;
+  _drawNebulaFog(nebula) {
+    const ctx = this.ctx;
+    // Static layer: precomputed, just blit.
+    if(!nebula._fog || nebula._fogW !== G.CANVAS_W || nebula._fogH !== G.CANVAS_H) this._bakeNebulaFog(nebula);
+    ctx.save();
+    ctx.drawImage(nebula._fog, 0, 0);
+
+    // Animated layer: faint, very slowly cycling rainbow wash (one gradient/frame).
+    // hue drifts ~0.004°/ms → full cycle ≈ 90s.
+    const hue = (Date.now() * 0.004) % 360;
+    const rg = ctx.createLinearGradient(0, 0, G.CANVAS_W, G.CANVAS_H);
+    rg.addColorStop(0,   `hsl(${hue},85%,58%)`);
+    rg.addColorStop(0.5, `hsl(${(hue+120)%360},85%,58%)`);
+    rg.addColorStop(1,   `hsl(${(hue+240)%360},85%,58%)`);
+    ctx.globalCompositeOperation = 'screen';
+    ctx.globalAlpha = nebula.intensity * 0.12;
+    ctx.fillStyle = rg;
+    ctx.fillRect(0, 0, G.CANVAS_W, G.CANVAS_H);
     ctx.restore();
   }
 
@@ -1232,7 +1376,8 @@ G.Renderer = class {
       if(e._deathDone||e.boarded||e._inDust) continue;
       const eHullCol = G.FACTIONS[e.faction]?.color || e.color || '#667799';
       const eEntries = this._npcTileEntries(e, eHullCol);
-      this.drawShipTileDisplay(e.x, e.y, e.size||1, eEntries, e.angle);
+      this.drawShipTileDisplay(e.x, e.y, e.size||1, eEntries, e.angle, null, null, 0, (e.shipId||e.shapeId||e.templateId)+'|'+eHullCol);
+      this.drawTurretOverlay(e, e.size||1, eEntries, this._shipAim(e));
       if((e._frozenTimer||0) > 0) {
         ctx.save(); ctx.globalAlpha=0.45;
         ctx.beginPath(); ctx.arc(e.x,e.y,(e.size||1)*18,0,Math.PI*2);
@@ -1246,10 +1391,7 @@ G.Renderer = class {
         ctx.fillText('FLAGSHIP',e.x|0,(e.y-(e.size||1)*28)|0); ctx.textAlign='left';
         ctx.restore();
       }
-      if(e.shields > 0) {
-        this.drawShieldOutline(e.x, e.y, e.angle, e.size||1,
-          e.shields/Math.max(e.maxShields,1), space.time, eEntries, null, this.shieldFlashAmt(e));
-      }
+      if(e.shields > 0) this.drawShieldOutline(e, eEntries, e.size||1, space.time);
       this.drawEnemyBars(e);
       if(game.ui?._commsNPC === e && game.ui?._worldCommsText) {
         ctx.save();
@@ -1278,27 +1420,28 @@ G.Renderer = class {
       const moving = n.aiState!=='docked';
       const nHullCol = G.FACTIONS[n.faction]?.color || n.color || '#667799';
       const nEntries = this._npcTileEntries(n, nHullCol);
+      const nKey = (n.shipId||n.shapeId||n.templateId)+'|'+nHullCol;
       if(n.jumpingOut) {
         const t = Math.max(0, n.jumpOutTimer / 0.45);
         ctx.save(); ctx.globalAlpha = t;
-        this.drawShipTileDisplay(n.x, n.y, n.size||1, nEntries, n.angle);
+        this.drawShipTileDisplay(n.x, n.y, n.size||1, nEntries, n.angle, null, null, 0, nKey);
         ctx.restore();
       } else if(n.jumpingIn) {
         const t = Math.max(0, n.jumpInTimer / 0.5);
         ctx.save(); ctx.globalAlpha = 1 - t * 0.8;
-        this.drawShipTileDisplay(n.x, n.y, n.size||1, nEntries, n.angle);
+        this.drawShipTileDisplay(n.x, n.y, n.size||1, nEntries, n.angle, null, null, 0, nKey);
         ctx.restore();
       } else {
         const nScale = n.size||1;
-        this.drawShipTileDisplay(n.x, n.y, nScale, nEntries, n.angle);
+        this.drawShipTileDisplay(n.x, n.y, nScale, nEntries, n.angle, null, null, 0, nKey);
+        this.drawTurretOverlay(n, nScale, nEntries, this._shipAim(n));
         if((n._frozenTimer||0) > 0) {
           ctx.save(); ctx.globalAlpha=0.45;
           ctx.beginPath(); ctx.arc(n.x,n.y,nScale*18,0,Math.PI*2);
           ctx.fillStyle='#88ddff'; ctx.fill(); ctx.restore();
         }
         if(n.shields > 0) {
-          this.drawShieldOutline(n.x, n.y, n.angle, nScale,
-            n.shields/Math.max(n.maxShields,1), space.time, nEntries, null, this.shieldFlashAmt(n));
+          this.drawShieldOutline(n, nEntries, nScale, space.time);
         }
         if(n.hostile) this.drawEnemyBars(n);
         if(game.target===n) {
@@ -1334,9 +1477,10 @@ G.Renderer = class {
       if(fs._deathDone||fs._inDust) continue;
       const fsHullCol = G.FACTIONS[fs.faction]?.color || fs.color || '#8899bb';
       const fsEntries = this._npcTileEntries(fs, fsHullCol);
-      this.drawShipTileDisplay(fs.x, fs.y, fs.size||1, fsEntries, fs.angle);
+      this.drawShipTileDisplay(fs.x, fs.y, fs.size||1, fsEntries, fs.angle, null, null, 0, (fs.shipId||fs.shapeId||fs.templateId)+'|'+fsHullCol);
+      this.drawTurretOverlay(fs, fs.size||1, fsEntries, this._shipAim(fs));
       if(fs.shields>0)
-        this.drawShieldOutline(fs.x,fs.y,fs.angle,fs.size||1,fs.shields/Math.max(fs.maxShields,1),space.time, fsEntries, null, this.shieldFlashAmt(fs));
+        this.drawShieldOutline(fs, fsEntries, fs.size||1, space.time);
       // Health bar
       const bw=36, bh=3, bx=fs.x-18, by=fs.y-(fs.size||1)*24-12;
       ctx.fillStyle='#0a1a0a'; ctx.fillRect(bx|0,by|0,bw,bh);
@@ -1430,7 +1574,7 @@ G.Renderer = class {
     const shapeId   = G.SHIPS[player.templateId]?.shape || 'shuttle';
     this.drawShipTileDisplay(player.x, player.y, 1, this._playerTileEntries(player), player.angle, null, null, turnDir);
     const playerTurretSlots = player.weaponSlots.filter(s => s.turret);
-    if(playerTurretSlots.length) this.drawTurretOverlay(player, 1, playerTurretSlots);
+    if(playerTurretSlots.length) this.drawTurretOverlay(player, 1, this._playerTileEntries(player), playerTurretSlots);
     if((player._frozenTimer||0) > 0) {
       ctx.save(); ctx.globalAlpha=0.45;
       ctx.beginPath(); ctx.arc(player.x,player.y,18,0,Math.PI*2);
@@ -1452,9 +1596,7 @@ G.Renderer = class {
     }
 
     if(player.shields > 0)
-      this.drawShieldOutline(player.x, player.y, player.angle, 1,
-        player.shields / Math.max(player.maxShields, 1), space.time,
-        this._playerTileEntries(player), [4, 4], this.shieldFlashAmt(player));
+      this.drawShieldOutline(player, this._playerTileEntries(player), 1, space.time);
 
     // Target direction arrow orbiting player ship — colored by faction relation
     if(game.target && !game.target.dead) {
@@ -1790,6 +1932,24 @@ G.Renderer = class {
     const bodyMap = new Map();
     for(const b of space.bodies) if(b.hexQ != null) bodyMap.set(b, {q:b.hexQ, r:b.hexR});
 
+    // Asteroid hex tiles
+    const asteroidHexes = new Set();
+    for(const a of space.asteroids) {
+      const h = G.worldToHex(a.x, a.y);
+      asteroidHexes.add(G.hexKey(h.q, h.r));
+    }
+    for(const key of asteroidHexes) {
+      const {q, r} = G.hexFromKey(key);
+      const {x, y} = hexXY(q, r);
+      if(x < -S || x > G.CANVAS_W+S || y < -S || y > G.CANVAS_H+S) continue;
+      hexPath(q, r, 2);
+      ctx.fillStyle = 'rgba(140,100,60,0.15)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(160,120,70,0.40)';
+      ctx.lineWidth = 0.9;
+      ctx.stroke();
+    }
+
     // Asteroid speckle at world positions
     ctx.fillStyle = '#5a4633';
     for(const a of space.asteroids) {
@@ -2004,13 +2164,16 @@ G.Game = class {
     this.collisionsEnabled=true;
     this._interactPromptText = null;
     // Camera options
-    this.spacecam_minZoom = 0.2875;
     this.spacecam_maxZoom = 4.04;
     this.spacecam_sensitivity = 0.0008;
     this.hexmapcam_minZoom = 0.3;
     this.hexmapcam_maxZoom = 3.5;
     this.hexmapcam_zoomIn = 1.15;
     this.hexmapcam_zoomOut = 0.88;
+    // Space's most-zoomed-out scale (px/world = camZoom) is set EQUAL to the
+    // hex-map's most-zoomed-in scale (HEX_PX*hexmapMaxZoom/HEX_WORLD) so the two
+    // views cross at an identical scale → no zoom jump when toggling.
+    this.spacecam_minZoom = G.HEX_PX * this.hexmapcam_maxZoom / G.HEX_WORLD;
     this._interactPromptTarget = null;
     this._sunGlowAlpha = 0;
     this._escapePodFollowing = null;
@@ -2117,11 +2280,22 @@ G.Game = class {
       const wx = (cx - G.CANVAS_W / 2) / zoom + this.camX + G.CANVAS_W / 2;
       const wy = (cy - G.CANVAS_H / 2) / zoom + this.camY + G.CANVAS_H / 2;
       // Find nearest targetable ship within a generous click radius
+      // Also check if click hits any module hex of the ship
       const CLICK_RADIUS = 48 / zoom; // world-space radius scales with zoom
       let best = null, bestD = CLICK_RADIUS;
       for(const ship of this.space.allTargets().filter(s=>!s._inDust)) {
-        const d = Math.hypot(ship.x - wx, ship.y - wy);
-        if(d < bestD) { bestD = d; best = ship; }
+        let minD = Math.hypot(ship.x - wx, ship.y - wy);
+        // Check if click is near any module hex
+        for(const inst of Object.values(ship.modules||{})) {
+          if(inst.q == null) continue;
+          const hp = G.hexToPixel(inst.q, inst.r, G.HEX_R);
+          const ca = Math.cos(ship.angle), sa = Math.sin(ship.angle);
+          const mx = ship.x + (hp.x * ca - hp.y * sa);
+          const my = ship.y + (hp.x * sa + hp.y * ca);
+          const d = Math.hypot(mx - wx, my - wy);
+          minD = Math.min(minD, d);
+        }
+        if(minD < bestD) { bestD = minD; best = ship; }
       }
       if(!best) {
         for(const b of this.space.bodies) {
@@ -2230,13 +2404,12 @@ G.Game = class {
       if(this.state === 'hexmap') {
         e.preventDefault();
         if(e.deltaY < 0) {
+          // Zooming in: past the hex-map's max zoom → cross into space flight.
           const nz = (this._hexMapZoom || 1) * this.hexmapcam_zoomIn;
           if(nz > this.hexmapcam_maxZoom) {
-            this.state = 'space';
-            this._zoomManual = 0.5;
-            this._hexMapOffX = 0; this._hexMapOffY = 0; this._hexMapZoom = 1;
-            document.getElementById('minimap-wrap')?.classList.remove('hidden');
-            document.getElementById('hexmap-controls')?.classList.add('hidden');
+            // Cross at the shared boundary scale: space minZoom == hexmap maxZoom
+            // scale, both centred on the player → seamless, no jump.
+            this._enterSpaceFromHexmap();
           } else {
             this._hexMapZoom = nz;
           }
@@ -2248,15 +2421,11 @@ G.Game = class {
       if(this.state !== 'space') return;
       e.preventDefault();
       const nz = (this._zoomManual || 0) - e.deltaY * this.spacecam_sensitivity;
-      const hexmapThreshold = -(1.0 - this.spacecam_minZoom) * 0.5;
-      if(nz < hexmapThreshold) {
-        this.state = 'hexmap';
-        this._zoomManual = hexmapThreshold;
-        this._hexMapOffX = 0; this._hexMapOffY = 0; this._hexMapZoom = 1;
-        document.getElementById('minimap-wrap')?.classList.add('hidden');
-        document.getElementById('hexmap-controls')?.classList.remove('hidden');
+      // Zooming out past space's minZoom → cross into the hex map at the matching scale.
+      if(1.0 + nz < this.spacecam_minZoom) {
+        this._enterHexmapFromSpace();
       } else {
-        this._zoomManual = G.clamp(nz, hexmapThreshold, this.spacecam_maxZoom - 1.0);
+        this._zoomManual = G.clamp(nz, this.spacecam_minZoom - 1.0, this.spacecam_maxZoom - 1.0);
       }
     }, { passive: false });
 
@@ -2594,11 +2763,15 @@ G.Game = class {
     this.space.loadSystem(sysId);
     this._spawnFleetShips();
 
-    // Arrive from edge: ship screams in at high speed then hard-brakes
-    this.player.x  = nx * -3200 + G.CANVAS_W/2;
-    this.player.y  = ny * -3200 + G.CANVAS_H/2;
-    this.player.vx = nx * 8000;
-    this.player.vy = ny * 8000;
+    // Jump into random hex tile away from system center
+    const jumpAngle = Math.random() * Math.PI * 2;
+    const jumpDist = 3200;
+    const jx = Math.cos(jumpAngle) * jumpDist;
+    const jy = Math.sin(jumpAngle) * jumpDist;
+    this.player.x  = jx + G.CANVAS_W/2;
+    this.player.y  = jy + G.CANVAS_H/2;
+    this.player.vx = -Math.cos(jumpAngle) * 8000;
+    this.player.vy = -Math.sin(jumpAngle) * 8000;
     this.camX = this.player.x - G.CANVAS_W/2;
     this.camY = this.player.y - G.CANVAS_H/2;
     this.camZoom = 1.26;       // starts zoomed in, lerps back to normal
@@ -2627,6 +2800,59 @@ G.Game = class {
     const routeLeft = this.galaxy.jumpRoute.length;
     this.ui.addMsg('Arrived: '+(sys?.name||sysId)+(rel<-30?' — HOSTILE':'')+' [Danger:'+sys?.danger+']'+(routeLeft>0?' ['+routeLeft+' hops left]':''), fac.color||'#00ffee');
     this._showHUD();
+  }
+
+  // Unified thruster-plume emitter for ANY ship (player, enemy, NPC, fleet).
+  // Player thrusts on input + boost; AI ships plume when moving (velocity).
+  _emitShipTrail(s) {
+    if(!s || s.dead || s._deathDone || s.disabled || s.boarded || s.jumpingOut || s.jumpingIn || (s._frozenTimer||0) > 0) return;
+    const isPlayer = (s === this.player);
+    let active, rainbow = false, sb = false;
+    if(isPlayer) {
+      G.ui?._ensureBuilderCells?.(s);
+      sb = (s._superboostTimer||0) > 0;
+      rainbow = this.input.boost && (sb || (s.energy>5 && s.boostCharge>0));
+      active = this.input.thrust || this.input.strafeL || this.input.strafeR || this.input.reverse || rainbow;
+    } else {
+      const pl = this.player;
+      if(pl && (Math.abs(s.x-pl.x) > 2200 || Math.abs(s.y-pl.y) > 1600)) return;  // cull far ships
+      active = Math.hypot(s.vx||0, s.vy||0) > 25;
+      rainbow = !!s._boosting;
+    }
+    if(!active) return;
+
+    const sc = isPlayer ? 1 : (s.size || 1), R = G.HEX_R * sc;
+    // Collect thruster cells + bbox centre over all module cells (matches the draw).
+    const thr = [];
+    let mnx=Infinity,mxx=-Infinity,mny=Infinity,mxy=-Infinity;
+    const consume = (q, r, isThruster, rot) => {
+      const p = G.hexToPixel(q, r, R);
+      if(p.x<mnx)mnx=p.x; if(p.x>mxx)mxx=p.x; if(p.y<mny)mny=p.y; if(p.y>mxy)mxy=p.y;
+      if(isThruster) thr.push({ q, r, rot });
+    };
+    if(s instanceof G.Ship) {
+      for(const inst of Object.values(s.modules||{})) {
+        if(inst.q==null) continue;
+        const m = G.MODULES[inst.moduleId];
+        consume(inst.q, inst.r, m && m.slot==='thruster', inst.rot||0);
+      }
+    } else {
+      const entries = G.hexLayoutForTemplate(s.shipId || s.shapeId || s.templateId);
+      for(const e of entries) consume(e.q, e.r, e.slot==='thruster', e.rot||0);
+    }
+    if(!thr.length || !isFinite(mnx)) return;
+
+    const ox=(mnx+mxx)/2, oy=(mny+mxy)/2;
+    const ca=Math.cos(s.angle), sa=Math.sin(s.angle);
+    const prob = isPlayer ? 0.5 : 0.35;
+    for(const t of thr) {
+      if(Math.random() >= prob) continue;
+      const p = G.hexToPixel(t.q, t.r, R);
+      const dx = p.x-ox, dy = p.y-oy;
+      const wx = s.x + dx*ca - dy*sa, wy = s.y + dx*sa + dy*ca;
+      this.particles.engine_trail(wx, wy, s.angle + (t.rot%4)*Math.PI/2, s.vx, s.vy, sc, rainbow);
+    }
+    if(isPlayer && rainbow && Math.random() < 0.7) this.particles.boost_trail(s.x, s.y, s.angle, 1.2, sb);
   }
 
   _updateSpace(dt, now) {
@@ -2875,10 +3101,16 @@ G.Game = class {
         }
       }
     }
-    // If locked but target gone → cancel lock (abilities stay, they're permanent)
-    if(this._locked && (!this._lockTarget || this._lockTarget.dead)) {
+    // If locked but target gone or player in dust cloud → cancel lock
+    if(this._locked && (!this._lockTarget || this._lockTarget.dead || p._inDust)) {
       G.sound?.missileLockOff?.();
       this._locked = false; this._lockTarget = null; this._lockT = 0;
+    }
+    // Break lock if still locking and player enters dust
+    if(this._missileLocking && p._inDust) {
+      this._missileLocking = false;
+      this._lockT = 0;
+      this.ui.addMsg('Optical lock lost — dust interference', '#ff8800');
     }
 
     // Frozen player: suppress controls, decelerate
@@ -2889,30 +3121,11 @@ G.Game = class {
       p.update(dt, this.input);
     }
 
-    // Per-thruster engine trails — one plume per active thruster module
-    if(!p.disabled) {
-      G.ui?._ensureBuilderCells?.(p);
-      const tCa=Math.cos(p.angle), tSa=Math.sin(p.angle);
-      const _sb = (p._superboostTimer||0) > 0;
-      const _rainbow = this.input.boost && (_sb || (p.energy>5 && p.boostCharge>0));
-      for(const inst of Object.values(p.modules||{})) {
-        if(inst.q==null) continue;
-        const mod=G.MODULES[inst.moduleId];
-        if(!mod||mod.slot!=='thruster') continue;
-        const rot=(inst.rot||0)%4;
-        // Rear thrusters plume on any propulsion input (thrust / strafe / reverse)
-        const active=(this.input.thrust||this.input.strafeL||this.input.strafeR||this.input.reverse)||_rainbow;
-        if(!active||Math.random()>=0.5) continue;
-        const _hp=G.hexToPixel(inst.q,inst.r,G.HEX_R);
-        const dx=_hp.x, dy=_hp.y;
-        const wx=p.x + dx*tCa - dy*tSa;
-        const wy=p.y + dx*tSa + dy*tCa;
-        this.particles.engine_trail(wx,wy,p.angle+rot*Math.PI/2,p.vx,p.vy,1,_rainbow);
-      }
-      if(!p.disabled && _rainbow) {
-        if(Math.random()<0.7) this.particles.boost_trail(p.x,p.y,p.angle,1.2,_sb);
-      }
-    }
+    // Thruster plumes — one unified path for every ship (player, enemies, NPCs, fleet).
+    this._emitShipTrail(p);
+    for(const s of this.space.enemies) this._emitShipTrail(s);
+    for(const s of this.space.npcs) this._emitShipTrail(s);
+    for(const s of (this.space.fleetShips||[])) this._emitShipTrail(s);
 
     // Turrets: rotate toward intercept point each frame; fire on SPACE
     if(!p.disabled) {
@@ -3011,9 +3224,8 @@ G.Game = class {
     // Mouse-wheel manual zoom offset
     const _zoomTarget = G.clamp(1.0 + (this._zoomManual || 0), this.spacecam_minZoom, this.spacecam_maxZoom);
     // Arrival zoom: briefly over-zoomed so camera zooms in after a jump
-    const _arrivalBoost = (this._arrivalZoomT || 0) * 0.9;
     this._arrivalZoomT = Math.max(0, (this._arrivalZoomT || 0) - dt * 0.9);
-    this.camZoom = G.lerp(this.camZoom, _zoomTarget + _arrivalBoost, Math.min(dt * 3.2, 1));
+    this.camZoom = G.lerp(this.camZoom, _zoomTarget, Math.min(dt * 3.2, 1));
     G.sound?.setZoomFactor(this.camZoom);
 
     // Interact prompts
@@ -3027,7 +3239,7 @@ G.Game = class {
         this._interactPromptTarget = nearPort;
         this.ui.setInteractPrompt(this._interactPromptText);
       } else {
-        this._interactPromptText = '[L] Land at '+nearPort.name;
+        this._interactPromptText = '[L] Land on '+nearPort.name;
         this._interactPromptTarget = nearPort;
         this.ui.setInteractPrompt(this._interactPromptText);
         if(this.input.pressed('KeyL')) { G.sound.land(); this.land(nearPort); return; }
@@ -3275,7 +3487,7 @@ G.Game = class {
 
   launch() {
     if(this.player?.disabled) {
-      this.ui.addMsg('Ship disabled — repair hull at the repair bay before launching.','#ff4444');
+      this.ui.showLaunchFailedPopup('SHIP DISABLED', 'Hull integrity lost. Use the repair bay to restore hull systems before launch.');
       G.sound?.forgiveness?.(false);
       return;
     }
@@ -3314,6 +3526,31 @@ G.Game = class {
     this._jumpChargeT=0;
     this.ui.els['galaxy-overlay']?.classList.add('hidden');
     document.getElementById('minimap-wrap')?.classList.remove('hidden');
+  }
+
+  // ── Seamless space ↔ hex-map crossover ────────────────────
+  // Both views centre on the player and cross at one shared scale
+  // (space minZoom == hexmap maxZoom scale), so the ship stays at the same screen
+  // spot at the same size — no zoom jump.
+  _enterHexmapFromSpace() {
+    this.state = 'hexmap';
+    // Snap the (hidden) space zoom to its min so a later return matches exactly.
+    this.camZoom = this.spacecam_minZoom;
+    this._zoomManual = this.spacecam_minZoom - 1.0;
+    this._hexMapZoom = this.hexmapcam_maxZoom;   // identical scale to space minZoom
+    this._hexMapOffX = 0; this._hexMapOffY = 0;
+    this._hexMapDragMoved = false;
+    document.getElementById('minimap-wrap')?.classList.add('hidden');
+    document.getElementById('hexmap-controls')?.classList.remove('hidden');
+  }
+
+  _enterSpaceFromHexmap() {
+    this.state = 'space';
+    this.camZoom = this.spacecam_minZoom;        // == current hex-map (maxZoom) scale
+    this._zoomManual = this.spacecam_minZoom - 1.0;
+    this._hexMapOffX = 0; this._hexMapOffY = 0; this._hexMapZoom = 1;
+    document.getElementById('minimap-wrap')?.classList.remove('hidden');
+    document.getElementById('hexmap-controls')?.classList.add('hidden');
   }
 
   ejectEscapePods() {
@@ -3999,6 +4236,8 @@ G.Game.prototype._loop = function(ts) {
       if(this.input.pressed('KeyQ')) this.ui.builderRotate(-1);
       if(this.input.pressed('KeyE')) this.ui.builderRotate(1);
     }
+    // Regenerate energy and shields while docked
+    this.player?._regenPassive?.(dt, 0.5);
     // Zoom out fully when viewing missions tab
     if(this.ui._spTab === 'missions') {
       this.camZoom = 0.22;

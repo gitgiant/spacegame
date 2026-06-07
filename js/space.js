@@ -815,54 +815,11 @@ G.Space = class {
       if(!s || s.dead || s._deathDone) continue;
       const type = this.tileTypeAt(s.x, s.y);
       s._inDust = (type === 'dust');
-      if(type === 'sun' || type === 'near_sun') {
-        const dps = type === 'sun' ? SUN_DPS : NEAR_SUN_DPS;
-        // Environmental heat/radiation burns hull directly (bypasses shields/armor),
-        // applied continuously so it's frame-rate independent and sun > near-sun.
-        if(!s.disabled) {
-          s.hull = (s.hull || 0) - dps * dt;
-          if(s.shields > 0) s.shields = Math.max(0, s.shields - dps * dt * 0.5);
-          if(s.hull <= 0) { s.hull = 0; s.disabled = true; s._postDisableDmg = s._postDisableDmg || 0; }
-        }
-        if(s === player) {
-          this._sunWarnT = (this._sunWarnT || 0) - dt;
-          if(this._sunWarnT <= 0) {
-            this._sunWarnT = 2;
-            G.ui?.addMsg(type === 'sun' ? '⚠ SOLAR CORONA — hull burning!' : '⚠ Near-sun radiation damaging hull', '#ff7722');
-          }
-          if(particles && Math.random() < 0.5) particles.burst({ x:s.x+(Math.random()-0.5)*24, y:s.y+(Math.random()-0.5)*24, minSpd:20, maxSpd:80, life:0.3, r:2, color:'#ffaa33' }, 3);
-        }
+      // Sun/near-sun damage removed
+      if(false && (type === 'sun' || type === 'near_sun')) {
+        // Damage removed
       }
-      // AI ships steer around every damaging hex tile (sun, near-sun, etc.).
-      // Repulsion is summed from each hazard tile within range, evaluated at a
-      // look-ahead point so ships turn before entering, and any inward velocity
-      // is stripped once actually inside a hazard tile.
-      if(s !== player && this._hazardTiles && this._hazardTiles.length) {
-        const avoidR = G.HEX_WORLD * 2.0;
-        // Look slightly ahead along velocity so ships veer off early.
-        const px = s.x + (s.vx||0)*0.6, py = s.y + (s.vy||0)*0.6;
-        for(const hz of this._hazardTiles) {
-          const dx = px - hz.x, dy = py - hz.y;
-          const d = Math.hypot(dx, dy);
-          if(d >= avoidR || d < 1) continue;
-          const nx = dx/d, ny = dy/d;
-          const t = 1 - d/avoidR;
-          const push = t * t * 3000;
-          s.vx += nx * push * dt;
-          s.vy += ny * push * dt;
-        }
-        // Inside a hazard tile: kill velocity heading deeper in + hard push out.
-        if(this._isDamagingTile(type)) {
-          let best=null, bd=Infinity;
-          for(const hz of this._hazardTiles) { const ddx=s.x-hz.x, ddy=s.y-hz.y, dd=ddx*ddx+ddy*ddy; if(dd<bd){ bd=dd; best=hz; } }
-          if(best) {
-            const d = Math.sqrt(bd)||1, nx=(s.x-best.x)/d, ny=(s.y-best.y)/d;
-            const inward = -(s.vx*nx + s.vy*ny);
-            if(inward > 0) { s.vx += nx*inward; s.vy += ny*inward; }
-            s.vx += nx * 2400 * dt; s.vy += ny * 2400 * dt;
-          }
-        }
-      }
+      // AI avoidance logic removed
     }
     this._playerInDust = !!player && !player.dead && this.tileTypeAt(player.x, player.y) === 'dust';
 
@@ -936,7 +893,7 @@ G.Space = class {
     if(particles) {
       const _nPan = G.clamp((npc.x-(G.game?.player?.x||0))/900,-1,1);
       if(shieldsBefore>0) {
-        particles.shield_hit(proj.x,proj.y,(npc.size||1)*16);
+        G.recordShieldHit(npc, proj.x, proj.y);
         G.sound?.shieldHit(_nPan);
         if(npc.shields <= 0) G.sound?.shieldsLost(_nPan);
       } else {
@@ -959,8 +916,9 @@ G.Space = class {
     const _markMult = (enemy._marked && enemy._markedTimer > 0) ? 1.5 : 1.0;
     enemy.takeDamage(proj.damage * _markMult, proj.type);
     enemy._lastAttackerId = proj.sourceId;
+    if(sb>0&&enemy.shields<sb) G.recordShieldHit(enemy, proj.x, proj.y);
     if(particles) {
-      if(sb>0&&enemy.shields<sb) particles.shield_hit(proj.x,proj.y,(enemy.size||1)*16);
+      if(sb>0&&enemy.shields<sb) {/* shield hex flash handled by recordShieldHit */}
       else if(proj.type==='emp') particles.emp_hit(proj.x,proj.y);
       else particles.burst({x:proj.x,y:proj.y,minSpd:20,maxSpd:80,life:0.15,r:2,color:proj.color},4);
     }
@@ -1002,9 +960,9 @@ G.Space = class {
         else G.ui?.addMsg('⚠ MODULE DESTROYED: '+bm.name,'#ff6622');
       }
     }
+    if(res.shieldDmg>0) G.recordShieldHit(player, proj.x, proj.y);
     if(particles) {
       if(res.shieldDmg>0) {
-        particles.shield_hit(proj.x,proj.y,22);
         G.sound?.shieldHit();
         if(shieldsBefore > 0 && player.shields <= 0) G.sound?.shieldsLost();
       } else if(proj.type==='emp') {
@@ -1051,7 +1009,7 @@ G.Space = class {
       const d=G.v2.dist({x:proj.x,y:proj.y},{x:t.x,y:t.y});
       if(d<proj.splash) {
         const f=1-d/proj.splash;
-        t.takeDamage(proj.damage*f,proj.type);
+        t.takeDamage(proj.damage*f*0.5,proj.type);
         const knock = 600 * f;
         const ang = Math.atan2(t.y-proj.y, t.x-proj.x);
         t.vx += Math.cos(ang) * knock * 0.016;
@@ -1191,6 +1149,7 @@ G.Space = class {
     opts = opts || {};
     const wt = G.astTileWorld(cl, t);
     t.hp -= dmg;
+    cl._dirty = true;   // hp changed → re-bake sprite (damage tint)
     if(particles) particles.mine_spark(wt.x, wt.y);
     if(t.hp > 0) return false;
     const mat = G.ASTEROID_MAT[t.mat] || G.ASTEROID_MAT.rock;

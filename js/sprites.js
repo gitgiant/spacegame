@@ -39,12 +39,13 @@ G.Sprites = {
 
   TSZ: 10, // turret sprite size
 
-  // Build a flat-top hex path centred in an SZ×SZ canvas (radius = SZ/2 − inset).
+  // Build a pointy-top hex path centred in an SZ×SZ canvas (radius = SZ/2 − inset).
+  // Tip points vertically (vertex at −90° = top).
   _hexTilePath(ctx, SZ, inset = 0) {
     const cx = SZ / 2, cy = SZ / 2, R = SZ / 2 - inset;
     ctx.beginPath();
     for(let i = 0; i < 6; i++) {
-      const a = Math.PI / 180 * (60 * i);
+      const a = Math.PI / 180 * (60 * i - 90);
       const x = cx + R * Math.cos(a), y = cy + R * Math.sin(a);
       i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
     }
@@ -758,7 +759,6 @@ G.Sprites = {
     // Rocket nozzle firing a long flame downward — thrust/propulsion.
     engine(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
-      r('rgba(0,0,0,0.7)',0,0,16,16);
       r('#5a6a7a',6,0,4,2);             // mount neck
       r('#8a9aaa',4,2,8,2);             // bell shoulders
       r('#9fb0c2',2,4,12,2);            // bell rim (widest)
@@ -774,7 +774,6 @@ G.Sprites = {
     // Heraldic energy crest tapering to a point — deflector shield.
     shield(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
-      r('rgba(0,0,0,0.7)',0,0,16,16);
       r('#2f6fd8',2,1,12,2);            // crest top
       r('#2f6fd8',2,3,12,5);            // upper body
       r('#2f6fd8',3,8,10,2);
@@ -789,7 +788,6 @@ G.Sprites = {
     // Tall shipping container, cross strapping and corner studs — cargo.
     cargo(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
-      r('rgba(0,0,0,0.7)',0,0,16,16);
       r('#9a7440',2,1,12,14);          // crate face
       r('#be945a',2,1,12,2);           // top-lit edge
       r('#6a4a22',2,13,12,2);          // base shadow
@@ -802,7 +800,6 @@ G.Sprites = {
     // Pressurised tank with a green fuel-level gauge — fuel.
     fuel(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
-      r('rgba(0,0,0,0.7)',0,0,16,16);
       r('#9aaaba',5,0,6,2);            // filler cap
       r('#808fa0',2,2,12,13);          // tank body
       r('#b2bece',2,2,2,13);           // left highlight
@@ -816,7 +813,6 @@ G.Sprites = {
     // Glowing hyperspace ring portal with a collapsing core — jump drive.
     jump(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
-      r('rgba(0,0,0,0.7)',0,0,16,16);
       r('#bb44ee',4,0,8,2); r('#bb44ee',4,14,8,2);  // ring top/bottom
       r('#bb44ee',0,4,2,8); r('#bb44ee',14,4,2,8);  // ring left/right
       r('#bb44ee',2,2,2,2); r('#bb44ee',12,2,2,2);  // rounded corners
@@ -829,7 +825,6 @@ G.Sprites = {
     // Forked lightning bolt — energy/reactor output.
     power(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
-      r('rgba(0,0,0,0.7)',0,0,16,16);
       r('#ffe033',8,0,4,4);            // bolt head
       r('#ffe033',6,4,4,2);            // upper diagonal
       r('#ffe033',4,6,6,2);            // mid kink
@@ -843,7 +838,6 @@ G.Sprites = {
     // Round head over broad shoulders — crew quarters/personnel.
     crew(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
-      r('rgba(0,0,0,0.7)',0,0,16,16);
       r('#d6dee6',6,1,4,4);            // head
       r('#eef3f8',6,1,2,2);           // head highlight
       r('#7d8d9d',4,6,8,8);           // torso
@@ -855,7 +849,6 @@ G.Sprites = {
     // Dish aimed up with rising signal pips — sensors/detection.
     sensor(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
-      r('rgba(0,0,0,0.7)',0,0,16,16);
       r('#44ddff',10,0,2,2);           // signal pips
       r('#44ddff',12,2,2,2);
       r('#44ddff',14,4,2,2);
@@ -869,7 +862,6 @@ G.Sprites = {
     // Toothed cog with hub bore — generic utility/special module.
     special(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
-      r('rgba(0,0,0,0.7)',0,0,16,16);
       r('#ffb733',6,0,4,2);            // top tooth
       r('#ffb733',6,14,4,2);           // bottom tooth
       r('#ffb733',0,6,2,4);            // left tooth
@@ -883,7 +875,6 @@ G.Sprites = {
     // Heavy double-bevelled plate with a ridge and rivets — armour.
     armor(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
-      r('rgba(0,0,0,0.7)',0,0,16,16);
       r('#48586a',2,0,12,16);          // plate
       r('#6a7c90',2,0,12,2);           // top bevel light
       r('#6a7c90',2,0,2,16);           // left bevel light
@@ -909,7 +900,6 @@ G.Sprites = {
     // Fixed forward gun — barrel up with hot muzzle, breech and mount below.
     weapon(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
-      r('rgba(0,0,0,0.7)',0,0,16,16);
       r('#8a9aaa',6,0,4,8);            // barrel
       r('#aab8c6',6,0,2,8);            // barrel highlight
       r('#cfd8e0',6,0,4,2);            // muzzle
@@ -922,7 +912,6 @@ G.Sprites = {
     // Rotating turret — domed housing with twin barrels on a base.
     turret(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
-      r('rgba(0,0,0,0.7)',0,0,16,16);
       r('#3a4a5a',4,0,2,6); r('#3a4a5a',10,0,2,6);  // twin barrels
       r('#cfd8e0',4,0,2,2); r('#cfd8e0',10,0,2,2);  // barrel tips
       r('#5a6c7e',4,6,8,4);           // dome
@@ -934,7 +923,6 @@ G.Sprites = {
     // Cockpit windshield — blue tinted canopy with frame and instrument glow.
     cockpit(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
-      r('rgba(0,0,0,0.7)',0,0,16,16);
       r('#445a6a',2,0,12,2);            // top frame bar
       r('#445a6a',2,2,2,8); r('#445a6a',12,2,2,8); // side frames
       r('#5599bb',4,2,8,8);             // windshield glass
@@ -948,7 +936,6 @@ G.Sprites = {
     // Escape pod — red emergency capsule with rescue cross and ion thruster.
     escape_pod(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
-      r('rgba(0,0,0,0.7)',0,0,16,16);
       r('#bb2200',6,0,4,2);             // nose cap
       r('#dd3311',4,2,8,2);             // upper shoulder
       r('#ee4422',1,4,14,6);            // pod body
@@ -962,7 +949,6 @@ G.Sprites = {
     // Targeting pod — armored optics with IR emitter and target brackets.
     targeting_pod(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
-      r('rgba(0,0,0,0.7)',0,0,16,16);
       r('#2a3444',0,2,16,8);            // pod body
       r('#3a4454',4,0,8,2);             // top mount
       r('#55cc22',6,4,4,4);             // optical lens housing
@@ -977,7 +963,6 @@ G.Sprites = {
     // Missile turret — central barrel flanked by red-tipped missile pods.
     missile_turret(ctx) {
       const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
-      r('rgba(0,0,0,0.7)',0,0,16,16);
       r('#46586a',2,10,12,4);          // base plate
       r('#637588',2,8,12,2);           // base top edge
       r('#28384a',2,13,12,2);          // base shadow

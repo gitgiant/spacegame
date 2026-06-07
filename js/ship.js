@@ -1,7 +1,8 @@
 'use strict';
 // ── Ship class ────────────────────────────────────────────
-G.Ship = class {
+G.Ship = class extends G.ShipEntity {
   constructor(templateId) {
+    super();
     const tpl = G.SHIPS[templateId];
     if(!tpl) throw new Error('Unknown ship: '+templateId);
 
@@ -10,6 +11,9 @@ G.Ship = class {
     this.name = tpl.name;
     this.faction = tpl.faction;
     this.shapeId = tpl.shape;
+    // Module-layout silhouette strategy (distinct from shapeId). Template may
+    // override; otherwise determined by faction. Used by _generateHexLayout.
+    this.layoutShape = tpl.layoutShape || G.FACTION_LAYOUT_SHAPE[tpl.faction] || 'random';
 
     // Base physics
     this.x = 0; this.y = 0;
@@ -37,7 +41,7 @@ G.Ship = class {
     this.shieldRegen= 0;
     this.maxEnergy = 0;
     this.energy    = 0;
-    this.energyRegen= 45;
+    this.energyRegen= 0;
     this.maxFuel   = 0;
     this.fuel      = 0;
     this.fuelBurnRate = 0.5;
@@ -196,11 +200,11 @@ G.Ship = class {
     tpl = tpl || G.SHIPS[this.templateId] || {};
     const _fac = tpl.faction || this.faction;
     return (_fac && _fac !== 'neutral' && _fac !== 'independent' && G.FACTIONS?.[_fac]?.color)
-      || tpl.color || '#667799';
+      || tpl.color || '#444444';
   }
 
   // Generate the full hex layout: assign (q,r) to every inner module on a
-  // flat-top hex grid (core at origin, weapons fore, thrusters aft, rest
+  // pointy-top hex grid (core at origin, weapons fore, thrusters aft, rest
   // compact), then wrap the whole assembly in a hull-panel perimeter.
   _generateHexLayout(tpl) {
     // Drop any existing hull panels and clear all positions — we rebuild from scratch.
@@ -221,50 +225,79 @@ G.Ship = class {
     const core = inner.find(e => e.slot === 'core');
     if(core) assign(core.id, 0, 0); else used.add('0,0'); // reserve origin regardless
 
-    // Frontier candidates = empty hexes adjacent to the current blob.
-    const frontier = () => {
-      const set = new Map();
-      for(const k of used) {
-        const { q, r } = G.hexFromKey(k);
-        for(const nb of G.hexNeighbors(q, r)) {
-          const nk = G.hexKey(nb.q, nb.r);
-          if(!used.has(nk)) set.set(nk, nb);
+    const bodyMods   = inner.filter(e => e.slot !== 'core' && e.slot !== 'thruster' && e.slot !== 'weapon' && e.slot !== 'turret');
+    const weaponMods = inner.filter(e => e.slot === 'weapon' || e.slot === 'turret');
+    const thrusters  = inner.filter(e => e.slot === 'thruster');
+    const Ninner     = 1 + bodyMods.length + weaponMods.length;   // core + body + weapons
+
+    // Grow the inner assembly into the faction silhouette (seeded per template so
+    // a given ship always looks the same).
+    const shapeRng = G.seededRng((this.templateId || 'ship') + '_shape');
+    const grown    = new Set(['0,0']);
+    const cells    = [{ q: 0, r: 0 }];
+    const frontierCells = () => {
+      const fr = new Map();
+      for(const c of cells) for(const nb of G.hexNeighbors(c.q, c.r)) {
+        const k = G.hexKey(nb.q, nb.r);
+        if(!grown.has(k) && !fr.has(k)) fr.set(k, nb);
+      }
+      return [...fr.values()];
+    };
+    const addCell = (q, r) => { const k = G.hexKey(q, r); if(grown.has(k)) return; grown.add(k); cells.push({ q, r }); };
+
+    if(this.layoutShape === 'symmetric') {
+      // Left-right symmetric: grow in mirror pairs about the vertical (x=0) axis.
+      // Pointy-top mirror of (q,r) across x=0 is (-q-r, r); axis cells satisfy q=-q-r.
+      const mirror = (q, r) => ({ q: -q - r, r });
+      const isAxis = (q, r) => (-q - r) === q;
+      const dist   = c => G.hexDist(0, 0, c.q, c.r);
+      const pickNearest = (pool) => {
+        const minD = Math.min(...pool.map(dist));
+        const ring = pool.filter(c => dist(c) === minD);
+        return ring[Math.floor(shapeRng() * ring.length)];
+      };
+      while(cells.length < Ninner) {
+        const fr = frontierCells();
+        if(!fr.length) break;
+        const slots = Ninner - cells.length;
+        const pairs = fr.filter(c => !isAxis(c.q, c.r));
+        if(slots >= 2 && pairs.length) {
+          const c = pickNearest(pairs);
+          addCell(c.q, c.r);
+          const m = mirror(c.q, c.r); addCell(m.q, m.r);
+        } else {
+          // 1 slot left (or only axis cells available): add a single axis cell
+          // to keep the silhouette mirror-symmetric.
+          const axis = fr.filter(c => isAxis(c.q, c.r));
+          const c = pickNearest(axis.length ? axis : fr);
+          addCell(c.q, c.r);
         }
       }
-      return [...set.values()];
-    };
-    const yOf = c => c.r + c.q / 2;                 // ∝ pixel y (fore = −, aft = +)
-    const dOf = c => G.hexDist(0, 0, c.q, c.r);
-    // Distance first so weapons/thrusters fill across the current arc ring before
-    // going deeper — prevents stacking into a linear spike column.
-    const cmpFore    = (a, b) => dOf(a) - dOf(b) || yOf(a) - yOf(b) || a.q - b.q;
-    const cmpAft     = (a, b) => dOf(a) - dOf(b) || yOf(b) - yOf(a) || a.q - b.q;
-    const placeOne = (id, cmp) => {
-      const cand = frontier();
-      if(!cand.length) return;
-      cand.sort(cmp);
-      assign(id, cand[0].q, cand[0].r);
-    };
+    } else {
+      // Faction shape: greedily add the frontier cell with the lowest shape score.
+      // 'random' → uniform score → organic blob.
+      const score = G.shapeScore(this.layoutShape || 'random', Ninner);
+      while(cells.length < Ninner) {
+        const fr = frontierCells();
+        if(!fr.length) break;
+        let best = [], bs = Infinity;
+        for(const cnd of fr) {
+          const u = G.hexToPixel(cnd.q, cnd.r, 1);
+          const s = score(u.x, u.y);
+          if(s < bs - 1e-6) { bs = s; best = [cnd]; }
+          else if(s < bs + 1e-6) best.push(cnd);
+        }
+        const pick = best[Math.floor(shapeRng() * best.length)];
+        addCell(pick.q, pick.r);
+      }
+    }
 
-    // Body modules: pick randomly among minimum-distance frontier cells so each
-    // ship template gets an organic, non-linear silhouette (seeded by templateId
-    // so the same ship always looks the same).
-    const shapeRng = G.seededRng((this.templateId || 'ship') + '_shape');
-    const placeRandom = (id) => {
-      const cand = frontier();
-      if(!cand.length) return;
-      const minD = Math.min(...cand.map(dOf));
-      const ring = cand.filter(c => dOf(c) === minD);
-      const pick = ring[Math.floor(shapeRng() * ring.length)];
-      assign(id, pick.q, pick.r);
-    };
-
-    // Fill body randomly, weapons fore. Thrusters land outside the hull ring.
-    const body      = inner.filter(e => e.slot !== 'core' && e.slot !== 'thruster' && e.slot !== 'weapon' && e.slot !== 'turret');
-    const weapons   = inner.filter(e => e.slot === 'weapon' || e.slot === 'turret');
-    const thrusters = inner.filter(e => e.slot === 'thruster');
-    for(const e of body)    placeRandom(e.id);
-    for(const e of weapons) placeOne(e.id, cmpFore);
+    // Assign modules to the grown cells: weapons to the most-forward cells
+    // (pointy-top: smallest r = nose), body fills the rest.
+    const rest = cells.slice(1).sort((a, b) => (a.r - b.r) || (a.q - b.q));
+    let ci = 0;
+    for(const e of weaponMods) { if(ci >= rest.length) break; assign(e.id, rest[ci].q, rest[ci].r); ci++; }
+    for(const e of bodyMods)   { if(ci >= rest.length) break; assign(e.id, rest[ci].q, rest[ci].r); ci++; }
 
     // Wrap the hull first, then place thrusters on the outer frontier (outside hull panels).
     this._wrapHull(tpl);
@@ -282,13 +315,36 @@ G.Ship = class {
       }
       return [...map.values()];
     })();
-    outerPerim.sort(cmpAft);
-    let pi = 0;
-    for(const e of thrusters) {
-      if(pi >= outerPerim.length) break;
-      this.modules[e.id].q = outerPerim[pi].q;
-      this.modules[e.id].r = outerPerim[pi].r;
-      pi++;
+    // Thrusters go aft (pointy-top: largest r = rear), balanced left-right.
+    // Group by r-value, then within each group pick alternating left/right.
+    const byR = new Map();
+    for(const cell of outerPerim) {
+      if(!byR.has(cell.r)) byR.set(cell.r, []);
+      byR.get(cell.r).push(cell);
+    }
+    for(const row of byR.values()) {
+      row.sort((a, b) => a.q - b.q);
+    }
+    const thrusterCells = [];
+    for(const r of [...byR.keys()].sort((a, b) => b - a)) {
+      const row = byR.get(r);
+      // For each row, alternate picking from right and left edges
+      const mid = row.length / 2;
+      let li = 0, ri = row.length - 1;
+      for(let i = 0; i < row.length && thrusterCells.length < thrusters.length; i++) {
+        if(i % 2 === 0) {
+          thrusterCells.push(row[ri]);
+          ri--;
+        } else {
+          thrusterCells.push(row[li]);
+          li++;
+        }
+      }
+      if(thrusterCells.length >= thrusters.length) break;
+    }
+    for(let pi = 0; pi < thrusters.length && pi < thrusterCells.length; pi++) {
+      this.modules[thrusters[pi].id].q = thrusterCells[pi].q;
+      this.modules[thrusters[pi].id].r = thrusterCells[pi].r;
     }
   }
 
@@ -411,7 +467,7 @@ G.Ship = class {
     this.maxShields = 0;
     this.shieldRegen= 0;
     this.maxEnergy  = this._baseEnergy;
-    this.energyRegen= 45;
+    this.energyRegen= 0;
     this.maxFuel    = this._baseFuel;
     this.cargoSpace = this._baseCargoSpace;
     this.maxCrew    = 1;
@@ -628,7 +684,7 @@ G.Ship = class {
       const thrust = this.thrustForward * thrustEff * boostMult * stimMult / effectiveMass;
       this.vx += fwdX * thrust * dt;
       this.vy += fwdY * thrust * dt;
-      if(boostActive && !superBoostActive) this.energy = Math.max(0, this.energy - 225 * dt);
+      if(boostActive && !superBoostActive) this.energy = Math.max(0, this.energy - 112.5 * dt);
       this.fuel = Math.max(0, this.fuel - this.fuelBurnRate * 0.05 * dt);
 
       // Grip: cancel sideways drift when side thrusters can oppose the drift direction
@@ -653,12 +709,12 @@ G.Ship = class {
         this.vx -= latX * dodgeAccel * dt;
         this.vy -= latY * dodgeAccel * dt;
         this._strafeCooldown = 0.5;
-        if(boostActive && !superBoostActive) this.energy = Math.max(0, this.energy - 30);
+        if(boostActive && !superBoostActive) this.energy = Math.max(0, this.energy - 15);
       } else if(inp.strafeR) {
         this.vx += latX * dodgeAccel * dt;
         this.vy += latY * dodgeAccel * dt;
         this._strafeCooldown = 0.5;
-        if(boostActive && !superBoostActive) this.energy = Math.max(0, this.energy - 30);
+        if(boostActive && !superBoostActive) this.energy = Math.max(0, this.energy - 15);
       }
     }
     // S = braking, then reverse flight. Any thruster can reverse — no dedicated
@@ -729,46 +785,16 @@ G.Ship = class {
   }
 
   // ── Damage ───────────────────────────────────────────
-  takeDamage(amount, type) {
-    if((this._invulTimer||0) > 0) return { shieldDmg:0, hullDmg:0 };
-    // Armor reduces physical damage
-    if(type !== 'emp' && type !== 'laser') {
-      amount = Math.max(1, amount - this.armor);
-    }
-
-    if(type === 'emp') {
-      if(this.shields > 0) this._shieldFlash = Date.now();
-      this.shields = Math.max(0, this.shields - amount*0.5);
-      this.energy  = Math.max(0, this.energy  - amount);
-      this.empTimer = 3 + amount*0.01;
-      return { shieldDmg:amount*0.5, hullDmg:0 };
-    }
-
-    // Disabled ships have no power — bypass shields, track damage separately (hull stays at 0)
-    if(this.disabled) {
-      this._postDisableDmg = (this._postDisableDmg || 0) + amount;
-      return { shieldDmg:0, hullDmg:amount };
-    }
-
-    let shieldDmg = 0, hullDmg = 0;
-    if(this.shields > 0) {
-      this._shieldFlash = Date.now();
-      shieldDmg = Math.min(this.shields, amount);
-      this.shields -= shieldDmg;
-      amount -= shieldDmg;
-      // Bleed-through
-      amount *= 0.2;
-    }
-    if(amount > 0) {
-      hullDmg = amount;
-      this.hull -= hullDmg;
-      if(this.hull <= 0) {
-        this.hull = 0;
-        this._postDisableDmg = 0;
-        this.disabled = true;
-      }
-    }
-    return { shieldDmg, hullDmg };
+  // EMP also drains energy and stuns proportionally (player-specific).
+  _takeEmp(amount) {
+    this.shields = Math.max(0, this.shields - amount*0.5);
+    this.energy  = Math.max(0, this.energy  - amount);
+    this.empTimer = 3 + amount*0.01;
+    return { shieldDmg: amount*0.5, hullDmg: 0 };
+  }
+  _applyHullDamage(amount) {
+    this.hull -= amount;
+    if(this.hull <= 0) { this.hull = 0; this._postDisableDmg = 0; this.disabled = true; }
   }
 
   // Randomly damage a module; returns { name, slot } if one breaks, else null
@@ -1066,7 +1092,7 @@ G.shipCollisionRadius = function(ship) {
 };
 
 // True if world point (wx,wy) lands inside the ship's hex assembly. Because
-// flat-top hexes tile the plane, the hex nearest a point is the hex containing
+// pointy-top hexes tile the plane, the hex nearest a point is the hex containing
 // it — so a hit is just "the containing cell is occupied".
 G.shipHexHit = function(ship, wx, wy) {
   const fp = G.shipFootprint(ship);

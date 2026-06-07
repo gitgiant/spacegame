@@ -59,17 +59,6 @@ G.Galaxy = class {
       }
     });
 
-    this._canvas.addEventListener('dblclick', e => {
-      if(!this.hoveredSys) return;
-      const space = G.game?.space;
-      if(!space) return;
-      const hailable = [...(space.npcs||[]), ...(space.fleetShips||[])]
-        .filter(n => !n.dead && !n._deathDone && !n.hostile);
-      if(hailable.length > 0) {
-        G.ui?.openComms(hailable[0]);
-      }
-    });
-
     // Mouse-wheel zoom centered on cursor position
     this._canvas.addEventListener('wheel', e => {
       e.preventDefault();

@@ -1,7 +1,8 @@
 'use strict';
 // ── Enemy AI ──────────────────────────────────────────────
-G.EnemyAI = class {
+G.EnemyAI = class extends G.ShipEntity {
   constructor(data) {
+    super();
     Object.assign(this, data);
     this.type     = 'enemy';
     this.id       = 'e'+(++G.EnemyAI._uid);
@@ -169,9 +170,10 @@ G.EnemyAI = class {
           if(angleDiff < 0.6 && inRange && offCooldown && (!isMissileWpn || this._locked)) {
             wpn.lastShot = now;
             const spd = wpn.projSpeed || (wpn.type === 'laser' ? 850 : 600);
+            const fireOffset = 20 * (this.size || 1);
             projectiles.push({
-              x: this.x+Math.sin(this.angle)*18,
-              y: this.y-Math.cos(this.angle)*18,
+              x: this.x+Math.sin(this.angle)*fireOffset,
+              y: this.y-Math.cos(this.angle)*fireOffset,
               vx: Math.sin(shootAngle)*spd + this.vx*0.2,
               vy: -Math.cos(shootAngle)*spd + this.vy*0.2,
               damage: wpn.damage,
@@ -186,7 +188,7 @@ G.EnemyAI = class {
               trackTarget: isMissileWpn ? {x: player.x, y: player.y} : null,
             });
             if(particles) particles.emit({
-              x: this.x+Math.sin(this.angle)*18, y: this.y-Math.cos(this.angle)*18,
+              x: this.x+Math.sin(this.angle)*fireOffset, y: this.y-Math.cos(this.angle)*fireOffset,
               minSpd:20, maxSpd:60, life:0.15, r:2, color: wpn.color,
             });
             G.sound?.enemyWeapon(wpn.type, distToPlayer, G.clamp((this.x-player.x)/900,-1,1));
@@ -199,9 +201,10 @@ G.EnemyAI = class {
         if(canFire && (!isMissile || this._locked)) {
           this.lastShot = now;
           const spd = this.weaponType==='laser' ? 850 : 600;
+          const fireOffset = 20 * (this.size || 1);
           projectiles.push({
-            x: this.x+Math.sin(this.angle)*18,
-            y: this.y-Math.cos(this.angle)*18,
+            x: this.x+Math.sin(this.angle)*fireOffset,
+            y: this.y-Math.cos(this.angle)*fireOffset,
             vx: Math.sin(shootAngle)*spd + this.vx*0.2,
             vy: -Math.cos(shootAngle)*spd + this.vy*0.2,
             damage:this.damage,
@@ -216,7 +219,7 @@ G.EnemyAI = class {
             trackTarget:this.weaponType==='missile'?{x:player.x,y:player.y}:null,
           });
           if(particles) particles.emit({
-            x:this.x+Math.sin(this.angle)*18, y:this.y-Math.cos(this.angle)*18,
+            x:this.x+Math.sin(this.angle)*fireOffset, y:this.y-Math.cos(this.angle)*fireOffset,
             minSpd:20, maxSpd:60, life:0.15, r:2, color:this.projColor,
           });
           G.sound?.enemyWeapon(this.weaponType, distToPlayer, G.clamp((this.x-player.x)/900,-1,1));
@@ -271,6 +274,18 @@ G.EnemyAI = class {
     // Apply velocity to position
     this.x += this.vx * dt;
     this.y += this.vy * dt;
+
+    // Engine trail with rainbow on boost — emit from engine points
+    if(particles && Math.random() < 0.5) {
+      const shape = G.SHAPES[this.shapeId];
+      const enginePts = shape?.enginePts || [[0, 10]];
+      const ca = Math.cos(this.angle), sa = Math.sin(this.angle);
+      for(const [ex, ey] of enginePts) {
+        const wx = this.x + (ex * ca - ey * sa);
+        const wy = this.y + (ex * sa + ey * ca);
+        particles.engine_trail(wx, wy, this.angle, this.vx, this.vy, this.size||1, this._boosting);
+      }
+    }
   }
 
   _hyperEscape(particles) {
@@ -288,25 +303,7 @@ G.EnemyAI = class {
     this._deathDone = true; // skip dying sequence — ship escaped
   }
 
-  _steerTo(tx, ty, dt) {
-    const dx = tx-this.x, dy = ty-this.y;
-    if(Math.abs(dx)+Math.abs(dy) < 5) return;
-    const target = Math.atan2(dx,-dy);
-    const diff = G.wrapAngle(target-this.angle);
-    const turn = G.clamp(diff*5, -this.turnSpeed, this.turnSpeed);
-    this.angle += turn*dt;
-  }
-
-  _thrust(dt, boost=false) {
-    const mult = boost ? 1.4 : 1.0;
-    this.vx += Math.sin(this.angle)*this.speed*mult*dt*0.5;
-    this.vy -= Math.cos(this.angle)*this.speed*mult*dt*0.5;
-    const spd = Math.sqrt(this.vx*this.vx+this.vy*this.vy);
-    if(spd > this.speed*mult) {
-      this.vx *= (this.speed*mult)/spd;
-      this.vy *= (this.speed*mult)/spd;
-    }
-  }
+  // _steerTo / _thrust inherited from G.ShipEntity.
 
   // Soft steering repulsion from nearby ships and asteroids
   _avoidObstacles(dt, player) {
@@ -340,32 +337,15 @@ G.EnemyAI = class {
     }
   }
 
-  takeDamage(amount, type) {
-    if(type==='emp') {
-      if(this.shields > 0) this._shieldFlash = Date.now();
-      this.shields = Math.max(0, this.shields - amount*0.5);
-      this.empTimer = 5;
-      return;
-    }
-    if(this.disabled) {
-      // Post-disable damage tracked separately; hull stays at 0
-      this._postDisableDmg = (this._postDisableDmg || 0) + amount;
-      if(this._postDisableDmg >= this.maxHp * 0.4) this.dead = true;
-      return;
-    }
-    if(this.shields > 0) {
-      this._shieldFlash = Date.now();
-      const sd = Math.min(this.shields, amount);
-      this.shields -= sd;
-      amount -= sd;
-      amount *= 0.2;
-    }
+  // Default EMP applies (shields −50%, stun). Post-disable damage destroys at 40% maxHp.
+  _damageDisabled(amount) {
+    this._postDisableDmg = (this._postDisableDmg || 0) + amount;
+    if(this._postDisableDmg >= this.maxHp * 0.4) this.dead = true;
+    return { shieldDmg: 0, hullDmg: amount };
+  }
+  _applyHullDamage(amount) {
     this.hp -= amount;
-    if(this.hp <= 0) {
-      this.hp = 0;
-      this.disabled = true;
-      this.aiState = 'disabled';
-    }
+    if(this.hp <= 0) { this.hp = 0; this.disabled = true; this.aiState = 'disabled'; }
   }
 };
 G.EnemyAI._uid = 0;

@@ -209,11 +209,11 @@ G.WEAPONS = {
   },
   mining_laser_wpn: {
     id:'mining_laser_wpn', name:'Mining Laser', type:'mining', slot:'weapon',
-    damage:4.5, range:70, energyCost:1, fireRate:20, projSpeed:1100,
+    damage:0.45, range:140, energyCost:1, fireRate:20, projSpeed:1100,
     color:'#ffcc00', width:5, pierce:false, splash:0,
     price:1500, mass:5, rarity:'c', desc:'Continuous-beam mining laser. Highly effective against asteroids, decent against ships.',
     mineRate:90,
-    stats:'MINE:5×DMG  RNG:70  BEAM',
+    stats:'MINE:5×DMG  RNG:140  BEAM',
   },
 };
 
@@ -232,21 +232,21 @@ G.MODULES = {
   thruster: {
     id:'thruster', name:'Thruster', slot:'thruster',
     stats:{ thrustForce:+12000, mass:+22 },
-    energyDraw:8, hp:60, price:500, rarity:'c',
+    energyDraw:4, hp:60, price:500, rarity:'c',
     desc:'Maneuvering thruster. Rotate to set direction. Two rear-facing required to fly.',
     visual:'engine',
   },
   thruster_imp: {
     id:'thruster_imp', name:'Improved Thruster', slot:'thruster',
     stats:{ thrustForce:+25000, mass:+38 },
-    energyDraw:18, hp:80, price:1800, rarity:'u',
+    energyDraw:9, hp:80, price:1800, rarity:'u',
     desc:'High-output thruster. Rotate to set direction.',
     visual:'engine',
   },
   thruster_mil: {
     id:'thruster_mil', name:'Military Thruster', slot:'thruster',
     stats:{ thrustForce:+40000, mass:+52 },
-    energyDraw:30, hp:100, price:5000, rarity:'r',
+    energyDraw:15, hp:100, price:5000, rarity:'r',
     desc:'Military-grade thruster. Rotate to set direction.',
     visual:'engine',
   },
@@ -327,14 +327,14 @@ G.MODULES = {
   // Power
   reactor: {
     id:'reactor', name:'Reactor', slot:'power',
-    stats:{ maxEnergy:+80, energyRegen:+15, mass:+40 },
+    stats:{ maxEnergy:+80, energyRegen:+45, mass:+40 },
     energyDraw:0, hp:70, price:1500, rarity:'c',
     desc:'Fusion reactor. More power.',
     visual:'power',
   },
   military_reactor: {
     id:'military_reactor', name:'Military Reactor', slot:'power',
-    stats:{ maxEnergy:+200, energyRegen:+40, mass:+60 },
+    stats:{ maxEnergy:+200, energyRegen:+120, mass:+60 },
     energyDraw:0, hp:90, price:5500, rarity:'r',
     desc:'High-output military reactor.',
     visual:'power',
@@ -590,7 +590,7 @@ G.SHIPS = {
     baseThrust:8000, baseTurn:0, baseCargoSpace:0,
     slots:14,
     startModules:['core_miner_ship',{id:'thruster',rot:0},{id:'thruster',rot:0},'reactor','jump_drive','medium_cargo','medium_cargo','escape_pod'],
-    startWeapons:['mining_laser_wpn','turret','turret','turret','turret'],
+    startWeapons:['mining_laser_wpn','turret','turret'],
     shape:'miner', color:'#aa9966', size:1.4,
     stats:'HULL:280  CARGO:20  MINER',
   },

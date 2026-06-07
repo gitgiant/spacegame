@@ -15,23 +15,23 @@ G.v2 = {
 
 // ── Hex grid (flat-top, axial q,r) ───────────────────────
 // Module ships live on a flat-top hex grid. Core at (0,0). Forward (nose) = -y.
-// `size` is the hex radius (centre→vertex). Flat-top: width = 2·size,
-// column spacing = 1.5·size; height = √3·size, full row spacing = √3·size.
+// `size` is the hex radius (centre→vertex). Pointy-top: tip points vertically,
+// height = 2·size, row spacing = 1.5·size; width = √3·size, column spacing = √3·size.
 G.HEX_R = 9;              // base module-hex radius in sprite pixels
 G.HEX_SQRT3 = Math.sqrt(3);
 
-// 6 axial neighbour directions (flat-top): E, NE, NW, W, SW, SE in screen terms
+// 6 axial neighbour directions (pointy-top): E, NE, NW, W, SW, SE in screen terms
 G.HEX_DIRS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
 
 G.hexToPixel = (q, r, size) => ({
-  x: size * 1.5 * q,
-  y: size * G.HEX_SQRT3 * (r + q / 2),
+  x: size * G.HEX_SQRT3 * (q + r / 2),
+  y: size * 1.5 * r,
 });
 
-// Inverse + cube-rounding to nearest hex (for pointer hit-testing).
+// Inverse + cube-rounding to nearest hex (for pointer hit-testing). Pointy-top.
 G.pixelToHex = (x, y, size) => {
-  const qf = (2 / 3 * x) / size;
-  const rf = (-1 / 3 * x + G.HEX_SQRT3 / 3 * y) / size;
+  const qf = (G.HEX_SQRT3 / 3 * x - 1 / 3 * y) / size;
+  const rf = (2 / 3 * y) / size;
   // cube round
   let xc = qf, zc = rf, yc = -xc - zc;
   let rx = Math.round(xc), ry = Math.round(yc), rz = Math.round(zc);
@@ -161,6 +161,122 @@ G.fmtCredits = (n) => '$ '+Math.round(n).toLocaleString();
 // Rarity color helper
 G.rarityColor = (r) => G.RARITY[r]?.color || '#cccccc';
 
+// Record a shield-impact world point on an entity so the hit shield hex flashes
+// white (see Renderer.drawShieldOutline). Capped + age-pruned at draw time.
+G.recordShieldHit = (e, x, y) => {
+  if(!e) return;
+  (e._shieldHits || (e._shieldHits = [])).push({ x, y, t: Date.now() });
+  if(e._shieldHits.length > 16) e._shieldHits.shift();
+};
+
+// ── Shared ship-entity base ───────────────────────────────
+// Player (G.Ship), enemies (G.EnemyAI), NPCs (G.NPCShip) and fleet escorts
+// (G.FleetShip) all extend this so damage runs through ONE pipeline. The shared
+// skeleton is: invuln → armor → EMP → (disabled) → shield-bleed → hull. Per-class
+// quirks (EMP behaviour, hp vs hull field, death thresholds) are small overrides.
+G.ShipEntity = class {
+  // Default EMP: drain half the value off shields, brief stun. Override per class.
+  _takeEmp(amount) {
+    this.shields = Math.max(0, this.shields - amount * 0.5);
+    this.empTimer = 5;
+    return { shieldDmg: amount * 0.5, hullDmg: 0 };
+  }
+  // While disabled (no power): bypass shields, accumulate raw damage. Override
+  // to change the destruction rule.
+  _damageDisabled(amount) {
+    this._postDisableDmg = (this._postDisableDmg || 0) + amount;
+    return { shieldDmg: 0, hullDmg: amount };
+  }
+  // Whether takeDamage short-circuits once disabled (fleet ships return false).
+  _stopsWhenDisabled() { return true; }
+  // Apply post-shield damage to the hull/hp field + handle disable/death.
+  _applyHullDamage(amount) { /* subclass-specific */ }
+
+  takeDamage(amount, type) {
+    if((this._invulTimer || 0) > 0) return { shieldDmg: 0, hullDmg: 0 };
+    if(type !== 'emp' && type !== 'laser' && typeof this.armor === 'number') amount = Math.max(1, amount - this.armor);
+    if(type === 'emp') return this._takeEmp(amount) || { shieldDmg: 0, hullDmg: 0 };
+    if(this.disabled && this._stopsWhenDisabled()) return this._damageDisabled(amount);
+    let shieldDmg = 0;
+    if(this.shields > 0) {
+      shieldDmg = Math.min(this.shields, amount);
+      this.shields -= shieldDmg;
+      amount = (amount - shieldDmg) * 0.2;   // bleed-through
+    }
+    let hullDmg = 0;
+    if(amount > 0) { hullDmg = amount; this._applyHullDamage(amount); }
+    return { shieldDmg, hullDmg };
+  }
+
+  // ── Shared steering / thrust (AI state machines call these) ──────────────
+  // Turn toward a world point, clamped to this.turnSpeed.
+  _steerTo(tx, ty, dt) {
+    const dx = tx - this.x, dy = ty - this.y;
+    if(Math.abs(dx) + Math.abs(dy) < 5) return;
+    const target = Math.atan2(dx, -dy);
+    const diff = G.wrapAngle(target - this.angle);
+    this.angle += G.clamp(diff * 5, -this.turnSpeed, this.turnSpeed) * dt;
+  }
+  // Accelerate forward, capped at this.speed. `boost` gives a 1.4× burst.
+  _thrust(dt, boost = false) {
+    const mult = boost ? 1.4 : 1.0;
+    this.vx += Math.sin(this.angle) * this.speed * mult * dt * 0.5;
+    this.vy -= Math.cos(this.angle) * this.speed * mult * dt * 0.5;
+    const spd = Math.hypot(this.vx, this.vy);
+    if(spd > this.speed * mult) { this.vx *= (this.speed*mult)/spd; this.vy *= (this.speed*mult)/spd; }
+  }
+};
+
+// ── Faction hull silhouettes (module-layout placement strategy) ───────────
+// `layoutShape` is a NEW ship property (distinct from shapeId, which is the
+// drawn sprite). It selects a placement strategy for _generateHexLayout: cells
+// are grown greedily from the core, preferring the lowest shape score. Shapes
+// are defined in pointy-top local pixel space (forward/nose = −y).
+G.FACTION_LAYOUT_SHAPE = {
+  earth: 'penis', rebellion: 'u', pirate: 'triangle', alien: 'donut',
+  independent: 'symmetric', neutral: 'symmetric', contested: 'symmetric',
+};
+// score(x,y) → 0 = perfectly on-shape, larger = further off-shape (avoid).
+G.shapeScore = (shape, n) => {
+  const S = Math.max(2, Math.sqrt(n) * 1.05);   // characteristic radius (scales with size)
+  switch(shape) {
+    case 'penis': return (x, y) => {            // forward shaft+glans (−y), two base lobes (+y)
+      const Ws = 0.30*S, top = -1.05*S, bot = 0.35*S;
+      const dShaft = Math.max(0, Math.abs(x)-Ws) + Math.max(0, top - y) + Math.max(0, y - bot);
+      const dGlans = Math.max(0, Math.hypot(x, y - top) - 0.40*S);
+      const Wb = 0.46*S, yl = 0.95*S, Wl = 0.42*S;
+      const dL = Math.max(0, Math.hypot(x + Wb, y - yl) - Wl);
+      const dR = Math.max(0, Math.hypot(x - Wb, y - yl) - Wl);
+      return Math.min(dShaft, dGlans, dL, dR);
+    };
+    case 'u': return (x, y) => {                // bottom aft (+y), two arms forward (−y), hollow front-centre
+      const Wo = 0.85*S, Wi = 0.38*S, bottomY = -0.15*S;
+      let pen = 0;
+      if(y > S) pen += y - S; if(y < -S) pen += -S - y;
+      const yy = Math.max(-S, Math.min(S, y)), ax = Math.abs(x);
+      const lo = (yy >= bottomY) ? 0 : Wi, hi = Wo;
+      if(ax < lo) pen += lo - ax; if(ax > hi) pen += ax - hi;
+      return pen;
+    };
+    case 'triangle': return (x, y) => {         // apex forward (−y), base aft (+y)
+      let pen = 0;
+      if(y > S) pen += y - S; if(y < -S) pen += -S - y;
+      const yy = Math.max(-S, Math.min(S, y));
+      const hw = ((yy + S) / (2*S)) * 0.95*S;   // half-width: 0 at apex → wide at base
+      const ax = Math.abs(x);
+      if(ax > hw) pen += ax - hw;
+      return pen;
+    };
+    case 'donut': return (x, y) => {            // annulus with hollow centre
+      const d = Math.hypot(x, y), Rd = 0.78*S;
+      let pen = Math.abs(d - Rd);
+      if(d < Rd*0.55) pen += (Rd*0.55 - d) * 2.5;
+      return pen;
+    };
+    default: return () => 0;                    // 'random': uniform → organic blob
+  }
+};
+
 // ── Asteroid hex-tile cluster helpers ────────────────────
 const _atk = (q,r) => q+','+r;
 // Recompute every tile's `exposed` flag (outer ring) + cluster bounding radius.
@@ -202,6 +318,7 @@ G.astRemoveTile = (cl, t) => {
     const n=cl.tiles.get(_atk(t.q+dq,t.r+dr));
     if(n) n.exposed=true;
   }
+  cl._dirty = true;   // sprite must be re-baked (see Renderer._bakeCluster)
   cl.tileCount = cl.tiles.size;
 };
 // Grow an irregular cluster of `size` hex tiles centred at world (cx,cy).
@@ -232,14 +349,14 @@ G.astMakeCluster = (cx,cy,size,rng) => {
   G.astRefresh(cl);
   return cl;
 };
-// Cluster size roll: mostly tiny, rare giants up to ~1000 tiles.
+// Cluster size roll: mostly tiny, capped at ~120 tiles (perf — clusters are
+// baked to a sprite, but bake + per-tile collision still scale with tile count).
 G.astRollSize = (rng, big) => {
   const fn = rng || Math.random; const r=fn();
-  if(r<0.5)   return 1+Math.floor(fn()*4);
-  if(r<0.8)   return 5+Math.floor(fn()*12);
-  if(r<0.95)  return 18+Math.floor(fn()*40);
-  if(r<0.995) return 60+Math.floor(fn()*140);
-  return big ? 200+Math.floor(fn()*800) : 80+Math.floor(fn()*120);
+  if(r<0.55)  return 1+Math.floor(fn()*4);
+  if(r<0.85)  return 5+Math.floor(fn()*12);
+  if(r<0.97)  return 18+Math.floor(fn()*30);
+  return big ? 50+Math.floor(fn()*70) : 40+Math.floor(fn()*40);
 };
 
 // Generate a local system (planets, asteroids, stations) from system data

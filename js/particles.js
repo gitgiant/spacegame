@@ -105,7 +105,8 @@ G.Particles = class {
   }
 
   engine_trail(x, y, angle, vx, vy, scale=1, rainbow=false) {
-    const exhaustDist = 14 * scale;
+    // Spawn right on the thruster module; backward velocity makes the plume trail.
+    const exhaustDist = 3 * scale;
     const ex = x - Math.sin(angle) * exhaustDist;
     const ey = y + Math.cos(angle) * exhaustDist;
     const exhaustAngle = angle + Math.PI + G.rand(-0.25, 0.25);

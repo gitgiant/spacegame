@@ -420,8 +420,9 @@ G.COMMS_LINES = {
   },
 };
 
-G.NPCShip = class {
+G.NPCShip = class extends G.ShipEntity {
   constructor(faction, bodies, sysId) {
+    super();
     this.id       = 'npc'+(G.NPCShip._uid++);
     this.type     = 'npc';
     this.faction  = faction;
@@ -569,8 +570,16 @@ G.NPCShip = class {
       this.jumpOutTimer -= dt;
       this.x += this.vx * dt;
       this.y += this.vy * dt;
-      if(particles && Math.random() < 0.7)
-        particles.engine_trail(this.x, this.y, this.angle, this.vx, this.vy, this.size||1);
+      if(particles && Math.random() < 0.7) {
+        const shape = G.SHAPES[this.shapeId];
+        const enginePts = shape?.enginePts || [[0, 10]];
+        const ca = Math.cos(this.angle), sa = Math.sin(this.angle);
+        for(const [ex, ey] of enginePts) {
+          const wx = this.x + (ex * ca - ey * sa);
+          const wy = this.y + (ex * sa + ey * ca);
+          particles.engine_trail(wx, wy, this.angle, this.vx, this.vy, this.size||1);
+        }
+      }
       if(this.jumpOutTimer <= 0) this.dead = true;
       return;
     }
@@ -677,6 +686,16 @@ G.NPCShip = class {
     const _prevHostile = this.hostile;
     this._updateAutonomous(dt, particles);
     this._applyDrag(dt);
+    if(particles && Math.random() < 0.5) {
+      const shape = G.SHAPES[this.shapeId];
+      const enginePts = shape?.enginePts || [[0, 10]];
+      const ca = Math.cos(this.angle), sa = Math.sin(this.angle);
+      for(const [ex, ey] of enginePts) {
+        const wx = this.x + (ex * ca - ey * sa);
+        const wy = this.y + (ex * sa + ey * ca);
+        particles.engine_trail(wx, wy, this.angle, this.vx, this.vy, this.size||1, this._boosting);
+      }
+    }
     this.x+=this.vx*dt; this.y+=this.vy*dt;
 
     // Scan for hostile faction ships to engage
@@ -1155,13 +1174,7 @@ G.NPCShip = class {
     }
   }
 
-  _steerTo(tx,ty,dt) {
-    const dx=tx-this.x, dy=ty-this.y;
-    if(Math.hypot(dx,dy)<5) return;
-    const a=Math.atan2(dx,-dy);
-    this.angle+=G.clamp(G.wrapAngle(a-this.angle)*5,-this.turnSpeed,this.turnSpeed)*dt;
-  }
-
+  // _steerTo inherited from G.ShipEntity. _thrust overridden below (adds grip).
   _thrust(dt) {
     const fwdX=Math.sin(this.angle), fwdY=-Math.cos(this.angle);
     const latX=Math.cos(this.angle), latY= Math.sin(this.angle);
@@ -1207,13 +1220,9 @@ G.NPCShip = class {
     this.vy=fwdY*vFwd+latY*vLat;
   }
 
-  takeDamage(amount, type) {
-    if(type==='emp'){if(this.shields>0)this._shieldFlash=Date.now();this.empTimer=4;this.shields=0;return;}
-    if(this.disabled){this.hp-=amount;if(this.hp<=0)this.dead=true;return;}
-    if(this.shields>0){this._shieldFlash=Date.now();const sd=Math.min(this.shields,amount);this.shields-=sd;amount=(amount-sd)*0.2;}
-    this.hp-=amount;
-    if(this.hp<=0){this.disabled=true;}
-  }
+  _takeEmp() { this.empTimer = 4; this.shields = 0; }
+  _damageDisabled(amount) { this.hp -= amount; if(this.hp <= 0) this.dead = true; return { shieldDmg:0, hullDmg:amount }; }
+  _applyHullDamage(amount) { this.hp -= amount; if(this.hp <= 0) this.disabled = true; }
 
   // Returns array of comms options
   getCommsOptions() {
@@ -1284,8 +1293,9 @@ G.NPCShip = class {
 G.NPCShip._uid = 0;
 
 // ── Fleet Ship (player escort AI) ─────────────────────────
-G.FleetShip = class {
+G.FleetShip = class extends G.ShipEntity {
   constructor(entry) {
+    super();
     this.id = 'fs'+(++G.FleetShip._uid);
     this.type = 'fleet';
     this.isFleetShip = true;
@@ -1299,6 +1309,7 @@ G.FleetShip = class {
     this.size = tpl?.size || 1.0;
 
     const s = entry.ship;
+    this.ship = s; // Store reference to ship object for module access
     this.hull = s?.hull ?? 100;
     this.maxHull = s?.maxHull ?? 160;
     this.shields = s?.shields ?? 0;
@@ -1337,8 +1348,16 @@ G.FleetShip = class {
     if(this.jumpingOut) {
       this.jumpOutTimer -= dt;
       this.x += this.vx*dt; this.y += this.vy*dt;
-      if(particles && Math.random() < 0.7)
-        particles.engine_trail(this.x, this.y, this.angle, this.vx, this.vy, this.size||1);
+      if(particles && Math.random() < 0.7) {
+        const shape = G.SHAPES[this.shapeId];
+        const enginePts = shape?.enginePts || [[0, 10]];
+        const ca = Math.cos(this.angle), sa = Math.sin(this.angle);
+        for(const [ex, ey] of enginePts) {
+          const wx = this.x + (ex * ca - ey * sa);
+          const wy = this.y + (ex * sa + ey * ca);
+          particles.engine_trail(wx, wy, this.angle, this.vx, this.vy, this.size||1);
+        }
+      }
       if(this.jumpOutTimer <= 0) this._deathDone = true;
       return;
     }
@@ -1400,8 +1419,21 @@ G.FleetShip = class {
         if(angleDiff < 0.5 && distToTarget < range && now - (this[fsKey]||0) > 1/rate) {
           this[fsKey] = now;
           const isMissile = wDef.type === 'missile';
+          // Find weapon module and calculate position
+          let projX = this.x+Math.sin(this.angle)*16;
+          let projY = this.y-Math.cos(this.angle)*16;
+          if(this.ship?.modules) {
+            const weapModule = Object.values(this.ship.modules).find(m => G.WEAPONS[m.moduleId]?.id === wid);
+            if(weapModule?.q != null) {
+              const p = G.hexToPixel(weapModule.q, weapModule.r, G.HEX_R);
+              const dx = p.x, dy = p.y;
+              const ca = Math.cos(this.angle), sa = Math.sin(this.angle);
+              projX = this.x + dx * ca - dy * sa;
+              projY = this.y + dx * sa + dy * ca;
+            }
+          }
           projectiles.push({
-            x: this.x+Math.sin(this.angle)*16, y: this.y-Math.cos(this.angle)*16,
+            x: projX, y: projY,
             vx: Math.sin(aimAngle)*spd+this.vx*0.2, vy: -Math.cos(aimAngle)*spd+this.vy*0.2,
             damage: wDef.damage || this.damage, type: wDef.type || this.weaponType,
             range, traveled: 0,
@@ -1412,7 +1444,7 @@ G.FleetShip = class {
             trackTarget: isMissile ? { x: attackTarget.x, y: attackTarget.y } : null,
           });
           if(particles) particles.emit({
-            x: this.x+Math.sin(this.angle)*16, y: this.y-Math.cos(this.angle)*16,
+            x: projX, y: projY,
             minSpd:20, maxSpd:60, life:0.15, r:2, color: wDef.color || this.weaponColor,
           });
           G.sound?.enemyWeapon(wDef.type || this.weaponType, playerDist2);
@@ -1433,33 +1465,31 @@ G.FleetShip = class {
       }
     }
 
+    // Engine trail with rainbow on attack
+    const isAttacking = attackTarget != null;
+    if(particles && Math.random() < 0.5) {
+      const shape = G.SHAPES[this.shapeId];
+      const enginePts = shape?.enginePts || [[0, 10]];
+      const ca = Math.cos(this.angle), sa = Math.sin(this.angle);
+      for(const [ex, ey] of enginePts) {
+        const wx = this.x + (ex * ca - ey * sa);
+        const wy = this.y + (ex * sa + ey * ca);
+        particles.engine_trail(wx, wy, this.angle, this.vx, this.vy, this.size||1, isAttacking);
+      }
+    }
     this.x += this.vx*dt; this.y += this.vy*dt;
   }
 
-  _steerTo(tx, ty, dt) {
-    const dx=tx-this.x, dy=ty-this.y;
-    if(Math.abs(dx)+Math.abs(dy)<5) return;
-    const tgt=Math.atan2(dx,-dy);
-    const diff=G.wrapAngle(tgt-this.angle);
-    this.angle += G.clamp(diff*5, -this.turnSpeed, this.turnSpeed)*dt;
-  }
+  // _steerTo / _thrust inherited from G.ShipEntity.
 
-  _thrust(dt, fast=false) {
-    const spd = this.speed*(fast?1.45:1.0);
-    this.vx += Math.sin(this.angle)*spd*dt*0.5;
-    this.vy -= Math.cos(this.angle)*spd*dt*0.5;
-    const s = Math.hypot(this.vx, this.vy);
-    if(s > spd) { this.vx*=spd/s; this.vy*=spd/s; }
-  }
-
-  takeDamage(amount, type) {
-    if(type==='emp') return;
-    if(this.shields>0){ this._shieldFlash=Date.now(); const sd=Math.min(this.shields,amount); this.shields-=sd; amount=(amount-sd)*0.2; }
+  _takeEmp() { /* fleet ignores EMP */ }
+  _stopsWhenDisabled() { return false; }   // keeps taking hull damage until destroyed
+  _applyHullDamage(amount) {
     this.hull -= amount;
     const entry = G.game?.fleet?.find(e => e.id === this.fleetDataId);
     if(entry && entry.ship) entry.ship.hull = this.hull;
-    if(this.hull<=0 && !this.disabled) this.disabled = true;
-    if(this.hull<=-this.maxHull*0.4) this.dead = true;
+    if(this.hull <= 0 && !this.disabled) this.disabled = true;
+    if(this.hull <= -this.maxHull*0.4) this.dead = true;
   }
 };
 G.FleetShip._uid = 0;
