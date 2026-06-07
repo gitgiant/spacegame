@@ -472,42 +472,32 @@ G.Renderer = class {
     ctx.restore();
   }
 
-  drawAsteroid(x, y, r, angle, color, atype) {
+  // Draw a hex-tile asteroid cluster. Outer-ring tiles show their material
+  // texture; interior tiles show the generic asteroid texture. vcx/vcy + half
+  // view extents allow per-tile culling on large clusters.
+  drawAsteroidCluster(cl, vcx, vcy, hvw, hvh) {
     const ctx = this.ctx;
-    const shapeKey = 'asteroid_'+(atype||'rocky');
-    const shape = G.SHAPES[shapeKey] || G.SHAPES.asteroid_rocky;
-    ctx.save(); ctx.translate(x|0,y|0); ctx.rotate(angle); ctx.scale(r/12,r/12);
-    ctx.beginPath();
-    ctx.moveTo(shape.body[0][0],shape.body[0][1]);
-    shape.body.slice(1).forEach(([px,py])=>ctx.lineTo(px,py));
-    ctx.closePath();
-    ctx.fillStyle = color || '#776655';
-    // Type-specific stroke and effects
-    if(atype==='metallic') {
-      ctx.strokeStyle='#ddccaa'; ctx.lineWidth=1.2*(12/r); ctx.fill(); ctx.stroke();
-      // metallic glint streak
-      ctx.save(); ctx.clip();
-      ctx.fillStyle='rgba(255,240,180,0.22)';
-      ctx.fillRect(-3,-14,3,28);
-      ctx.restore();
-    } else if(atype==='icy') {
-      ctx.strokeStyle='#88ccee'; ctx.lineWidth=0.8*(12/r); ctx.fill(); ctx.stroke();
-      // icy inner glow
-      ctx.save(); ctx.clip();
-      const g=ctx.createRadialGradient(0,0,0,0,0,10);
-      g.addColorStop(0,'rgba(180,230,255,0.3)');
-      g.addColorStop(1,'rgba(100,180,220,0)');
-      ctx.fillStyle=g; ctx.fillRect(-12,-14,24,28); ctx.restore();
-    } else if(atype==='alien') {
-      ctx.strokeStyle='#44ff88'; ctx.lineWidth=1*(12/r); ctx.fill(); ctx.stroke();
-      // alien bio-glow
-      ctx.save(); ctx.clip();
-      const g=ctx.createRadialGradient(0,0,0,0,0,10);
-      g.addColorStop(0,'rgba(60,255,120,0.28)');
-      g.addColorStop(1,'rgba(0,180,80,0)');
-      ctx.fillStyle=g; ctx.fillRect(-14,-14,28,28); ctx.restore();
-    } else {
-      ctx.strokeStyle='#998877'; ctx.lineWidth=0.8*(12/r); ctx.fill(); ctx.stroke();
+    const { W, H } = G.AsteroidTiles.dims();
+    const cull = cl.tileCount > 80;
+    const ca = Math.cos(cl.angle), sa = Math.sin(cl.angle);
+    ctx.save();
+    ctx.translate(cl.x|0, cl.y|0);
+    ctx.rotate(cl.angle);
+    for(const t of cl.tiles.values()) {
+      const p = G.astTileLocal(t.q, t.r);
+      if(cull) {
+        const wx = cl.x + p.x*ca - p.y*sa, wy = cl.y + p.x*sa + p.y*ca;
+        if(Math.abs(wx-vcx) > hvw || Math.abs(wy-vcy) > hvh) continue;
+      }
+      const spr = t.exposed ? G.AsteroidTiles.get(t.mat) : G.AsteroidTiles.get('__inner');
+      ctx.drawImage(spr, (p.x - W/2)|0, (p.y - H/2)|0, W, H);
+      // damage darkening on chipped tiles
+      if(t.hp < t.maxHp*0.55) {
+        ctx.globalAlpha = 0.3*(1 - t.hp/t.maxHp);
+        ctx.fillStyle = '#000';
+        ctx.fillRect((p.x - W/2)|0, (p.y - H/2)|0, W, H);
+        ctx.globalAlpha = 1;
+      }
     }
     ctx.restore();
   }
@@ -609,14 +599,20 @@ G.Renderer = class {
     ctx.restore();
   }
 
-  // Pulsating shield glow — traces the outer edges of the hex assembly.
-  drawShieldOutline(x, y, angle, scale, shieldRatio, time, entries, gridCenter=null) {
+  // Recent-shield-hit flash amount (0..1) for an entity, decaying over 250ms.
+  shieldFlashAmt(o) {
+    if(!o || !o._shieldFlash) return 0;
+    const t = Date.now() - o._shieldFlash;
+    return t < 250 ? (1 - t/250) : 0;
+  }
+
+  // Shield perimeter: a ring of hex tiles hugging the entire ship's outline,
+  // drawn whenever the ship has shields up. Flashes white on hit.
+  drawShieldOutline(x, y, angle, scale, shieldRatio, time, entries, gridCenter=null, flash=0) {
     if(shieldRatio <= 0 || !entries || entries.length === 0) return;
     const ctx = this.ctx;
     const sc = scale || 1;
     const R = G.HEX_R * sc;
-    const pulse = 0.5 + 0.5 * Math.sin(time * 6);
-    const alpha = 0.25 + 0.65 * shieldRatio * (0.6 + 0.4 * pulse);
     // Bounding-box centre (must match drawShipTileDisplay)
     let minx=Infinity,maxx=-Infinity,miny=Infinity,maxy=-Infinity;
     for(const e of entries) {
@@ -624,29 +620,41 @@ G.Renderer = class {
       if(p.x<minx)minx=p.x; if(p.x>maxx)maxx=p.x; if(p.y<miny)miny=p.y; if(p.y>maxy)maxy=p.y;
     }
     const ox=(minx+maxx)/2, oy=(miny+maxy)/2;
-    const occ = new Set(entries.map(e => G.hexKey(e.q, e.r)));
-    // neighbour dir index → shared edge (vertex pair) for a flat-top hex
-    const edgeForDir = [[0,1],[5,0],[4,5],[3,4],[2,3],[1,2]];
+    // Ring hugs the hull-panel assembly only — thrusters sit outside the hull,
+    // so their cells land in the perimeter and the shield draws over them.
+    const hullCells = entries.filter(e => e.slot !== 'thruster');
+    const src = hullCells.length ? hullCells : entries;
+    const occ = new Set(src.map(e => G.hexKey(e.q, e.r)));
+    const perim = new Map();
+    for(const e of src) {
+      for(const nb of G.HEX_DIRS) {
+        const q=e.q+nb[0], r=e.r+nb[1], k=G.hexKey(q,r);
+        if(!occ.has(k) && !perim.has(k)) perim.set(k, {q,r});
+      }
+    }
     const vx = k => Math.cos(Math.PI/180*60*k), vy = k => Math.sin(Math.PI/180*60*k);
+    const f = Math.max(0, Math.min(1, flash));
+    const lerp = (a,b,t) => a+(b-a)*t;
+    const baseA   = 0.10 + 0.14*shieldRatio;
+    const fillA   = baseA + (0.55 - baseA)*f;
+    const strokeA = Math.min(1, (0.4 + 0.4*shieldRatio) + f*0.6);
+    const cr = Math.round(lerp(90,255,f)), cg = Math.round(lerp(170,255,f)), cb = 255;
     ctx.save();
     ctx.translate(x|0, y|0);
     ctx.rotate(angle);
     ctx.beginPath();
-    for(const e of entries) {
-      const p = G.hexToPixel(e.q, e.r, R);
+    for(const cell of perim.values()) {
+      const p = G.hexToPixel(cell.q, cell.r, R);
       const cx = p.x - ox, cy = p.y - oy;
-      for(let d=0; d<6; d++) {
-        const nb = G.HEX_DIRS[d];
-        if(occ.has(G.hexKey(e.q+nb[0], e.r+nb[1]))) continue;
-        const [a,b] = edgeForDir[d];
-        ctx.moveTo(cx + R*vx(a), cy + R*vy(a));
-        ctx.lineTo(cx + R*vx(b), cy + R*vy(b));
-      }
+      ctx.moveTo(cx + R*vx(0), cy + R*vy(0));
+      for(let d=1; d<6; d++) ctx.lineTo(cx + R*vx(d), cy + R*vy(d));
+      ctx.closePath();
     }
-    ctx.strokeStyle = `rgba(80,160,255,${Math.min(1,alpha)})`;
-    ctx.lineWidth = (1.5 + 2 * pulse) * sc;
-    ctx.shadowColor = `rgba(80,160,255,${Math.min(1,alpha*0.8)})`;
-    ctx.shadowBlur = (6 + 8 * pulse) * sc;
+    ctx.fillStyle = `rgba(${cr},${cg},${cb},${fillA})`;
+    ctx.fill();
+    ctx.strokeStyle = `rgba(${cr},${cg},${cb},${strokeA})`;
+    ctx.lineWidth = (1 + f) * sc;
+    if(f > 0) { ctx.shadowColor = `rgba(255,255,255,${f})`; ctx.shadowBlur = 10*sc; }
     ctx.stroke();
     ctx.shadowBlur = 0;
     ctx.restore();
@@ -1178,12 +1186,12 @@ G.Renderer = class {
       }
     }
 
-    for(const a of space.asteroids) {
-      this.drawAsteroid(a.x,a.y,a.r,a.angle,a.color,a.atype);
-      if(a.hp<a.maxHp) {
-        const bw=a.r*1.5, by=a.y-a.r-6;
-        ctx.fillStyle='#1a1a1a'; ctx.fillRect((a.x-bw/2)|0,by|0,bw|0,3);
-        ctx.fillStyle='#ff8844'; ctx.fillRect((a.x-bw/2)|0,by|0,(bw*(a.hp/a.maxHp))|0,3);
+    {
+      const vcx=camX+G.CANVAS_W/2, vcy=camY+G.CANVAS_H/2;
+      const hvw=G.CANVAS_W/(2*_zoom)+80, hvh=G.CANVAS_H/(2*_zoom)+80;
+      for(const a of space.asteroids) {
+        if(Math.abs(a.x-vcx) > hvw+a.r || Math.abs(a.y-vcy) > hvh+a.r) continue;
+        this.drawAsteroidCluster(a, vcx, vcy, hvw, hvh);
       }
     }
 
@@ -1240,9 +1248,22 @@ G.Renderer = class {
       }
       if(e.shields > 0) {
         this.drawShieldOutline(e.x, e.y, e.angle, e.size||1,
-          e.shields/Math.max(e.maxShields,1), space.time, eEntries);
+          e.shields/Math.max(e.maxShields,1), space.time, eEntries, null, this.shieldFlashAmt(e));
       }
       this.drawEnemyBars(e);
+      if(game.ui?._commsNPC === e && game.ui?._worldCommsText) {
+        ctx.save();
+        ctx.font=(5/_zoom)+'px "Press Start 2P",monospace';
+        ctx.fillStyle='#ffdd99';
+        ctx.textAlign='center';
+        const lines = game.ui._worldCommsText.split('\n');
+        let yOff = (e.size||1)*50;
+        for(const line of lines) {
+          ctx.fillText(line, e.x, e.y-yOff);
+          yOff -= 8/_zoom;
+        }
+        ctx.restore();
+      }
       if(e._marked && e._markedTimer > 0 && Math.sin(Date.now() * 0.012) > 0) {
         ctx.save(); ctx.translate(e.x|0, (e.y - (e.size||1)*30)|0);
         ctx.fillStyle='#ff8844'; ctx.strokeStyle='#ffffff'; ctx.lineWidth=1/_zoom;
@@ -1277,7 +1298,7 @@ G.Renderer = class {
         }
         if(n.shields > 0) {
           this.drawShieldOutline(n.x, n.y, n.angle, nScale,
-            n.shields/Math.max(n.maxShields,1), space.time, nEntries);
+            n.shields/Math.max(n.maxShields,1), space.time, nEntries, null, this.shieldFlashAmt(n));
         }
         if(n.hostile) this.drawEnemyBars(n);
         if(game.target===n) {
@@ -1285,6 +1306,19 @@ G.Renderer = class {
           ctx.fillStyle=n.color; ctx.textAlign='center';
           ctx.fillText(n.name, n.x, n.y-nScale*24-8);
           ctx.textAlign='left'; ctx.restore();
+        }
+        if(game.ui?._commsNPC === n && game.ui?._worldCommsText) {
+          ctx.save();
+          ctx.font=(5/_zoom)+'px "Press Start 2P",monospace';
+          ctx.fillStyle='#ffdd99';
+          ctx.textAlign='center';
+          const lines = game.ui._worldCommsText.split('\n');
+          let yOff = nScale*50;
+          for(const line of lines) {
+            ctx.fillText(line, n.x, n.y-yOff);
+            yOff -= 8/_zoom;
+          }
+          ctx.restore();
         }
         if(n._marked && n._markedTimer > 0 && Math.sin(Date.now() * 0.012) > 0) {
           ctx.save(); ctx.translate(n.x|0, (n.y - nScale*30)|0);
@@ -1302,7 +1336,7 @@ G.Renderer = class {
       const fsEntries = this._npcTileEntries(fs, fsHullCol);
       this.drawShipTileDisplay(fs.x, fs.y, fs.size||1, fsEntries, fs.angle);
       if(fs.shields>0)
-        this.drawShieldOutline(fs.x,fs.y,fs.angle,fs.size||1,fs.shields/Math.max(fs.maxShields,1),space.time, fsEntries);
+        this.drawShieldOutline(fs.x,fs.y,fs.angle,fs.size||1,fs.shields/Math.max(fs.maxShields,1),space.time, fsEntries, null, this.shieldFlashAmt(fs));
       // Health bar
       const bw=36, bh=3, bx=fs.x-18, by=fs.y-(fs.size||1)*24-12;
       ctx.fillStyle='#0a1a0a'; ctx.fillRect(bx|0,by|0,bw,bh);
@@ -1318,6 +1352,19 @@ G.Renderer = class {
       ctx.beginPath(); ctx.arc(fs.x,fs.y,(fs.size||1)*20,0,Math.PI*2);
       ctx.strokeStyle='rgba(0,255,100,0.22)'; ctx.lineWidth=1; ctx.setLineDash([3,4]); ctx.stroke(); ctx.setLineDash([]);
       ctx.restore();
+      if(game.ui?._commsNPC === fs && game.ui?._worldCommsText) {
+        ctx.save();
+        ctx.font=(5/_zoom)+'px "Press Start 2P",monospace';
+        ctx.fillStyle='#ffdd99';
+        ctx.textAlign='center';
+        const lines = game.ui._worldCommsText.split('\n');
+        let yOff = (fs.size||1)*50;
+        for(const line of lines) {
+          ctx.fillText(line, fs.x, fs.y-yOff);
+          yOff -= 8/_zoom;
+        }
+        ctx.restore();
+      }
     }
 
     for(const p of space.projectiles) this.drawProjectile(p);
@@ -1407,7 +1454,7 @@ G.Renderer = class {
     if(player.shields > 0)
       this.drawShieldOutline(player.x, player.y, player.angle, 1,
         player.shields / Math.max(player.maxShields, 1), space.time,
-        this._playerTileEntries(player), [4, 4]);
+        this._playerTileEntries(player), [4, 4], this.shieldFlashAmt(player));
 
     // Target direction arrow orbiting player ship — colored by faction relation
     if(game.target && !game.target.dead) {
@@ -2050,6 +2097,12 @@ G.Game = class {
         }
       }
       if(!best) {
+        for(const cl of this.space.asteroids) {
+          const d = Math.hypot(cl.x - wx, cl.y - wy);
+          if(d < Math.max(cl.r + 8/zoom, CLICK_RADIUS)) { best = cl; break; }
+        }
+      }
+      if(!best) {
         for(const proj of this.space.projectiles) {
           if(proj.type !== 'missile' || proj.dead) continue;
           const d = Math.hypot(proj.x - wx, proj.y - wy);
@@ -2066,15 +2119,27 @@ G.Game = class {
 
     // Double-click a ship or planet → open its comms channel
     this.canvas.addEventListener('dblclick', e => {
-      if(this.state !== 'space') return;
+      if(this.state !== 'space' && this.state !== 'hexmap') return;
       const rect = this.canvas.getBoundingClientRect();
       const ratio = G.CANVAS_W / rect.width;
       const cx = (e.clientX - rect.left) * ratio;
       const cy = (e.clientY - rect.top)  * ratio;
-      const zoom = this.camZoom || 1;
-      const wx = (cx - G.CANVAS_W / 2) / zoom + this.camX + G.CANVAS_W / 2;
-      const wy = (cy - G.CANVAS_H / 2) / zoom + this.camY + G.CANVAS_H / 2;
-      const CLICK_RADIUS = 48 / zoom;
+      let wx, wy, CLICK_RADIUS;
+
+      if(this.state === 'hexmap') {
+        const CX = G.CANVAS_W / 2, CY = G.CANVAS_H / 2;
+        const S = G.HEX_PX * (this._hexMapZoom || 1);
+        const offX = this._hexMapOffX || 0, offY = this._hexMapOffY || 0;
+        wx = (cx - CX - offX) * G.HEX_WORLD / S + this.player.x;
+        wy = (cy - CY - offY) * G.HEX_WORLD / S + this.player.y;
+        CLICK_RADIUS = 400;
+      } else {
+        const zoom = this.camZoom || 1;
+        wx = (cx - G.CANVAS_W / 2) / zoom + this.camX + G.CANVAS_W / 2;
+        wy = (cy - G.CANVAS_H / 2) / zoom + this.camY + G.CANVAS_H / 2;
+        CLICK_RADIUS = 48 / zoom;
+      }
+
       // Prefer a hailable ship, then a planet/station, under the cursor.
       let best = null, bestD = CLICK_RADIUS;
       for(const ship of this.space.allTargets().filter(s=>!s._inDust)) {
@@ -2086,7 +2151,7 @@ G.Game = class {
         for(const b of this.space.bodies) {
           if(b.type !== 'planet' && b.type !== 'station') continue;
           const d = Math.hypot(b.x - wx, b.y - wy);
-          if(d < Math.max(b.r + 8/zoom, CLICK_RADIUS)) { best = b; break; }
+          if(d < Math.max(b.r + 8/CLICK_RADIUS, CLICK_RADIUS)) { best = b; break; }
         }
       }
       if(best) {
@@ -2323,6 +2388,7 @@ G.Game = class {
     for(const inst of Object.values(this.player.modules)) {
       if(inst.moduleId === 'auto_turret') inst.moduleId = 'turret';
     }
+    G.stripBackThrusters(this.player.modules);
     this.player.ensureCockpit();     // migrate older saves that predate the cockpit
     this.player.ensureCoreModule();  // migrate older saves that predate class core modules
     this.player.ensureHullPanels();  // migrate older saves that predate hull enclosure system
@@ -2340,6 +2406,7 @@ G.Game = class {
       const ship = new G.Ship(fd.ship?.templateId || 'pirate_skiff');
       if(fd.ship) {
         ship.modules = fd.ship.modules || {};
+        G.stripBackThrusters(ship.modules);
         ship.slots = Array.isArray(fd.ship.slots) ? fd.ship.slots : ship.slots;
         ship.cargo = fd.ship.cargo || {};
         ship.crew = fd.ship.crew || [];
@@ -2785,8 +2852,8 @@ G.Game = class {
         const mod=G.MODULES[inst.moduleId];
         if(!mod||mod.slot!=='thruster') continue;
         const rot=(inst.rot||0)%4;
-        const active=(rot===0&&this.input.thrust)||(rot===1&&this.input.strafeR)||
-                     (rot===2&&this.input.reverse)||(rot===3&&this.input.strafeL)||_rainbow;
+        // Rear thrusters plume on any propulsion input (thrust / strafe / reverse)
+        const active=(this.input.thrust||this.input.strafeL||this.input.strafeR||this.input.reverse)||_rainbow;
         if(!active||Math.random()>=0.5) continue;
         const _hp=G.hexToPixel(inst.q,inst.r,G.HEX_R);
         const dx=_hp.x, dy=_hp.y;
