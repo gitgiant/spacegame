@@ -36,6 +36,11 @@
     <div id="hostile-alert" class="hidden"></div>
   </div>
 
+  <!-- Hex-map controls overlay (shown only in hexmap state) -->
+  <div id="hexmap-controls" class="hidden" style="position:fixed;top:10px;right:10px;display:flex;gap:6px;align-items:center;z-index:20">
+    <button onclick="G.game?.hexMapRecenter()" style="font-family:'Press Start 2P',monospace;font-size:6px;background:#010a14;border:1px solid #1a4a6a;color:#00ffee;padding:4px 8px;cursor:pointer">⊙ RECENTER</button>
+  </div>
+
   <!-- Minimap (top-right floating) -->
   <div id="minimap-wrap" class="hidden">
     <button id="minimap-toggle-btn" onclick="G.game?.toggleMinimap()">MAP ▲</button>
@@ -247,6 +252,8 @@
       <button class="btn btn-big" id="opt-fleet-btn" style="border-color:#44ff88;color:#44ff88">FLEET</button>
       <button class="btn btn-big" id="opt-ship-btn" style="border-color:#ffcc44;color:#ffcc44">SHIP</button>
       <button class="btn btn-big" id="opt-log-btn" style="border-color:#aabbcc;color:#aabbcc">LOG</button>
+      <button class="btn btn-big" id="opt-debug-btn" style="border-color:#ff88ff;color:#ff88ff">DEBUG</button>
+      <button class="btn btn-big" id="opt-camera-btn" style="border-color:#00ddff;color:#00ddff">CAMERA</button>
       <button class="btn btn-big" id="opt-quit-btn" style="border-color:#ff6644;color:#ff6644">QUIT TO MENU</button>
       <button class="btn btn-big" id="opt-close-btn">RESUME [ESC]</button>
     </div>
@@ -260,6 +267,28 @@
         <button id="ctrl-close-btn" class="btn" style="font-size:6px">CLOSE</button>
       </div>
       <div id="controls-list" style="font-size:6px;color:#aabbcc;line-height:2.4"></div>
+    </div>
+  </div>
+
+  <!-- Debug overlay -->
+  <div id="debug-overlay" class="hidden">
+    <div id="debug-box" style="background:#050e1a;border:2px solid #ff88ff;padding:20px;max-width:600px;max-height:85vh;overflow-y:auto;font-family:'Press Start 2P',monospace">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div class="panel-title" style="margin:0;color:#ff88ff">DEBUG</div>
+        <button id="debug-close-btn" class="btn" style="font-size:6px">CLOSE</button>
+      </div>
+      <div id="debug-list" style="font-size:6px;color:#aabbcc;line-height:2.4;min-height:100px"></div>
+    </div>
+  </div>
+
+  <!-- Camera overlay -->
+  <div id="camera-overlay" class="hidden">
+    <div id="camera-box" style="background:#050e1a;border:2px solid #00ddff;padding:20px;max-width:600px;max-height:85vh;overflow-y:auto;font-family:'Press Start 2P',monospace">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div class="panel-title" style="margin:0;color:#00ddff">CAMERA</div>
+        <button id="camera-close-btn" class="btn" style="font-size:6px">CLOSE</button>
+      </div>
+      <div id="camera-list" style="font-size:6px;color:#aabbcc;line-height:2.4;min-height:100px"></div>
     </div>
   </div>
 
@@ -367,10 +396,12 @@
   <div id="char-screen-overlay" class="hidden">
     <div id="char-screen-box">
       <div class="panel-title" style="margin-bottom:18px;letter-spacing:3px">CHARACTER</div>
-      <img id="char-screen-avatar" class="char-screen-avatar" src="" alt="">
       <div id="char-screen-name" class="char-screen-field char-screen-name"></div>
-      <div id="char-screen-sex"  class="char-screen-field"></div>
-      <div id="char-screen-faction" class="char-screen-field"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;align-items:start;margin-bottom:16px">
+        <div id="char-screen-sex"  class="char-screen-field char-screen-column"></div>
+        <img id="char-screen-avatar" class="char-screen-avatar" src="" alt="">
+        <div id="char-screen-faction" class="char-screen-field char-screen-column"></div>
+      </div>
       <div id="char-screen-class" class="char-screen-field"></div>
       <div id="char-screen-level" style="margin-top:6px;width:100%;text-align:center"></div>
       <button id="char-screen-skilltree-btn" class="btn" style="margin-top:8px;font-size:5px;letter-spacing:2px;padding:5px 12px">⬡ SKILL TREE</button>
@@ -395,18 +426,19 @@
         <div class="char-label">NAME</div>
         <input id="char-name-input" class="char-input" type="text" maxlength="20" placeholder="Commander" spellcheck="false" autocomplete="off" />
       </div>
-      <div class="char-section-lbl">AVATAR</div>
-      <div id="char-face-grid" class="char-face-grid"></div>
-      <div class="char-row">
-        <div class="char-label">SEX</div>
-        <div class="char-toggle">
-          <button id="sex-male" class="btn char-sex-btn">MALE</button>
-          <button id="sex-female" class="btn char-sex-btn active">FEMALE</button>
+      <div style="display:grid;grid-template-columns:1fr 200px 1fr;gap:16px;align-items:start;margin:12px 0">
+        <div>
+          <div class="char-label" style="text-align:center">SEX</div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <button id="sex-male" class="btn char-sex-btn">MALE</button>
+            <button id="sex-female" class="btn char-sex-btn active">FEMALE</button>
+          </div>
         </div>
-      </div>
-      <div class="char-row">
-        <div class="char-label">FACTION</div>
-        <div id="char-faction-btns" class="char-faction-row"></div>
+        <div id="char-face-grid" class="char-face-grid" style="display:flex;justify-content:center"></div>
+        <div>
+          <div class="char-label" style="text-align:center">FACTION</div>
+          <div id="char-faction-btns" class="char-faction-row" style="display:flex;flex-direction:column;gap:4px"></div>
+        </div>
       </div>
       <div class="char-section-lbl">SELECT CLASS</div>
       <div id="char-class-grid" class="char-ship-grid"></div>
@@ -470,7 +502,15 @@
   // Animation starts immediately — no click required
   const animStart = performance.now();
   title.classList.add('animating');
-  setTimeout(endAnimation, 5000);
+  let animTimeout = setTimeout(endAnimation, 5000);
+
+  // Click anywhere to skip animation
+  const skipAnimation = () => {
+    clearTimeout(animTimeout);
+    endAnimation();
+    document.removeEventListener('click', skipAnimation);
+  };
+  document.addEventListener('click', skipAnimation);
 
   // Sound needs user gesture; when it fires, offset into the swell to stay in sync
   let swellPlayed = false;

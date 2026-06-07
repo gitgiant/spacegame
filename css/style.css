@@ -524,13 +524,14 @@ html, body {
 }
 .char-screen-avatar {
   width: 180px; height: 225px; object-fit: cover;
-  mix-blend-mode: lighten; display: block; margin: 0 auto 16px;
+  mix-blend-mode: lighten; display: block;
 }
 .char-screen-field {
   font-size: 7px; color: var(--col-text);
   margin-bottom: 8px; letter-spacing: 2px;
 }
-.char-screen-name { font-size: 10px; color: var(--col-bright); margin-bottom: 12px; }
+.char-screen-name { font-size: 10px; color: var(--col-bright); margin-bottom: 16px; }
+.char-screen-column { text-align: center; display: flex; flex-direction: column; gap: 4px; }
 
 /* ── Skill Tree ─────────────────────────────────────────── */
 #skill-tree-overlay {
@@ -590,11 +591,12 @@ html, body {
 }
 .char-input:focus { border-color: var(--col-bright); box-shadow: 0 0 8px rgba(0,255,238,0.3); }
 .char-toggle { display: flex; gap: 8px; }
-.char-sex-btn { font-size: 7px !important; padding: 6px 14px !important; }
-.char-sex-btn.active { border-color: var(--col-bright) !important; color: var(--col-bright) !important; background: rgba(0,40,60,0.5); }
+.char-sex-btn { font-size: 7px !important; padding: 6px 14px !important; background: rgba(5,15,30,0.85) !important; }
+.char-sex-btn.active { border-color: var(--col-bright) !important; color: var(--col-bright) !important; background: rgba(5,15,30,0.85) !important; }
 .char-faction-row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; max-width: 460px; }
-.char-faction-btn { font-size: 5px !important; padding: 5px 9px !important; }
-.char-faction-btn.active { background: rgba(255,255,255,0.1); }
+.char-faction-row[style*="flex-direction: column"] { max-width: none; }
+.char-faction-btn { font-size: 5px !important; padding: 5px 9px !important; background: rgba(5,15,30,0.85) !important; width: 100%; }
+.char-faction-btn.active { background: rgba(5,15,30,0.85) !important; }
 .char-section-lbl { font-size: 7px; color: var(--col-dim); margin: 16px 0 10px; letter-spacing: 2px; }
 .char-ship-grid { display: flex; gap: 14px; justify-content: center; margin-bottom: 18px; }
 .char-ship-wrap {
@@ -604,6 +606,7 @@ html, body {
   text-align: center;
   min-width: 90px;
   transition: border-color 0.1s, box-shadow 0.1s;
+  background: rgba(5,15,30,0.85);
 }
 .char-ship-wrap:hover { border-color: var(--col-text); }
 .char-ship-wrap.selected { border-color: var(--col-bright); box-shadow: 0 0 12px rgba(0,255,238,0.45); }
@@ -617,6 +620,7 @@ html, body {
   border: 2px solid var(--col-border);
   padding: 3px;
   transition: border-color 0.1s, box-shadow 0.1s;
+  background: rgba(5,15,30,0.85);
 }
 .char-face-wrap:hover { border-color: var(--col-text); }
 .char-face-wrap.selected { border-color: var(--col-bright); box-shadow: 0 0 12px rgba(0,255,238,0.45); }
