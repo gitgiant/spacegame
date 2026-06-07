@@ -267,6 +267,18 @@ G.UI = class {
       G.game.paused = false;
     });
     document.getElementById('opt-log-btn')?.addEventListener('click',()=>this.showCombatLog());
+    document.getElementById('opt-debug-btn')?.addEventListener('click',()=>{
+      this.showDebugMenu();
+    });
+    document.getElementById('debug-close-btn')?.addEventListener('click',()=>{
+      document.getElementById('debug-overlay')?.classList.add('hidden');
+    });
+    document.getElementById('opt-camera-btn')?.addEventListener('click',()=>{
+      this.showCameraMenu();
+    });
+    document.getElementById('camera-close-btn')?.addEventListener('click',()=>{
+      document.getElementById('camera-overlay')?.classList.add('hidden');
+    });
     document.getElementById('opt-sfx-enabled')?.addEventListener('change', e=>{
       const on = e.target.checked;
       document.getElementById('opt-sfx-label').textContent = on ? 'ON' : 'OFF';
@@ -625,12 +637,26 @@ G.UI = class {
                 ? renderer._playerTileEntries(target)
                 : renderer._npcTileEntries(target, hullCol);
               if(this._tgtPortEntries?.length) {
-                let minC=Infinity, maxC=-Infinity, minR=Infinity, maxR=-Infinity;
+                // Compute pixel bounding box at unit scale (size=1), then find the max
+                // radial extent from centre so the scale works for any rotation angle.
+                let mnx=Infinity,mxx=-Infinity,mny=Infinity,mxy=-Infinity;
                 for(const en of this._tgtPortEntries) {
-                  if(en.col<minC) minC=en.col; if(en.col>maxC) maxC=en.col;
-                  if(en.row<minR) minR=en.row; if(en.row>maxR) maxR=en.row;
+                  const p = G.hexToPixel(en.q, en.r, 1);
+                  if(p.x<mnx)mnx=p.x; if(p.x>mxx)mxx=p.x;
+                  if(p.y<mny)mny=p.y; if(p.y>mxy)mxy=p.y;
                 }
-                this._tgtPortScale = Math.min(1, 44 / (Math.max(maxC-minC+1, maxR-minR+1) * 12));
+                const bcx=(mnx+mxx)/2, bcy=(mny+mxy)/2;
+                let maxRadUnit = 0;
+                for(const en of this._tgtPortEntries) {
+                  const p = G.hexToPixel(en.q, en.r, 1);
+                  const d = Math.hypot(p.x-bcx, p.y-bcy);
+                  if(d > maxRadUnit) maxRadUnit = d;
+                }
+                // +1 hex radius for the tile border; leave 4px padding inside PORT
+                const hexR1 = G.HEX_R;
+                this._tgtPortScale = maxRadUnit > 0
+                  ? (PORT/2 - 4) / ((maxRadUnit + 1) * hexR1)
+                  : 1;
               }
             }
             if(this._tgtPortEntries?.length) {
@@ -2061,11 +2087,25 @@ G.UI = class {
         if(dragged) {
           if(targetInst.id === d.instId) { this._builderDragJustEnded = false; return; }
           if(targetMod?.slot === 'hull') {
-            // Move dragged module onto the perimeter hex.
-            dragged.q = hex.q; dragged.r = hex.r;
+            const draggedMod = G.MODULES[dragged.moduleId] || G.WEAPONS[dragged.moduleId];
+            if(draggedMod?.slot === 'thruster') {
+              // Thrusters must go outside the hull ring — find nearest outer cell.
+              const occ = new Set(Object.values(p.modules).filter(i => i.q != null && i !== dragged).map(i => G.hexKey(i.q, i.r)));
+              const outerNbs = G.hexNeighbors(hex.q, hex.r).filter(nb => !occ.has(G.hexKey(nb.q, nb.r)));
+              outerNbs.sort((a, b) => G.hexDist(0, 0, b.q, b.r) - G.hexDist(0, 0, a.q, a.r));
+              if(outerNbs[0]) { dragged.q = outerNbs[0].q; dragged.r = outerNbs[0].r; }
+            } else {
+              // Move dragged module onto the perimeter hex.
+              dragged.q = hex.q; dragged.r = hex.r;
+            }
             this.renderSpaceportTab('builder'); return;
           } else if(targetMod?.slot !== 'core') {
-            // Swap two inner modules.
+            const draggedMod = G.MODULES[dragged.moduleId] || G.WEAPONS[dragged.moduleId];
+            // Thrusters must stay outside hull; only allow swapping thruster↔thruster.
+            if((draggedMod?.slot === 'thruster') !== (targetMod?.slot === 'thruster')) {
+              this._builderDragJustEnded = false; return;
+            }
+            // Swap two modules.
             const ti = targetInst.inst;
             const tq = dragged.q, tr = dragged.r;
             dragged.q = ti.q; dragged.r = ti.r; ti.q = tq; ti.r = tr;
@@ -2137,7 +2177,16 @@ G.UI = class {
           const visual = mod?.visual || (G.WEAPONS[inst.moduleId] ? 'weapon' : 'special');
           tile = G.Sprites.getHexTile(visual, slotCol, inst.broken);
         }
-        ctx.drawImage(tile, (px - BR) | 0, (py - BR) | 0, T, T);
+        const rot = isHull ? 0 : (inst.rot || 0) % 4;
+        if(rot) {
+          ctx.save();
+          ctx.translate(px, py);
+          ctx.rotate(rot * Math.PI / 2);
+          ctx.drawImage(tile, -BR, -BR, T, T);
+          ctx.restore();
+        } else {
+          ctx.drawImage(tile, (px - BR) | 0, (py - BR) | 0, T, T);
+        }
         // Selection outline
         if(this._builderSel === id) {
           ctx.beginPath();
@@ -2204,7 +2253,16 @@ G.UI = class {
         let tile;
         if(isHull) tile = G.Sprites.getHexTile('hull', inst.color || '#667799', false);
         else tile = G.Sprites.getHexTile(mod?.visual || (G.WEAPONS[inst.moduleId] ? 'weapon' : 'special'), G.SLOT_RING[mod?.slot]?.color || '#334455', inst.broken);
-        ctx.drawImage(tile, (cx + u.x*BR - BR)|0, (cy + u.y*BR - BR)|0, T, T);
+        const rot = isHull ? 0 : (inst.rot || 0) % 4;
+        if(rot) {
+          ctx.save();
+          ctx.translate(cx + u.x*BR, cy + u.y*BR);
+          ctx.rotate(rot * Math.PI / 2);
+          ctx.drawImage(tile, -BR, -BR, T, T);
+          ctx.restore();
+        } else {
+          ctx.drawImage(tile, (cx + u.x*BR - BR)|0, (cy + u.y*BR - BR)|0, T, T);
+        }
       }
     }
     if(player.crew?.length) {
@@ -2371,9 +2429,18 @@ G.UI = class {
     const modId = inv[invIdx];
     if(modId == null || !hex) return;
     const mod = G.MODULES[modId] || G.WEAPONS[modId];
+    // Thrusters go outside hull ring — redirect to outer cell adjacent to hull hex.
+    let target = hex;
+    if(mod?.slot === 'thruster') {
+      const occ = new Set(Object.values(p.modules).filter(i => i.q != null).map(i => G.hexKey(i.q, i.r)));
+      const outerNbs = G.hexNeighbors(hex.q, hex.r).filter(nb => !occ.has(G.hexKey(nb.q, nb.r)));
+      outerNbs.sort((a, b) => G.hexDist(0, 0, b.q, b.r) - G.hexDist(0, 0, a.q, a.r));
+      if(!outerNbs[0]) { this.addMsg('No room for thruster outside hull', '#ff4444'); return; }
+      target = outerNbs[0];
+    }
     const instId = p.installModule(modId);
     if(instId){
-      p.modules[instId].q = hex.q; p.modules[instId].r = hex.r;
+      p.modules[instId].q = target.q; p.modules[instId].r = target.r;
       inv.splice(invIdx, 1);
       this._builderSel = instId;
       this.addMsg('Installed '+mod?.name, '#44ff44');
@@ -2391,9 +2458,18 @@ G.UI = class {
     const modId = inv[invIdx];
     if(modId == null) return;
     const mod = G.MODULES[modId] || G.WEAPONS[modId];
+    // Thrusters go outside hull ring.
+    let target = hex;
+    if(mod?.slot === 'thruster') {
+      const occ = new Set(Object.values(p.modules).filter(i => i.q != null).map(i => G.hexKey(i.q, i.r)));
+      const outerNbs = G.hexNeighbors(hex.q, hex.r).filter(nb => !occ.has(G.hexKey(nb.q, nb.r)));
+      outerNbs.sort((a, b) => G.hexDist(0, 0, b.q, b.r) - G.hexDist(0, 0, a.q, a.r));
+      if(!outerNbs[0]) { this.addMsg('No room for thruster outside hull', '#ff4444'); return; }
+      target = outerNbs[0];
+    }
     const instId = p.installModule(modId);
     if(instId){
-      p.modules[instId].q = hex.q; p.modules[instId].r = hex.r;
+      p.modules[instId].q = target.q; p.modules[instId].r = target.r;
       inv.splice(invIdx, 1);
       this._builderPickCell = null;
       this._builderSel = instId;
@@ -2553,7 +2629,7 @@ G.UI = class {
     <div class="section-title">YOUR SHIP</div>
     <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:10px;background:rgba(0,255,238,0.04);border:1px solid rgba(0,200,255,0.2);padding:8px">
       <div style="background:#000a18;flex-shrink:0;display:flex;align-items:center;justify-content:center;width:90px;height:72px">
-        <canvas width="88" height="70" class="ship-preview" data-shape="${shapeId}" data-color="${shipColor}"></canvas>
+        <canvas width="88" height="70" class="ship-preview" data-shipid="player"></canvas>
       </div>
       <div style="flex:1;min-width:0">
         <div style="font-size:8px;color:#00ffee;font-weight:bold;margin-bottom:4px">${p.name.toUpperCase()} <span style="color:#667;font-size:6px">${tpl.name||''}</span></div>
@@ -2624,7 +2700,7 @@ G.UI = class {
           <div class="item-name">${ship.name}</div>
           ${facBadge}
           <div style="width:100%;height:90px;background:#000a18;margin:4px 0;display:flex;align-items:center;justify-content:center">
-            <canvas width="120" height="88" class="ship-preview" data-shape="${ship.shape}" data-color="${ship.color}"></canvas>
+            <canvas width="120" height="88" class="ship-preview" data-shipid="${ship.id}"></canvas>
           </div>
           <div class="item-stats">${fullStats}</div>
           ${startHTML}
@@ -2643,17 +2719,60 @@ G.UI = class {
   }
 
   _drawShipPreviews(){
+    const p = G.game?.player;
     document.querySelectorAll('.ship-preview').forEach(canvas=>{
-      const ctx=canvas.getContext('2d');
-      const cw=canvas.width||120, ch=canvas.height||88;
-      ctx.clearRect(0,0,cw,ch);
-      ctx.fillStyle='#000a18'; ctx.fillRect(0,0,cw,ch);
-      const _sImg = G.ShipImages?.get(canvas.dataset.shape);
-      const sprite = _sImg || G.Sprites.get(canvas.dataset.shape, canvas.dataset.color);
-      const SZ=G.Sprites.SZ; // 32
-      const scale=2; // 64×64 centered
-      ctx.imageSmoothingEnabled = !!_sImg;
-      ctx.drawImage(sprite, (cw-SZ*scale)/2|0, (ch-SZ*scale)/2|0, SZ*scale, SZ*scale);
+      const ctx = canvas.getContext('2d');
+      const cw = canvas.width || 120, ch = canvas.height || 88;
+      ctx.clearRect(0, 0, cw, ch);
+      ctx.fillStyle = '#000a18'; ctx.fillRect(0, 0, cw, ch);
+      ctx.imageSmoothingEnabled = false;
+
+      const shipId = canvas.dataset.shipid;
+      const entries = (shipId === 'player' && p)
+        ? G.game.renderer?._playerTileEntries(p) || []
+        : G.hexLayoutForTemplate(shipId) || [];
+      if(!entries.length) return;
+
+      // Compute bounding box of hex centers in unit pixel space
+      let mnx=Infinity,mxx=-Infinity,mny=Infinity,mxy=-Infinity;
+      for(const e of entries) {
+        const u = G.hexToPixel(e.q, e.r, 1);
+        if(u.x<mnx)mnx=u.x; if(u.x>mxx)mxx=u.x;
+        if(u.y<mny)mny=u.y; if(u.y>mxy)mxy=u.y;
+      }
+      const pad = 4;
+      const BR = Math.max(3, Math.min(
+        (cw - pad) / ((mxx - mnx) + 2.2),
+        (ch - pad) / ((mxy - mny) + 2.2)
+      ));
+      const cx = cw/2 - ((mnx+mxx)/2)*BR;
+      const cy = ch/2 - ((mny+mxy)/2)*BR;
+      const T = BR * 2;
+
+      for(const pass of [0, 1]) {
+        for(const e of entries) {
+          const isHull = e.slot === 'hull';
+          if((pass === 0) !== isHull) continue;
+          const u = G.hexToPixel(e.q, e.r, 1);
+          const px = cx + u.x * BR, py = cy + u.y * BR;
+          let tile;
+          if(isHull) tile = G.Sprites.getHexTile('hull', e.color || '#667799', false);
+          else {
+            const slotCol = G.SLOT_RING[e.slot]?.color || '#334455';
+            tile = G.Sprites.getHexTile(e.visual || 'special', slotCol, e.broken || false);
+          }
+          const erot = isHull ? 0 : (e.rot || 0) % 4;
+          if(erot) {
+            ctx.save();
+            ctx.translate(px, py);
+            ctx.rotate(erot * Math.PI / 2);
+            ctx.drawImage(tile, -BR, -BR, T, T);
+            ctx.restore();
+          } else {
+            ctx.drawImage(tile, (px - BR)|0, (py - BR)|0, T, T);
+          }
+        }
+      }
     });
   }
 
@@ -2741,7 +2860,11 @@ G.UI = class {
     const hCost=Math.ceil((p.maxHull-p.hull)*5), sCost=Math.ceil((p.maxShields-p.shields)*3);
     const fCost=Math.ceil((p.maxFuel-p.fuel)*2);
     const broken=Object.entries(p.modules).filter(([,inst])=>inst.broken);
-    let html=`<div class="panel-title">REPAIR BAY</div>
+    const disabledBanner = p.disabled
+      ? `<div style="background:#1a0800;border:1px solid #ff4444;padding:6px 10px;margin-bottom:8px;font-size:7px;color:#ff6644">
+           ⚠ SHIP DISABLED — Repair hull to restore systems and enable launch.
+         </div>` : '';
+    let html=`<div class="panel-title">REPAIR BAY</div>${disabledBanner}
     <div class="two-col">
     <div class="item-card"><div class="item-name">Hull Repair</div>
       <div class="item-stats">Damage: ${Math.ceil(p.maxHull-p.hull)} HP — Cost: ${G.fmtCredits(hCost)}</div>
@@ -2799,6 +2922,11 @@ G.UI = class {
       if(repaired > 0){
         G.game.credits -= cost;
         p.hull += repaired;
+        if(p.disabled && p.hull > 0) {
+          p.disabled = false;
+          p._postDisableDmg = 0;
+          this.addMsg('Ship systems restored — ready to launch.','#00ffee');
+        }
         const msg = repaired === damage ? 'Hull repaired' : `Hull repaired ${repaired} of ${Math.ceil(damage)} HP`;
         this.addMsg(msg,'#44ff44');
         this.renderSpaceportTab('repair');
@@ -3180,7 +3308,7 @@ G.UI = class {
   }
 
   // ── Comms system ─────────────────────────────────────────
-  openComms(target, forceAction) {
+  openComms(target, forceAction, isRescueRequest = false) {
     if(!target) return;
     if(target.type === 'planet' || target.type === 'station') {
       this._openPlanetComms(target);
@@ -3193,6 +3321,7 @@ G.UI = class {
       this._showCommsNoResponse(target);
       return;
     }
+    this._commsIsRescueRequest = isRescueRequest;
 
     G.sound?.commsPing();
     this._commsNPC = target;
@@ -3229,6 +3358,11 @@ G.UI = class {
       }
     } else {
       opts = target.getCommsOptions();
+    }
+
+    // When player is disabled and this is a rescue request, prepend rescue option
+    if(this._commsIsRescueRequest && target.type !== 'enemy') {
+      opts = [{ key:'request_rescue', label:'REQUEST RESCUE', color:'#ff8844' }, ...opts];
     }
 
     const list = this.els['comms-options-list'];
@@ -3423,6 +3557,28 @@ G.UI = class {
       return;
     }
 
+    if(action === 'request_rescue') {
+      this._resolveRescueRequest(target, resp);
+      return;
+    }
+    if(action === 'accept_rescue_payment') {
+      const cost = this._rescueCreditDemand || 0;
+      if(G.game.credits < cost) {
+        this._speakComms('"You don\'t have enough credits. Good luck out there."');
+        setTimeout(() => this.closeComms(), 2200);
+      } else {
+        G.game.credits -= cost;
+        this._speakComms('"Credits received. Bringing you in — hang tight."');
+        setTimeout(() => { this.closeComms(); G.game.rescueLand(); }, 2000);
+      }
+      return;
+    }
+    if(action === 'decline_rescue') {
+      this._speakComms('"Understood. We\'ll stay on standby."');
+      setTimeout(() => this.closeComms(), 1800);
+      return;
+    }
+
     const res = target.getCommsResponse(action);
     this._speakComms('"'+res.text+'"');
 
@@ -3464,6 +3620,58 @@ G.UI = class {
 
     if(action==='forgive' && res.forgiveResult) {
       this._resolveForgiveness(target, resp, res.forgiveResult);
+    }
+  }
+
+  _resolveRescueRequest(target, respEl) {
+    const rel = G.game?.getRel(target.faction || 'neutral') || 0;
+    // Outcome weights shift with faction relation: hostile factions refuse more
+    const refuseW  = Math.max(0.1, 0.35 - rel * 0.003);
+    const creditsW = 0.35;
+    const helpW    = Math.max(0.1, 0.30 + rel * 0.003);
+    const roll     = Math.random() * (refuseW + creditsW + helpW);
+
+    const refuseLines = [
+      'We\'ve got our own problems out here. You\'re on your own.',
+      'Negative. Can\'t risk our hull for a stranger.',
+      'Not our mission. Good luck.',
+      'We don\'t do charity runs. Sorry.',
+      'Too much heat in this sector. Can\'t stop.',
+    ];
+    const helpLines = [
+      'Copy that. We\'re coming to get you. Sit tight.',
+      'Understood — rescue inbound. Don\'t go anywhere.',
+      'We read you. Bringing you to the nearest port. Stand by.',
+      'You\'re lucky we\'re close by. Locking on your position now.',
+    ];
+
+    if(roll < refuseW) {
+      // Refuse
+      this._speakComms('"' + refuseLines[Math.floor(Math.random()*refuseLines.length)] + '"');
+      setTimeout(() => this.closeComms(), 2200);
+    } else if(roll < refuseW + creditsW) {
+      // Demand credits
+      const danger   = G.game?.space?.sys?.danger || 3;
+      const cost     = (500 + danger * 200 + Math.floor(Math.random() * 500)) * 10;
+      this._rescueCreditDemand = cost;
+      this._speakComms('"We can pull you in — but it\'ll cost ' + G.fmtCredits(cost) + '. Your call."');
+      const list = this.els['comms-options-list'];
+      if(list) {
+        list.innerHTML = `
+          <button class="btn comms-opt" data-key="accept_rescue_payment" style="color:#ffcc00;border-color:#ffcc00;margin:3px 0;width:100%">
+            PAY ${G.fmtCredits(cost)}
+          </button>
+          <button class="btn comms-opt" data-key="decline_rescue" style="color:#ff4444;border-color:#ff4444;margin:3px 0;width:100%">
+            DECLINE
+          </button>`;
+        list.querySelectorAll('.comms-opt').forEach(btn => {
+          btn.addEventListener('click', () => this._handleCommsAction(btn.dataset.key));
+        });
+      }
+    } else {
+      // Agree to help freely
+      this._speakComms('"' + helpLines[Math.floor(Math.random()*helpLines.length)] + '"');
+      setTimeout(() => { this.closeComms(); G.game.rescueLand(); }, 2200);
     }
   }
 
@@ -3577,6 +3785,106 @@ G.UI = class {
     }
     html += '<div style="margin-top:12px;font-size:5px;color:#667788">Touch & controller controls can be selected in Options. Remapping coming soon!</div>';
     list.innerHTML = html;
+    overlay.classList.remove('hidden');
+  }
+
+  showDebugMenu() {
+    const overlay = document.getElementById('debug-overlay');
+    const list = document.getElementById('debug-list');
+    if(!overlay || !list) return;
+
+    const game = G.game;
+    const collisionsEnabled = game?.collisionsEnabled !== false;
+
+    let html = '<div style="color:#ff88ff;margin-bottom:12px;letter-spacing:1px">DEBUG MENU</div>';
+    html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:6px">';
+    html += '<span style="color:#aabbcc;min-width:80px">COLLISIONS</span>';
+    html += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer">';
+    html += '<input type="checkbox" id="debug-collisions-toggle" '+(collisionsEnabled?'checked':'')+' style="accent-color:#ff88ff;width:13px;height:13px">';
+    html += '<span id="debug-collisions-label" style="font-size:6px;color:#ff88ff;font-family:\'Press Start 2P\',monospace">'+(collisionsEnabled?'ON':'OFF')+'</span>';
+    html += '</label></div>';
+    list.innerHTML = html;
+
+    document.getElementById('debug-collisions-toggle')?.addEventListener('change', e => {
+      const enabled = e.target.checked;
+      if(game) game.collisionsEnabled = enabled;
+      document.getElementById('debug-collisions-label').textContent = enabled ? 'ON' : 'OFF';
+    });
+
+    overlay.classList.remove('hidden');
+  }
+
+  showCameraMenu() {
+    const overlay = document.getElementById('camera-overlay');
+    const list = document.getElementById('camera-list');
+    if(!overlay || !list) return;
+
+    const game = G.game;
+    let html = '<div style="color:#00ddff;margin-bottom:12px;letter-spacing:1px">CAMERA</div>';
+
+    // Spaceflight camera
+    html += '<div style="color:#88ddff;margin-bottom:8px;margin-top:12px;font-size:6px;letter-spacing:1px">SPACEFLIGHT</div>';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:6px">';
+    html += '<span style="color:#aabbcc;min-width:100px">MIN ZOOM</span>';
+    html += '<input type="range" id="cam-space-minzoom" min="0.1" max="1.0" step="0.05" value="'+(game?.spacecam_minZoom||0.2875)+'" style="flex:1;accent-color:#00ddff">';
+    html += '<span id="cam-space-minzoom-val" style="color:#00ddff;min-width:40px">'+((game?.spacecam_minZoom||0.2875).toFixed(2))+'</span>';
+    html += '</div>';
+
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:6px">';
+    html += '<span style="color:#aabbcc;min-width:100px">MAX ZOOM</span>';
+    html += '<input type="range" id="cam-space-maxzoom" min="1.0" max="6.0" step="0.1" value="'+(game?.spacecam_maxZoom||4.04)+'" style="flex:1;accent-color:#00ddff">';
+    html += '<span id="cam-space-maxzoom-val" style="color:#00ddff;min-width:40px">'+((game?.spacecam_maxZoom||4.04).toFixed(2))+'</span>';
+    html += '</div>';
+
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:6px">';
+    html += '<span style="color:#aabbcc;min-width:100px">SENSITIVITY</span>';
+    html += '<input type="range" id="cam-space-sens" min="0.0001" max="0.005" step="0.0001" value="'+(game?.spacecam_sensitivity||0.0008)+'" style="flex:1;accent-color:#00ddff">';
+    html += '<span id="cam-space-sens-val" style="color:#00ddff;min-width:50px">'+((game?.spacecam_sensitivity||0.0008).toFixed(4))+'</span>';
+    html += '</div>';
+
+    // Hexmap camera
+    html += '<div style="color:#88ddff;margin-bottom:8px;margin-top:12px;font-size:6px;letter-spacing:1px">HEXMAP</div>';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:6px">';
+    html += '<span style="color:#aabbcc;min-width:100px">MIN ZOOM</span>';
+    html += '<input type="range" id="cam-hex-minzoom" min="0.1" max="1.0" step="0.05" value="'+(game?.hexmapcam_minZoom||0.3)+'" style="flex:1;accent-color:#00ddff">';
+    html += '<span id="cam-hex-minzoom-val" style="color:#00ddff;min-width:40px">'+((game?.hexmapcam_minZoom||0.3).toFixed(2))+'</span>';
+    html += '</div>';
+
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:6px">';
+    html += '<span style="color:#aabbcc;min-width:100px">MAX ZOOM</span>';
+    html += '<input type="range" id="cam-hex-maxzoom" min="1.0" max="6.0" step="0.1" value="'+(game?.hexmapcam_maxZoom||3.5)+'" style="flex:1;accent-color:#00ddff">';
+    html += '<span id="cam-hex-maxzoom-val" style="color:#00ddff;min-width:40px">'+((game?.hexmapcam_maxZoom||3.5).toFixed(2))+'</span>';
+    html += '</div>';
+
+    list.innerHTML = html;
+
+    // Event listeners
+    document.getElementById('cam-space-minzoom')?.addEventListener('input', e => {
+      const val = parseFloat(e.target.value);
+      if(game) game.spacecam_minZoom = val;
+      document.getElementById('cam-space-minzoom-val').textContent = val.toFixed(2);
+    });
+    document.getElementById('cam-space-maxzoom')?.addEventListener('input', e => {
+      const val = parseFloat(e.target.value);
+      if(game) game.spacecam_maxZoom = val;
+      document.getElementById('cam-space-maxzoom-val').textContent = val.toFixed(2);
+    });
+    document.getElementById('cam-space-sens')?.addEventListener('input', e => {
+      const val = parseFloat(e.target.value);
+      if(game) game.spacecam_sensitivity = val;
+      document.getElementById('cam-space-sens-val').textContent = val.toFixed(4);
+    });
+    document.getElementById('cam-hex-minzoom')?.addEventListener('input', e => {
+      const val = parseFloat(e.target.value);
+      if(game) game.hexmapcam_minZoom = val;
+      document.getElementById('cam-hex-minzoom-val').textContent = val.toFixed(2);
+    });
+    document.getElementById('cam-hex-maxzoom')?.addEventListener('input', e => {
+      const val = parseFloat(e.target.value);
+      if(game) game.hexmapcam_maxZoom = val;
+      document.getElementById('cam-hex-maxzoom-val').textContent = val.toFixed(2);
+    });
+
     overlay.classList.remove('hidden');
   }
 
@@ -3823,6 +4131,16 @@ G.UI = class {
     const player = G.game?.player;
     const podMods = player ? Object.values(player.modules||{}).filter(m=>m.moduleId==='escape_pod'&&!m.broken) : [];
     const hasPods = podMods.length > 0;
+
+    const helpBtn = document.createElement('button');
+    helpBtn.className = 'btn';
+    helpBtn.style.fontSize = '6px';
+    helpBtn.style.borderColor = '#00ffee';
+    helpBtn.style.color = '#00ffee';
+    helpBtn.textContent = 'CALL FOR HELP';
+    helpBtn.onclick = () => { this.closeDisabledShipPopup(); this._openRescueComms(); };
+    opts.appendChild(helpBtn);
+
     if(hasPods) {
       const btn = document.createElement('button');
       btn.className = 'btn';
@@ -3848,6 +4166,20 @@ G.UI = class {
     };
     opts.appendChild(downBtn);
     popup.classList.remove('hidden');
+  }
+
+  _openRescueComms() {
+    const space = G.game?.space;
+    if(!space) return;
+    const rescuers = [...(space.npcs||[]), ...(space.fleetShips||[])]
+      .filter(n => !n.dead && !n._deathDone && !n.hostile);
+    if(!rescuers.length) {
+      this._showCommsNoResponse({ faction:'neutral', name:'All vessels' });
+      return;
+    }
+    const p = G.game.player;
+    rescuers.sort((a,b) => Math.hypot(a.x-p.x,a.y-p.y) - Math.hypot(b.x-p.x,b.y-p.y));
+    this.openComms(rescuers[0], null, true);
   }
 
   closeDisabledShipPopup() {
@@ -4286,54 +4618,55 @@ G.UI = class {
     STARTING_SHIPS.forEach((s, si) => {
       const wrap = document.createElement('div');
       wrap.className = 'char-ship-wrap' + (si === 0 ? ' selected' : '');
-      const ship = new G.Ship(s.id);
-      const c = document.createElement('canvas');
-      c.width = 120; c.height = 100;
-      const ctx2 = c.getContext('2d');
-      ctx2.fillStyle = '#000a18';
-      ctx2.fillRect(0, 0, 120, 100);
 
+      const ship = new G.Ship(s.id);
       const entries = [];
       for(const [, inst] of Object.entries(ship.modules || {})) {
         if(inst.q == null) continue;
         const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
         if(!mod) continue;
-        entries.push({ q: inst.q, r: inst.r, slot: mod.slot || 'special' });
+        const entry = {
+          q: inst.q, r: inst.r,
+          visual: mod.visual || (G.WEAPONS[inst.moduleId] ? 'weapon' : 'special'),
+          slot: mod.slot || 'special',
+          broken: false,
+        };
+        if(mod.slot === 'hull') entry.color = inst.color || '#667799';
+        entries.push(entry);
       }
 
-      if(entries.length > 0) {
-        const R = 14;
+      const c = document.createElement('canvas');
+      c.width = 140; c.height = 120;
+      const ctx2 = c.getContext('2d');
+      ctx2.imageSmoothingEnabled = false;
+
+      if(entries.length > 0 && G.game?.renderer) {
+        // Measure bounding box to find scale that fits canvas
+        const R_test = G.HEX_R;
         let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
         for(const e of entries) {
-          const p = G.hexToPixel(e.q, e.r, R);
-          if(p.x < minx) minx = p.x;
-          if(p.x > maxx) maxx = p.x;
-          if(p.y < miny) miny = p.y;
-          if(p.y > maxy) maxy = p.y;
+          const p = G.hexToPixel(e.q, e.r, R_test);
+          if(p.x - R_test < minx) minx = p.x - R_test;
+          if(p.x + R_test > maxx) maxx = p.x + R_test;
+          if(p.y - R_test < miny) miny = p.y - R_test;
+          if(p.y + R_test > maxy) maxy = p.y + R_test;
         }
-        const ox = (minx + maxx) / 2, oy = (miny + maxy) / 2;
-        ctx2.save();
-        ctx2.translate(60, 50);
-        for(const e of entries) {
-          const p = G.hexToPixel(e.q, e.r, R);
-          const SQ3 = Math.sqrt(3);
-          ctx2.beginPath();
-          for(let i = 0; i < 6; i++) {
-            const a = Math.PI / 3 * i;
-            const x = p.x - ox + R * Math.cos(a);
-            const y = p.y - oy + R * Math.sin(a);
-            if(i === 0) ctx2.moveTo(x, y);
-            else ctx2.lineTo(x, y);
-          }
-          ctx2.closePath();
-          ctx2.strokeStyle = e.slot === 'hull' ? '#667799' : '#556677';
-          ctx2.lineWidth = 1;
-          ctx2.stroke();
-          ctx2.fillStyle = e.slot === 'hull' ? 'rgba(102,119,153,0.2)' : 'rgba(100,150,200,0.1)';
-          ctx2.fill();
-        }
-        ctx2.restore();
+        const bw = maxx - minx, bh = maxy - miny;
+        const scale = Math.min((c.width - 8) / bw, (c.height - 8) / bh, 3);
+
+        // Render into an offscreen canvas at the computed scale, then blit
+        const off = document.createElement('canvas');
+        off.width = c.width * 2; off.height = c.height * 2;
+        const renderer = G.game.renderer;
+        const prevCtx = renderer.ctx;
+        renderer.ctx = off.getContext('2d');
+        renderer.ctx.imageSmoothingEnabled = false;
+        renderer.drawShipTileDisplay(off.width / 2, off.height / 2, scale, entries, 0);
+        renderer.ctx = prevCtx;
+
+        ctx2.drawImage(off, 0, 0, c.width, c.height);
       }
+
       wrap.appendChild(c);
       wrap.insertAdjacentHTML('beforeend', `<div class="char-ship-name">${s.label}</div><div class="char-ship-desc">${s.desc}</div>`);
       wrap.addEventListener('click', () => {
@@ -4449,8 +4782,7 @@ G.UI = class {
     const ctx = canvas.getContext('2d');
     const W = canvas.width, H = canvas.height;
 
-    ctx.fillStyle = '#040810';
-    ctx.fillRect(0, 0, W, H);
+    ctx.clearRect(0, 0, W, H);
 
     const cx = 36, hcy = 30, hr = 16;
 

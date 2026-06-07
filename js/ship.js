@@ -235,9 +235,10 @@ G.Ship = class {
     };
     const yOf = c => c.r + c.q / 2;                 // ∝ pixel y (fore = −, aft = +)
     const dOf = c => G.hexDist(0, 0, c.q, c.r);
-    const cmpCompact = (a, b) => dOf(a) - dOf(b) || yOf(a) - yOf(b) || a.q - b.q;
-    const cmpFore    = (a, b) => yOf(a) - yOf(b) || dOf(a) - dOf(b) || a.q - b.q;
-    const cmpAft     = (a, b) => yOf(b) - yOf(a) || dOf(a) - dOf(b) || a.q - b.q;
+    // Distance first so weapons/thrusters fill across the current arc ring before
+    // going deeper — prevents stacking into a linear spike column.
+    const cmpFore    = (a, b) => dOf(a) - dOf(b) || yOf(a) - yOf(b) || a.q - b.q;
+    const cmpAft     = (a, b) => dOf(a) - dOf(b) || yOf(b) - yOf(a) || a.q - b.q;
     const placeOne = (id, cmp) => {
       const cand = frontier();
       if(!cand.length) return;
@@ -245,16 +246,50 @@ G.Ship = class {
       assign(id, cand[0].q, cand[0].r);
     };
 
-    // Fill the body first (compact), then weapons fore, then thrusters aft so
-    // weapons/thrusters land on the fore/aft edges of the finished blob.
+    // Body modules: pick randomly among minimum-distance frontier cells so each
+    // ship template gets an organic, non-linear silhouette (seeded by templateId
+    // so the same ship always looks the same).
+    const shapeRng = G.seededRng((this.templateId || 'ship') + '_shape');
+    const placeRandom = (id) => {
+      const cand = frontier();
+      if(!cand.length) return;
+      const minD = Math.min(...cand.map(dOf));
+      const ring = cand.filter(c => dOf(c) === minD);
+      const pick = ring[Math.floor(shapeRng() * ring.length)];
+      assign(id, pick.q, pick.r);
+    };
+
+    // Fill body randomly, weapons fore. Thrusters land outside the hull ring.
     const body      = inner.filter(e => e.slot !== 'core' && e.slot !== 'thruster' && e.slot !== 'weapon' && e.slot !== 'turret');
     const weapons   = inner.filter(e => e.slot === 'weapon' || e.slot === 'turret');
     const thrusters = inner.filter(e => e.slot === 'thruster');
-    for(const e of body)      placeOne(e.id, cmpCompact);
-    for(const e of weapons)   placeOne(e.id, cmpFore);
-    for(const e of thrusters) placeOne(e.id, cmpAft);
+    for(const e of body)    placeRandom(e.id);
+    for(const e of weapons) placeOne(e.id, cmpFore);
 
+    // Wrap the hull first, then place thrusters on the outer frontier (outside hull panels).
     this._wrapHull(tpl);
+    const outerPerim = (() => {
+      const occ = new Set();
+      for(const inst of Object.values(this.modules)) if(inst.q != null) occ.add(G.hexKey(inst.q, inst.r));
+      const map = new Map();
+      for(const inst of Object.values(this.modules)) {
+        if(inst.q == null) continue;
+        if(G.MODULES[inst.moduleId]?.slot !== 'hull') continue;
+        for(const nb of G.hexNeighbors(inst.q, inst.r)) {
+          const nk = G.hexKey(nb.q, nb.r);
+          if(!occ.has(nk)) map.set(nk, nb);
+        }
+      }
+      return [...map.values()];
+    })();
+    outerPerim.sort(cmpAft);
+    let pi = 0;
+    for(const e of thrusters) {
+      if(pi >= outerPerim.length) break;
+      this.modules[e.id].q = outerPerim[pi].q;
+      this.modules[e.id].r = outerPerim[pi].r;
+      pi++;
+    }
   }
 
   // Wrap every inner module's open hex neighbours with hull-panel hexes.
@@ -268,7 +303,7 @@ G.Ship = class {
     for(const inst of Object.values(this.modules)) {
       if(inst.q == null) continue;
       const m = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
-      if(m && m.slot === 'hull') continue;
+      if(m && (m.slot === 'hull' || m.slot === 'thruster')) continue;
       for(const nb of G.hexNeighbors(inst.q, inst.r)) {
         const k = G.hexKey(nb.q, nb.r);
         if(!occupied.has(k)) hullCells.add(k);
@@ -291,7 +326,7 @@ G.Ship = class {
     for(const inst of Object.values(this.modules)) {
       if(inst.q == null) continue;
       const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
-      if(mod?.slot === 'hull') continue;
+      if(mod?.slot === 'hull' || mod?.slot === 'thruster') continue;
       for(const nb of G.hexNeighbors(inst.q, inst.r))
         if(!cells.has(G.hexKey(nb.q, nb.r))) return false;
     }
@@ -313,7 +348,25 @@ G.Ship = class {
   // layout is regenerated deterministically (also serves as save migration for
   // square-grid saves, which had no q/r).
   ensureHullPanels() {
-    const needs = Object.values(this.modules).some(inst => inst.q == null && G.MODULES[inst.moduleId]?.slot !== 'hull')
+    const occupied = new Set();
+    const byKey = {};
+    for(const inst of Object.values(this.modules)) {
+      if(inst.q != null) { const k = G.hexKey(inst.q, inst.r); occupied.add(k); byKey[k] = inst; }
+    }
+    // Thruster fully surrounded → old inner-thruster save.
+    const thrusterInner = Object.values(this.modules).some(inst => {
+      const m = G.MODULES[inst.moduleId];
+      if(m?.slot !== 'thruster' || inst.q == null) return false;
+      return G.hexNeighbors(inst.q, inst.r).every(nb => occupied.has(G.hexKey(nb.q, nb.r)));
+    });
+    // Thruster with no hull-panel neighbour → old hull-edge layout (thruster should be outside hull ring).
+    const thrusterAtEdge = !thrusterInner && Object.values(this.modules).some(inst => {
+      const m = G.MODULES[inst.moduleId];
+      if(m?.slot !== 'thruster' || inst.q == null) return false;
+      return !G.hexNeighbors(inst.q, inst.r).some(nb => G.MODULES[byKey[G.hexKey(nb.q, nb.r)]?.moduleId]?.slot === 'hull');
+    });
+    const needs = thrusterInner || thrusterAtEdge
+      || Object.values(this.modules).some(inst => inst.q == null && G.MODULES[inst.moduleId]?.slot !== 'hull')
       || !Object.values(this.modules).some(inst => G.MODULES[inst.moduleId]?.slot === 'hull');
     if(needs) this._generateHexLayout();
     else this._wrapHull();
@@ -575,7 +628,7 @@ G.Ship = class {
       const thrust = this.thrustForward * thrustEff * boostMult * stimMult / effectiveMass;
       this.vx += fwdX * thrust * dt;
       this.vy += fwdY * thrust * dt;
-      if(boostActive && !superBoostActive) this.energy = Math.max(0, this.energy - 450 * dt);
+      if(boostActive && !superBoostActive) this.energy = Math.max(0, this.energy - 225 * dt);
       this.fuel = Math.max(0, this.fuel - this.fuelBurnRate * 0.05 * dt);
 
       // Grip: cancel sideways drift when side thrusters can oppose the drift direction
@@ -600,13 +653,13 @@ G.Ship = class {
         this.vx -= latX * dodgeAccel * dt;
         this.vy -= latY * dodgeAccel * dt;
         this._strafeCooldown = 0.5;
-        if(boostActive && !superBoostActive) this.energy = Math.max(0, this.energy - 60);
+        if(boostActive && !superBoostActive) this.energy = Math.max(0, this.energy - 30);
       } else if(inp.strafeR && this.thrustStrafeR > 0) {
         const dodgeAccel = this.thrustStrafeR * 0.8 / effectiveMass;
         this.vx += latX * dodgeAccel * dt;
         this.vy += latY * dodgeAccel * dt;
         this._strafeCooldown = 0.5;
-        if(boostActive && !superBoostActive) this.energy = Math.max(0, this.energy - 60);
+        if(boostActive && !superBoostActive) this.energy = Math.max(0, this.energy - 30);
       }
     }
     // S = braking (any thrust) / reverse flight (requires front thruster)
@@ -968,9 +1021,12 @@ function _buildFootprint(coords) {
   }
   if(!cells.size) return null;
   const cux = (mnx + mxx) / 2, cuy = (mny + mxy) / 2;
+  // maxU = bounding radius from ship origin (0,0), not bbox centre, so that
+  // shipCollisionRadius (which is used relative to ship.x, ship.y) is correct
+  // for asymmetric assemblies (weapons fore / thrusters aft).
   let maxU = 0;
-  for(const u of us) { const d = Math.hypot(u.x - cux, u.y - cuy); if(d > maxU) maxU = d; }
-  return { cells, cux, cuy, maxU: maxU + 1 }; // +1 unit ≈ one hex radius
+  for(const u of us) { const d = Math.hypot(u.x, u.y) + 1; if(d > maxU) maxU = d; }
+  return { cells, cux, cuy, maxU };
 }
 
 G._tplFootprint = {};

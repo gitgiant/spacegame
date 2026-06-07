@@ -254,7 +254,17 @@ G.Renderer = class {
       const p = G.hexToPixel(e.q, e.r, R);
       const slotCol = G.SLOT_RING[e.slot]?.color || '#334455';
       const tile = G.Sprites.getHexTile(e.visual || 'special', slotCol, e.broken);
-      ctx.drawImage(tile, (p.x - ox - R) | 0, (p.y - oy - R) | 0, T, T);
+      const rot = (e.rot || 0) % 4;
+      if(rot) {
+        const tx = (p.x - ox) | 0, ty = (p.y - oy) | 0;
+        ctx.save();
+        ctx.translate(tx, ty);
+        ctx.rotate(rot * Math.PI / 2);
+        ctx.drawImage(tile, -R, -R, T, T);
+        ctx.restore();
+      } else {
+        ctx.drawImage(tile, (p.x - ox - R) | 0, (p.y - oy - R) | 0, T, T);
+      }
     }
     // Rear thruster flame flicker when turning
     if(turnDir !== 0) {
@@ -286,7 +296,7 @@ G.Renderer = class {
       const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
       if(!mod) continue;
       const entry = {
-        q: inst.q, r: inst.r,
+        q: inst.q, r: inst.r, rot: inst.rot || 0,
         visual: mod.visual || (G.WEAPONS[inst.moduleId] ? 'weapon' : 'special'),
         slot: mod.slot || 'special', broken: inst.broken || false,
       };
@@ -387,7 +397,16 @@ G.Renderer = class {
           const visual = mod?.visual || (G.WEAPONS[inst.moduleId] ? 'weapon' : 'special');
           tile = G.Sprites.getHexTile(visual, slotCol, inst.broken);
         }
-        ctx.drawImage(tile, tx, ty, TH, TH);
+        const hudRot = isHull ? 0 : (inst.rot || 0) % 4;
+        if(hudRot) {
+          ctx.save();
+          ctx.translate(tx + HR, ty + HR);
+          ctx.rotate(hudRot * Math.PI / 2);
+          ctx.drawImage(tile, -HR, -HR, TH, TH);
+          ctx.restore();
+        } else {
+          ctx.drawImage(tile, tx, ty, TH, TH);
+        }
       }
     }
 
@@ -1530,7 +1549,7 @@ G.Renderer = class {
       ctx.font = '6px "Press Start 2P",monospace';
       ctx.fillStyle = '#334455';
       ctx.textAlign = 'center';
-      ctx.fillText('SCROLL OUT → sector map', G.CANVAS_W/2, G.CANVAS_H - 12);
+      ctx.fillText('SCROLL OUT or [H] → sector map', G.CANVAS_W/2, G.CANVAS_H - 12);
       ctx.textAlign = 'left';
       ctx.restore();
     }
@@ -1650,19 +1669,25 @@ G.Renderer = class {
   renderHexMap(game) {
     const ctx = this.ctx;
     const CX = G.CANVAS_W/2, CY = G.CANVAS_H/2;
-    const S = G.HEX_PX, SQ3 = Math.sqrt(3);
+    const S = G.HEX_PX * (game._hexMapZoom || 1);
+    const SQ3 = Math.sqrt(3);
     const space = game.space, player = game.player;
     if(!space || !player) return;
+
+    const offX = game._hexMapOffX || 0, offY = game._hexMapOffY || 0;
 
     // Background
     ctx.fillStyle = '#000810';
     ctx.fillRect(0, 0, G.CANVAS_W, G.CANVAS_H);
 
-    // Hex (q,r) → screen (x,y)
-    const hexXY = (q, r) => ({
-      x: CX + S * (SQ3*q + SQ3/2*r),
-      y: CY + S * 1.5*r,
+    // World pos → screen, centred on player + pan offset
+    const wts = (wx, wy) => ({
+      x: CX + offX + (wx - player.x) * S / G.HEX_WORLD,
+      y: CY + offY + (wy - player.y) * S / G.HEX_WORLD,
     });
+
+    // Hex (q,r) → screen via world coords so both systems stay aligned
+    const hexXY = (q, r) => { const w = G.hexToWorld(q, r); return wts(w.x, w.y); };
 
     // Stroke a hex outline
     const hexPath = (q, r, inset=0) => {
@@ -1676,12 +1701,12 @@ G.Renderer = class {
       ctx.closePath();
     };
 
-    // Draw grid
+    // Draw grid — range extended so panning/zooming always fills the screen
     ctx.strokeStyle = 'rgba(0,70,120,0.20)';
     ctx.lineWidth = 0.5;
-    for(let q=-7; q<=7; q++) {
-      for(let r=-7; r<=7; r++) {
-        if(Math.max(Math.abs(q),Math.abs(r),Math.abs(-q-r)) > 7) continue;
+    for(let q=-14; q<=14; q++) {
+      for(let r=-14; r<=14; r++) {
+        if(Math.max(Math.abs(q),Math.abs(r),Math.abs(-q-r)) > 14) continue;
         const {x,y} = hexXY(q, r);
         if(x < -S || x > G.CANVAS_W+S || y < -S || y > G.CANVAS_H+S) continue;
         hexPath(q, r);
@@ -1721,7 +1746,7 @@ G.Renderer = class {
     // Asteroid speckle at world positions
     ctx.fillStyle = '#5a4633';
     for(const a of space.asteroids) {
-      const sx = CX + a.x*S/G.HEX_WORLD, sy = CY + a.y*S/G.HEX_WORLD;
+      const {x:sx,y:sy} = wts(a.x, a.y);
       if(sx < 0 || sx > G.CANVAS_W || sy < 0 || sy > G.CANVAS_H) continue;
       ctx.fillRect(sx|0, sy|0, 2, 2);
     }
@@ -1766,12 +1791,6 @@ G.Renderer = class {
       }
       ctx.restore();
     }
-
-    // World-position → screen helper
-    const wts = (wx, wy) => ({
-      x: CX + wx*S/G.HEX_WORLD,
-      y: CY + wy*S/G.HEX_WORLD,
-    });
 
     // Ship triangle helper
     const drawTri = (x, y, angle, col, sz=5) => {
@@ -1872,7 +1891,7 @@ G.Renderer = class {
     ctx.fillText('SECTOR — '+(sys?.name||game.currentSysId).toUpperCase(), 10, 22);
     ctx.font = '5px "Press Start 2P",monospace';
     ctx.fillStyle = '#334455';
-    ctx.fillText('[SCROLL IN] return to flight   [M] galaxy map', 10, 36);
+    ctx.fillText('[H/ESC] return to flight   [M] galaxy map   drag to pan   scroll to zoom', 10, 36);
     ctx.restore();
   }
 };
@@ -1901,7 +1920,16 @@ G.Game = class {
     this._landPending=null;
     this._autopilot=false;
     this._bgEnabled=true;
+    this.collisionsEnabled=true;
     this._interactPromptText = null;
+    // Camera options
+    this.spacecam_minZoom = 0.2875;
+    this.spacecam_maxZoom = 4.04;
+    this.spacecam_sensitivity = 0.0008;
+    this.hexmapcam_minZoom = 0.3;
+    this.hexmapcam_maxZoom = 3.5;
+    this.hexmapcam_zoomIn = 1.15;
+    this.hexmapcam_zoomOut = 0.88;
     this._interactPromptTarget = null;
     this._sunGlowAlpha = 0;
     this._escapePodFollowing = null;
@@ -1968,12 +1996,20 @@ G.Game = class {
       // Hex map: pick the nearest object in screen space (ships use the scaled
       // world transform, bodies sit on their schematic hex cells).
       if(this.state === 'hexmap') {
+        if(this._hexMapDragMoved) { this._hexMapDragMoved = false; return; }
         const rect = this.canvas.getBoundingClientRect();
         const ratio = G.CANVAS_W / rect.width;
         const cx = (e.clientX - rect.left) * ratio;
         const cy = (e.clientY - rect.top)  * ratio;
-        const CX = G.CANVAS_W/2, CY = G.CANVAS_H/2, S = G.HEX_PX, SQ3 = Math.sqrt(3);
-        const wts = (wx, wy) => ({ x: CX + wx*S/G.HEX_WORLD, y: CY + wy*S/G.HEX_WORLD });
+        const CX = G.CANVAS_W/2, CY = G.CANVAS_H/2;
+        const S = G.HEX_PX * (this._hexMapZoom || 1);
+        const offX = this._hexMapOffX || 0, offY = this._hexMapOffY || 0;
+        const p = this.player;
+        const wts = (wx, wy) => ({
+          x: CX + offX + (wx - p.x) * S / G.HEX_WORLD,
+          y: CY + offY + (wy - p.y) * S / G.HEX_WORLD,
+        });
+        const hexXY = (q, r) => { const w = G.hexToWorld(q, r); return wts(w.x, w.y); };
         let best = null, bestD = 16; // screen-pixel pick radius
         for(const ship of this.space.allTargets().filter(s=>!s._inDust)) {
           const s = wts(ship.x, ship.y);
@@ -1982,7 +2018,7 @@ G.Game = class {
         }
         const bodyMap = this.renderer._buildBodyHexMap(this.space.bodies);
         for(const [b, h] of bodyMap) {
-          const x = CX + S*(SQ3*h.q + SQ3/2*h.r), y = CY + S*1.5*h.r;
+          const {x, y} = hexXY(h.q, h.r);
           const d = Math.hypot(x - cx, y - cy);
           if(d < Math.max(14, bestD)) { bestD = d; best = b; }
         }
@@ -2061,26 +2097,58 @@ G.Game = class {
 
     // Mouse-wheel zoom while flying; zoom past minimum → enter hex map
     this._zoomManual = 0;
+    this._hexMapOffX = 0; this._hexMapOffY = 0; this._hexMapZoom = 1;
+    this._hexMapDragMoved = false;
+
+    // Hex-map drag-to-pan
+    let _hmDrag = null;
+    this.canvas.addEventListener('pointerdown', e => {
+      if(this.state !== 'hexmap') return;
+      this._hexMapDragMoved = false;
+      _hmDrag = { sx: e.clientX, sy: e.clientY, ox: this._hexMapOffX, oy: this._hexMapOffY };
+    });
+    this.canvas.addEventListener('pointermove', e => {
+      if(this.state !== 'hexmap' || !_hmDrag) return;
+      const rect = this.canvas.getBoundingClientRect();
+      const ratio = G.CANVAS_W / rect.width;
+      const dx = (e.clientX - _hmDrag.sx) * ratio, dy = (e.clientY - _hmDrag.sy) * ratio;
+      if(Math.hypot(dx, dy) > 4) this._hexMapDragMoved = true;
+      this._hexMapOffX = _hmDrag.ox + dx;
+      this._hexMapOffY = _hmDrag.oy + dy;
+    });
+    this.canvas.addEventListener('pointerup', () => { _hmDrag = null; });
+
     this.canvas.addEventListener('wheel', e => {
       if(this.state === 'hexmap') {
         e.preventDefault();
         if(e.deltaY < 0) {
-          this.state = 'space';
-          this._zoomManual = -0.42;
-          document.getElementById('minimap-wrap')?.classList.remove('hidden');
+          const nz = (this._hexMapZoom || 1) * this.hexmapcam_zoomIn;
+          if(nz > this.hexmapcam_maxZoom) {
+            this.state = 'space';
+            this._zoomManual = -(1.0 - this.spacecam_minZoom) * 0.5 - 0.1;
+            this._hexMapOffX = 0; this._hexMapOffY = 0; this._hexMapZoom = 1;
+            document.getElementById('minimap-wrap')?.classList.remove('hidden');
+            document.getElementById('hexmap-controls')?.classList.add('hidden');
+          } else {
+            this._hexMapZoom = nz;
+          }
+        } else {
+          this._hexMapZoom = Math.max(this.hexmapcam_minZoom, (this._hexMapZoom || 1) * this.hexmapcam_zoomOut);
         }
         return;
       }
       if(this.state !== 'space') return;
       e.preventDefault();
-      const nz = (this._zoomManual || 0) - e.deltaY * 0.0008;
-      // Allow zooming out 2× further (camZoom floor ~0.2875) before the hex map.
-      if(nz < -0.7125) {
+      const nz = (this._zoomManual || 0) - e.deltaY * this.spacecam_sensitivity;
+      const hexmapThreshold = -(1.0 - this.spacecam_minZoom) * 0.5;
+      if(nz < hexmapThreshold) {
         this.state = 'hexmap';
-        this._zoomManual = -0.7125;
+        this._zoomManual = hexmapThreshold;
+        this._hexMapOffX = 0; this._hexMapOffY = 0; this._hexMapZoom = 1;
         document.getElementById('minimap-wrap')?.classList.add('hidden');
+        document.getElementById('hexmap-controls')?.classList.remove('hidden');
       } else {
-        this._zoomManual = G.clamp(nz, -0.7125, 3.04);
+        this._zoomManual = G.clamp(nz, hexmapThreshold, this.spacecam_maxZoom - 1.0);
       }
     }, { passive: false });
 
@@ -2258,6 +2326,8 @@ G.Game = class {
     this.player.ensureCockpit();     // migrate older saves that predate the cockpit
     this.player.ensureCoreModule();  // migrate older saves that predate class core modules
     this.player.ensureHullPanels();  // migrate older saves that predate hull enclosure system
+    // Regenerate hex layout so saved positions don't persist stale linear arrangements.
+    this.player._generateHexLayout();
     this.player._recompute();
     this.player.hull    = sd.hull    || this.player.maxHull;
     this.player.shields = sd.shields || 0;
@@ -2536,6 +2606,15 @@ G.Game = class {
       else if(this.state==='galaxy') this.closeGalaxy();
     }
 
+    // H: toggle hex map
+    if(this.input.pressed('KeyH') && this.state==='space') {
+      this.state = 'hexmap';
+      this._zoomManual = -0.7125;
+      this._hexMapOffX = 0; this._hexMapOffY = 0; this._hexMapZoom = 1;
+      document.getElementById('minimap-wrap')?.classList.add('hidden');
+      document.getElementById('hexmap-controls')?.classList.remove('hidden');
+    }
+
     // Jump departure update (ship streaking off screen)
     if(this._jumpDeparting) { this._updateJumpDeparture(dt); return; }
 
@@ -2562,6 +2641,10 @@ G.Game = class {
     if(this._jumpCooldown > 0) this._jumpCooldown -= dt;
 
     // J: hold to jump to next system in route (when in space)
+    if(!p.disabled && !p.canJump && this.input.pressed('KeyJ')) {
+      G.sound.forgiveness(false);
+      this.ui.addMsg('No hyperspace drive installed!','#ff4444');
+    }
     if(!p.disabled && p.canJump && this.galaxy.jumpRoute.length > 0) {
       const nextSysId = this.galaxy.jumpRoute[0];
       if(this.galaxy.canJumpTo(nextSysId)) {
@@ -2811,7 +2894,7 @@ G.Game = class {
     this.camX=G.lerp(this.camX, _followTarget.x-G.CANVAS_W/2+this._camLeadX, Math.min(dt*6,1));
     this.camY=G.lerp(this.camY, _followTarget.y-G.CANVAS_H/2+this._camLeadY, Math.min(dt*6,1));
     // Mouse-wheel manual zoom offset
-    const _zoomTarget = G.clamp(1.0 + (this._zoomManual || 0), 0.2875, 4.04);
+    const _zoomTarget = G.clamp(1.0 + (this._zoomManual || 0), this.spacecam_minZoom, this.spacecam_maxZoom);
     // Arrival zoom: briefly over-zoomed so camera zooms in after a jump
     const _arrivalBoost = (this._arrivalZoomT || 0) * 0.9;
     this._arrivalZoomT = Math.max(0, (this._arrivalZoomT || 0) - dt * 0.9);
@@ -2868,7 +2951,7 @@ G.Game = class {
       this.ui.showDisabledShipPopup();
     }
     if(!p.disabled) { this._playerDisabledMsgShown = false; p._disabledSoundPlayed = false; p._postDisableDmg = 0; }
-    if(p.disabled && (p._postDisableDmg||0) >= p.disabledHp) this._playerDied();
+    if(p.disabled && (p._postDisableDmg||0) >= p.disabledHp) { this.ui.closeDisabledShipPopup(); this._playerDied(); }
     if(this.target&&(this.target.dead||this.target.boarded)) this.target=null;
 
     this._updateCrewPositions(dt, p);
@@ -3062,7 +3145,25 @@ G.Game = class {
     this.ui.setInteractPrompt('');
   }
 
+  rescueLand() {
+    if(!this.space) return;
+    let nearPort = null, nearDist = Infinity;
+    for(const b of this.space.bodies) {
+      if(!b.hasSpaceport) continue;
+      const d = Math.hypot(b.x - this.player.x, b.y - this.player.y);
+      if(d < nearDist) { nearDist = d; nearPort = b; }
+    }
+    if(!nearPort) { this.ui.addMsg('No spaceport found in system.','#ff4444'); return; }
+    this.ui.addMsg('Rescue craft inbound — towing to '+nearPort.name, '#00ffee');
+    this.land(nearPort);
+  }
+
   launch() {
+    if(this.player?.disabled) {
+      this.ui.addMsg('Ship disabled — repair hull at the repair bay before launching.','#ff4444');
+      G.sound?.forgiveness?.(false);
+      return;
+    }
     if(this.player && !this.player.flyable){
       const _hc = Object.values(this.player.modules).some(i => { const m = G.MODULES[i.moduleId]; return m?.slot==='cockpit'; });
       const _hm = Object.values(this.player.modules).some(i => { const m = G.MODULES[i.moduleId]; return m?.slot==='core'; });
@@ -3079,8 +3180,12 @@ G.Game = class {
     this._showHUD();
   }
 
+  hexMapRecenter() {
+    this._hexMapOffX = 0;
+    this._hexMapOffY = 0;
+  }
+
   openGalaxy() {
-    if(!this.player.canJump){ this.ui.addMsg('No hyperspace drive installed!','#ff4444'); return; }
     this.state='galaxy';
     G.sound.mapOpen();
     this.ui.els['galaxy-overlay']?.classList.remove('hidden');
@@ -3757,6 +3862,13 @@ G.Game.prototype._loop = function(ts) {
     }
     if(this.state === 'hexmap') this.renderer.renderHexMap(this);
     if(this.input.pressed('KeyM')) this.openGalaxy();
+    if(this.input.pressed('KeyH')) {
+      this.state = 'space';
+      this._zoomManual = -0.42;
+      this._hexMapOffX = 0; this._hexMapOffY = 0; this._hexMapZoom = 1;
+      document.getElementById('minimap-wrap')?.classList.remove('hidden');
+      document.getElementById('hexmap-controls')?.classList.add('hidden');
+    }
   } else if(this.state==='galaxy') {
     if(this.input.pressed('KeyM')) this.closeGalaxy();
     // Hold J with a route selected: close map and begin jump charge immediately
@@ -3795,7 +3907,9 @@ G.Game.prototype._loop = function(ts) {
     } else if(this.state==='hexmap') {
       this.state='space';
       this._zoomManual=-0.42;
+      this._hexMapOffX = 0; this._hexMapOffY = 0; this._hexMapZoom = 1;
       document.getElementById('minimap-wrap')?.classList.remove('hidden');
+      document.getElementById('hexmap-controls')?.classList.add('hidden');
     } else if(this.state==='space' || this.state==='dead') {
       const opts=document.getElementById('options-overlay');
       if(opts) {
