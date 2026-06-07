@@ -295,9 +295,12 @@ G.Space = class {
         const d = Math.hypot(player.x - t.x, player.y - t.y);
         if(d < t.range) {
           const ang = Math.atan2(player.x - t.x, -(player.y - t.y));
+          const accuracy = t.accuracy || 0;
+          const angleVariation = (Math.random() - 0.5) * accuracy;
+          const finalAng = ang + angleVariation;
           this.projectiles.push({
             x:t.x, y:t.y,
-            vx:Math.sin(ang)*680, vy:-Math.cos(ang)*680,
+            vx:Math.sin(finalAng)*680, vy:-Math.cos(finalAng)*680,
             damage:t.damage, type:'laser',
             color:'#ffaa00', width:2,
             ttl:t.range/680, pierce:false, splash:0, sourceId:'turret',

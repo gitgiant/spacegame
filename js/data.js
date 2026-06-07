@@ -188,8 +188,8 @@ G.WEAPONS = {
   },
   turret: {
     id:'turret', name:'Turret', type:'laser', slot:'turret',
-    damage:4, range:600, energyCost:0, fireRate:12, projSpeed:1100,
-    color:'#44ffff', width:2, pierce:false, splash:0, turret:true,
+    damage:4, range:600, energyCost:0, fireRate:6, projSpeed:1100,
+    color:'#44ffff', width:2, pierce:false, splash:0, turret:true, accuracy:0.15,
     price:2500, mass:6, rarity:'u', desc:'360° laser turret. Fires on SPACE toward target with limited rotation speed.',
     stats:'DMG:4  RNG:600  360°LASER',
   },
@@ -1104,6 +1104,21 @@ G.SHIPS = {
     for(let i=0, n=countFor(s.size); i<n; i++) thrusters.push({ id: thrId, rot: 0 });
     // core stays first, thrusters next, remaining modules after
     s.startModules = rest.length ? [rest[0], ...thrusters, ...rest.slice(1)] : thrusters;
+  }
+})();
+
+// Every ship that ships with a missile weapon also needs an optical Targeting
+// Pod, so its missiles can lock on (player: enables the Optical Target Lock
+// ability via canOpticalLock; AI: lock-on logic). Runs once at load.
+(function(){
+  const modId = (m) => typeof m === 'string' ? m : m.id;
+  const hasMissile = (arr) => (arr || []).some(w => G.WEAPONS[modId(w)]?.type === 'missile');
+  const hasPod     = (arr) => (arr || []).some(m => modId(m) === 'targeting_pod');
+  for(const id in G.SHIPS){
+    const s = G.SHIPS[id];
+    if(hasMissile(s.startWeapons) && !hasPod(s.startModules)){
+      (s.startModules || (s.startModules = [])).push('targeting_pod');
+    }
   }
 })();
 

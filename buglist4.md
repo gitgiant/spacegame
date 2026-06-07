@@ -308,3 +308,4 @@ find out complete data structure, build a wiki, document, find out names of data
 select text, hold space, voice command, query this code with voice command query, save tokens
 
 
+airlock modules, must be on outer permiter.  allow crew to disembark, but also allow invaiding crew to enter.
