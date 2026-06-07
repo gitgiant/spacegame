@@ -3143,9 +3143,9 @@ G.Game = class {
       }
     }
 
-    // V: comms with any targeted entity (ships or planets)
+    // V: comms with any targeted entity (ships, planets, stations, turrets)
     if(this.input.pressed('KeyV')) {
-      if(this.target && (!this.target.dead || this.target.type==='planet' || this.target.type==='station') && this.target.type !== 'asteroid_tile') {
+      if(this.target && (!this.target.dead || this.target.type==='planet' || this.target.type==='station' || this.target.type==='turret') && this.target.type !== 'asteroid_tile') {
         this.ui.openComms(this.target);
       }
     }
