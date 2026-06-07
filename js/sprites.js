@@ -241,10 +241,10 @@ G.Sprites = {
       r(M,13,18,6,1);
       r(H,13,19,6,1); r(H,13,20,6,1);
       // engine mount (y=21)
-      r(W,13,21,6,1);
+      r(W,12,21,6,1);
       // exhaust glow (y=22..26)
-      r(E,14,22,4,2); r(E,15,24,2,1);
-      r('#ffcc44',15,25,2,1); r('#ffee88',15,26,2,1);
+      r(E,13,22,4,2); r(E,14,24,2,1);
+      r('#ffcc44',14,25,2,1); r('#ffee88',14,26,2,1);
     },
 
     // ── SCOUT: Mitsubishi A6M Zero + A-Wing hybrid ────────
@@ -273,10 +273,10 @@ G.Sprites = {
       r(M,14,16,1,5); r(M,17,16,1,5);
       r(M,15,19,2,1);
       // twin engine pods (y=21..27)
-      r(W,12,21,4,2); r(W,16,21,4,2);
-      r(E,12,23,4,3); r(E,16,23,4,3);
-      r(E,13,26,2,1); r(E,17,26,2,1);
-      r('#ffcc44',13,27,2,1); r('#ffcc44',17,27,2,1);
+      r(W,10,21,4,2); r(W,18,21,4,2);
+      r(E,10,23,4,3); r(E,18,23,4,3);
+      r(E,11,26,2,1); r(E,19,26,2,1);
+      r('#ffcc44',11,27,2,1); r('#ffcc44',19,27,2,1);
     },
 
     // ── FIGHTER: Focke-Wulf Fw 190 + X-Wing ───────────────
@@ -308,10 +308,10 @@ G.Sprites = {
       r(H,13,17,6,5); r(M,13,17,1,5); r(M,18,17,1,5);
       r(M,14,20,4,1);
       // twin engines (y=22..27)
-      r(W,12,22,4,2); r(W,16,22,4,2);
-      r(E,12,24,4,3); r(E,16,24,4,3);
-      r(E,12,27,8,1);
-      r('#ffcc44',13,28,3,1); r('#ffcc44',17,28,3,1);
+      r(W,10,22,4,2); r(W,18,22,4,2);
+      r(E,10,24,4,3); r(E,18,24,4,3);
+      r(E,10,27,4,1); r(E,18,27,4,1);
+      r('#ffcc44',11,28,2,1); r('#ffcc44',19,28,2,1);
     },
 
     // ── MERCHANT: YT-1300 (Millennium Falcon) + B-17 ──────
@@ -336,10 +336,10 @@ G.Sprites = {
       // aft narrowing (y=14..16)
       r(H,9,14,14,1); r(H,10,15,12,1); r(H,11,16,10,1);
       // 4 engine pods B-17 style (y=17..21)
-      r(W,8,17,4,2);  r(W,13,17,3,2); r(W,16,17,3,2); r(W,20,17,4,2);
-      r(E,8,19,4,4);  r(E,13,19,3,4); r(E,16,19,3,4); r(E,20,19,4,4);
-      r('#ffcc44',8,23,4,1); r('#ffcc44',13,23,3,1);
-      r('#ffcc44',16,23,3,1); r('#ffcc44',20,23,4,1);
+      r(W,7,17,4,2);  r(W,12,17,3,2); r(W,17,17,3,2); r(W,22,17,4,2);
+      r(E,7,19,4,4);  r(E,12,19,3,4); r(E,17,19,3,4); r(E,22,19,4,4);
+      r('#ffcc44',7,23,4,1); r('#ffcc44',12,23,3,1);
+      r('#ffcc44',17,23,3,1); r('#ffcc44',22,23,4,1);
     },
 
     // ── GUNBOAT: BTL Y-Wing + P-47 Thunderbolt ────────────
@@ -357,19 +357,19 @@ G.Sprites = {
       // upper body (y=7..9)
       r(H,12,7,8,3); r(M,12,7,1,3); r(M,19,7,1,3); r(L,12,7,1,1);
       // twin nacelles (Y-Wing rings, y=4..22)
-      r(D,7,4,5,20);  r(D,20,4,5,20);
-      r(H,8,4,3,20);  r(H,21,4,3,20);
-      r(M,7,4,1,20);  r(M,24,4,1,20);
-      r(M,8,13,3,1);  r(M,21,13,3,1);  // Y-Wing ring bands
-      r(M,8,17,3,1);  r(M,21,17,3,1);
+      r(D,7,4,5,20);  r(D,19,4,5,20);
+      r(H,8,4,3,20);  r(H,20,4,3,20);
+      r(M,7,4,1,20);  r(M,23,4,1,20);
+      r(M,8,13,3,1);  r(M,20,13,3,1);  // Y-Wing ring bands
+      r(M,8,17,3,1);  r(M,20,17,3,1);
       // wing root connecting nacelles (y=10..12)
       r(H,7,10,18,3); r(D,7,10,5,3); r(D,20,10,5,3);
       // central crew pod (y=13..20)
       r(H,12,13,8,8); r(M,12,13,1,8); r(M,19,13,1,8);
       r(W,13,16,6,2);  // weapon bay
       // nacelle exhausts (y=24..28)
-      r(E,7,24,5,4);  r(E,20,24,5,4);
-      r('#ffcc44',8,28,3,1); r('#ffcc44',21,28,3,1);
+      r(E,7,24,5,4);  r(E,19,24,5,4);
+      r('#ffcc44',8,28,3,1); r('#ffcc44',20,28,3,1);
     },
 
     // ── CORVETTE: Corellian Corvette + Avro Lancaster ─────
@@ -399,9 +399,9 @@ G.Sprites = {
       // aft hull (y=21..23)
       r(H,10,21,12,3); r(M,10,21,1,3); r(M,21,21,1,3);
       // triple engines (y=24..29)
-      r(W,9,24,5,2); r(W,14,24,4,2); r(W,18,24,5,2);
-      r(E,9,26,5,3); r(E,14,26,4,3); r(E,18,26,5,3);
-      r('#ffcc44',10,29,3,1); r('#ffcc44',15,29,2,1); r('#ffcc44',19,29,3,1);
+      r(W,7,24,5,2); r(W,13,24,5,2); r(W,19,24,5,2);
+      r(E,7,26,5,3); r(E,13,26,5,3); r(E,19,26,5,3);
+      r('#ffcc44',8,29,3,1); r('#ffcc44',14,29,3,1); r('#ffcc44',20,29,3,1);
     },
 
     // ── FREIGHTER: Corellian bulk + B-24 Liberator ────────
@@ -426,9 +426,9 @@ G.Sprites = {
       // wing (y=15..16)
       r(H,4,15,24,2); r(M,4,15,1,2); r(M,27,15,1,2);
       // 4 engine pods (y=17..22)
-      r(W,5,17,5,2);  r(W,11,17,4,2); r(W,16,17,4,2); r(W,22,17,5,2);
-      r(E,5,19,5,4);  r(E,11,19,4,4); r(E,16,19,4,4); r(E,22,19,5,4);
-      r('#ffcc44',6,23,3,1); r('#ffcc44',11,23,4,1); r('#ffcc44',23,23,3,1);
+      r(W,5,17,5,2);  r(W,11,17,4,2); r(W,16,17,4,2); r(W,21,17,5,2);
+      r(E,5,19,5,4);  r(E,11,19,4,4); r(E,16,19,4,4); r(E,21,19,5,4);
+      r('#ffcc44',6,23,3,1); r('#ffcc44',12,23,4,1); r('#ffcc44',22,23,3,1);
     },
 
     // ── BATTLECRUISER: Star Destroyer + Yamato battleship ─
@@ -456,9 +456,9 @@ G.Sprites = {
       r(W,14,11,4,2); // center battery
       // engine bank (y=22..28)
       r(W,6,22,20,2);
-      r(E,6,24,5,4);  r(E,12,24,4,4); r(E,16,24,4,4); r(E,21,24,5,4);
-      r('#ffcc44',7,28,3,1); r('#ffcc44',21,28,3,1);
-      r('#ffee88',13,28,3,1); r('#ffee88',17,28,3,1);
+      r(E,6,24,5,4);  r(E,12,24,4,4); r(E,15,24,4,4); r(E,20,24,5,4);
+      r('#ffcc44',7,28,3,1); r('#ffcc44',20,28,3,1);
+      r('#ffee88',13,28,3,1); r('#ffee88',15,28,3,1);
     },
 
     // ── CARRIER: Venator-class + Midway-class fleet carrier ─
@@ -483,8 +483,8 @@ G.Sprites = {
       r(H,6,17,20,1); r(H,8,18,16,1); r(H,10,19,12,1); r(H,11,20,10,1);
       // engine bank (y=21..27)
       r(W,4,21,24,2);
-      r(E,4,23,6,4);  r(E,11,23,5,4); r(E,16,23,5,4); r(E,22,23,6,4);
-      r('#ffcc44',4,27,6,1); r('#ffcc44',22,27,6,1);
+      r(E,4,23,6,4);  r(E,11,23,5,4); r(E,15,23,5,4); r(E,21,23,6,4);
+      r('#ffcc44',4,27,6,1); r('#ffcc44',21,27,6,1);
       r('#ffee88',11,27,10,1);
     },
 
@@ -516,9 +516,9 @@ G.Sprites = {
       r(W,13,16,6,2); // super battery
       // four enormous engine pods (y=23..30)
       r(W,3,23,26,2);
-      r(E,3,25,6,5);  r(E,10,25,6,5); r(E,16,25,6,5); r(E,23,25,6,5);
-      r('#ffcc44',3,30,6,1); r('#ffcc44',23,30,6,1);
-      r('#ffee88',10,30,6,1); r('#ffee88',16,30,6,1);
+      r(E,3,25,6,5);  r(E,10,25,6,5); r(E,15,25,6,5); r(E,22,25,6,5);
+      r('#ffcc44',3,30,6,1); r('#ffcc44',22,30,6,1);
+      r('#ffee88',10,30,6,1); r('#ffee88',15,30,6,1);
     },
 
     // ── EARTH_SHUTTLE: Government boxy transport ──────────
@@ -549,10 +549,10 @@ G.Sprites = {
       // aft transition (y=17..19)
       r(H,11,17,10,3); r(M,11,17,1,3); r(M,20,17,1,3);
       // twin engine nozzles (y=20..27)
-      r(W,11,20,5,2); r(W,16,20,5,2);
-      r(E,11,22,5,4); r(E,16,22,5,4);
-      r(E,12,26,3,1); r(E,17,26,3,1);
-      r('#ffcc44',12,27,3,1); r('#ffcc44',17,27,3,1);
+      r(W,10,20,5,2); r(W,17,20,5,2);
+      r(E,10,22,5,4); r(E,17,22,5,4);
+      r(E,11,26,3,1); r(E,18,26,3,1);
+      r('#ffcc44',11,27,3,1); r('#ffcc44',18,27,3,1);
     },
 
     // ── EARTH_PATROL: Clean delta-wing patrol fighter ──────
@@ -588,9 +588,9 @@ G.Sprites = {
       // lower body (y=17..21)
       r(H,14,17,4,5); r(M,14,17,1,5); r(M,17,17,1,5);
       // twin engine pods (y=22..27)
-      r(W,12,22,4,2); r(W,16,22,4,2);
-      r(E,12,24,4,3); r(E,16,24,4,3);
-      r(E,13,27,2,1); r(E,17,27,2,1);
+      r(W,10,22,4,2); r(W,18,22,4,2);
+      r(E,10,24,4,3); r(E,18,24,4,3);
+      r(E,11,27,2,1); r(E,19,27,2,1);
     },
 
     // ── REBEL_FIGHTER: Scrappy modified fighter ────────────
@@ -627,11 +627,11 @@ G.Sprites = {
       // lower body (y=16..20)
       r(H,13,16,6,5); r(M,13,16,1,5); r(M,18,16,1,5);
       r(Ru,14,18,2,1); // damage patch
-      // mismatched twin engines (y=21..27)
-      r(W,13,21,3,2); r(W,17,21,2,2);
-      r(E,13,23,3,3); r(E,17,23,2,3);
-      r('#cc6600',14,26,2,1); r('#cc6600',17,26,2,1);
-      r(Ru,13,27,4,1); // exhaust discoloration
+      // twin engines (y=21..27)
+      r(W,12,21,3,2); r(W,17,21,3,2);
+      r(E,12,23,3,3); r(E,17,23,3,3);
+      r('#cc6600',13,26,2,1); r('#cc6600',18,26,2,1);
+      r(Ru,12,27,4,1); r(Ru,16,27,4,1); // exhaust discoloration
     },
 
     // ── REBEL_HAULER: Armed rebel supply ship ─────────────
@@ -665,10 +665,10 @@ G.Sprites = {
       r(H,8,16,16,4); r(M,8,16,1,4); r(M,23,16,1,4);
       r(Rb,9,18,14,1); // aft stripe
       // triple engine block (y=20..27)
-      r(W,7,20,6,2);  r(W,14,20,4,2); r(W,19,20,6,2);
-      r(E,7,22,6,4);  r(E,14,22,4,4); r(E,19,22,6,4);
-      r('#cc6600',8,26,4,1); r('#cc6600',14,26,4,1); r('#cc6600',20,26,4,1);
-      r(Ru,7,27,6,1); // exhaust discoloration
+      r(W,7,20,6,2);  r(W,13,20,4,2); r(W,18,20,6,2);
+      r(E,7,22,6,4);  r(E,13,22,4,4); r(E,18,22,6,4);
+      r('#cc6600',8,26,4,1); r('#cc6600',13,26,4,1); r('#cc6600',19,26,4,1);
+      r(Ru,7,27,6,1); r(Ru,18,27,6,1); // exhaust discoloration
     },
 
     // ── PIRATE_FIGHTER: Battered Bf 109 + salvaged TIE ───
@@ -691,11 +691,11 @@ G.Sprites = {
       r(H,13,7,6,10); r(M,13,7,1,10); r(M,18,7,1,10);
       r(Ru,14,10,2,1); r(D,15,13,2,1); // damage patches
       r(M,14,15,4,1);  // repair seam
-      // rough single engine (y=17..24)
-      r(W,14,17,4,2);
-      r(E,14,19,4,3); r(E,15,22,2,2);
-      r('#cc8811',15,24,2,1);  // dirty exhaust
-      r(Ru,14,25,4,1);
+      // single engine (y=17..24)
+      r(W,13,17,5,2);
+      r(E,13,19,5,3); r(E,14,22,3,2);
+      r('#cc8811',14,24,3,1);  // dirty exhaust
+      r(Ru,13,25,5,1);
     },
 
     // ── ALIEN_FIGHTER: Organic insectoid bio-fighter ──────
@@ -715,7 +715,7 @@ G.Sprites = {
       // body through wings
       r(H,13,6,6,10); r(M,13,6,1,10); r(M,18,6,1,10);
       // bio-engine (y=16..25)
-      r(H,13,16,6,4); r(E,14,20,4,4); r(E2,15,24,2,2); r(E,14,26,4,1);
+      r(H,13,16,6,4); r(E,13,20,5,4); r(E2,14,24,3,2); r(E,13,26,5,1);
     },
 
     // ── ALIEN_CRUISER: Multi-lobe organic cruiser ─────────
@@ -745,9 +745,9 @@ G.Sprites = {
       r(E2,3,14,2,1); r(E2,27,14,2,1);
       // bio-engine cluster (y=18..26)
       r(H,10,18,12,3); r(W,9,21,14,2);
-      r(E,8,23,6,4);  r(E,18,23,6,4);
+      r(E,8,23,6,4);  r(E,17,23,6,4);
       r(E,13,23,6,4);
-      r(E2,10,27,4,2); r(E2,18,27,4,2);
+      r(E2,10,27,4,2); r(E2,17,27,4,2);
     },
   },
 
@@ -1054,3 +1054,72 @@ G.ShipImages = {
 };
 
 G.ShipImages.init();
+
+// ── Asteroid hex-tile textures ────────────────────────────
+// One cached pointy-top hex sprite per material (+ '__inner' generic interior).
+// Drawn at exact world tile size inside the cluster's rotated space.
+G.AsteroidTiles = {
+  _cache: new Map(),
+  _dims: null,
+  _hexPath(ctx, cx, cy, R) {
+    ctx.beginPath();
+    for(let i=0;i<6;i++){
+      const a = Math.PI/180*(60*i - 90);  // pointy-top: vertex up
+      const x = cx + R*Math.cos(a), y = cy + R*Math.sin(a);
+      i ? ctx.lineTo(x,y) : ctx.moveTo(x,y);
+    }
+    ctx.closePath();
+  },
+  dims() {
+    if(!this._dims){
+      const R = G.ASTEROID_TILE_R;
+      this._dims = { W: Math.ceil(Math.sqrt(3)*R)+2, H: Math.ceil(2*R)+2 };
+    }
+    return this._dims;
+  },
+  get(matId) {
+    if(this._cache.has(matId)) return this._cache.get(matId);
+    const m = matId === '__inner' ? G.ASTEROID_INNER : (G.ASTEROID_MAT[matId] || G.ASTEROID_MAT.rock);
+    const R = G.ASTEROID_TILE_R;
+    const { W, H } = this.dims();
+    const SS = 2;                          // supersample for crisper texels
+    const c = document.createElement('canvas');
+    c.width = W*SS; c.height = H*SS;
+    const ctx = c.getContext('2d');
+    ctx.scale(SS, SS);
+    const cx = W/2, cy = H/2;
+    this._hexPath(ctx, cx, cy, R-0.4);
+    ctx.save(); ctx.clip();
+    // base gradient: lit top → shadowed bottom
+    const g = ctx.createLinearGradient(0, cy-R, 0, cy+R);
+    g.addColorStop(0, m.spec); g.addColorStop(0.45, m.base); g.addColorStop(1, m.vein);
+    ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+    // seeded speckle + flecks (stable per material)
+    const rng = G.seededRng('asttex_'+matId);
+    for(let i=0;i<30;i++){
+      const x=rng()*W, y=rng()*H, s=0.5+rng()*1.7;
+      ctx.fillStyle = rng()<0.5 ? m.vein : m.spec;
+      ctx.globalAlpha = 0.2+rng()*0.45;
+      ctx.fillRect(x, y, s, s);
+    }
+    // a couple of diagonal veins
+    ctx.globalAlpha = 0.5; ctx.strokeStyle = m.vein; ctx.lineWidth = 0.7;
+    for(let i=0;i<2;i++){
+      ctx.beginPath();
+      ctx.moveTo(rng()*W, rng()*H);
+      ctx.lineTo(rng()*W, rng()*H);
+      ctx.stroke();
+    }
+    // bright specular dot for shiny metals
+    if(matId==='gold'||matId==='platinum'||matId==='nickel'){
+      ctx.globalAlpha=0.7; ctx.fillStyle=m.spec;
+      ctx.beginPath(); ctx.arc(cx-R*0.3, cy-R*0.35, 1.2, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.globalAlpha = 1; ctx.restore();
+    // hex rim
+    this._hexPath(ctx, cx, cy, R-0.4);
+    ctx.lineWidth = 0.8; ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.stroke();
+    this._cache.set(matId, c);
+    return c;
+  },
+};
