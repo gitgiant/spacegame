@@ -134,6 +134,7 @@ G.UI = class {
     this.els['comms-overlay']     = document.getElementById('comms-overlay');
     this.els['comms-faction-tag'] = document.getElementById('comms-faction-tag');
     this.els['comms-ship-name']   = document.getElementById('comms-ship-name');
+    this.els['comms-class-tag']   = document.getElementById('comms-class-tag');
     this.els['comms-response-text']= document.getElementById('comms-response-text');
     this.els['comms-options-list'] = document.getElementById('comms-options-list');
 
@@ -216,32 +217,46 @@ G.UI = class {
     // Boarding popup
     document.getElementById('board-loot-btn')?.addEventListener('click',()=>{
       const e = this._boardingTarget; if(!e) return;
-      const savedCreds = e.credits || 0;
-      const res = G.game.space.boardEnemy(e, G.game.player);
       const el = document.getElementById('boarding-result');
-      if(el) el.innerHTML = res
-        ? `<span style="color:#ffcc00">Looted: +${G.fmtCredits(savedCreds)}${res.items?.length?' + '+res.items.length+' items':''}</span>`
-        : '<span style="color:#ff4444">Nothing to take.</span>';
+      if(e.type === 'derelict') {
+        const items = G.game.space.lootDerelict(e, G.game.player);
+        if(el) el.innerHTML = items?.length
+          ? `<span style="color:#ffcc00">Looted: ${items.map(i=>i.qty+'x '+(G.ITEMS[i.id]?.name||i.id)).join(', ')}</span>`
+          : '<span style="color:#ff4444">Nothing to take.</span>';
+        G.sound?.lootPickup();
+      } else {
+        const savedCreds = e.credits || 0;
+        const res = G.game.space.boardEnemy(e, G.game.player);
+        if(el) el.innerHTML = res
+          ? `<span style="color:#ffcc00">Looted: +${G.fmtCredits(savedCreds)}${res.items?.length?' + '+res.items.length+' items':''}</span>`
+          : '<span style="color:#ff4444">Nothing to take.</span>';
+        G.sound?.lootPickup();
+      }
       document.getElementById('boarding-options').style.display='none';
-      G.sound?.lootPickup();
     });
     document.getElementById('board-scuttle-btn')?.addEventListener('click',()=>{
       const e = this._boardingTarget; if(!e) return;
-      G.game.space.scuttleEnemy(e);
       const el = document.getElementById('boarding-result');
-      if(el) el.innerHTML = '<span style="color:#ff6644">Ship scuttled — debris scattered.</span>';
+      if(e.type === 'derelict') {
+        G.game.space.scuttleDerelict(e);
+        if(el) el.innerHTML = '<span style="color:#ff6644">Derelict scuttled — debris scattered.</span>';
+      } else {
+        G.game.space.scuttleEnemy(e);
+        if(el) el.innerHTML = '<span style="color:#ff6644">Ship scuttled — debris scattered.</span>';
+      }
       document.getElementById('boarding-options').style.display='none';
     });
     document.getElementById('board-commandeer-btn')?.addEventListener('click',()=>{
       const e = this._boardingTarget; if(!e) return;
-      const res = G.game.commandeerShip(e);
       const el = document.getElementById('boarding-result');
+      const res = e.type === 'derelict' ? G.game.commandeerDerelict(e) : G.game.commandeerShip(e);
       if(el) el.innerHTML = res.success
         ? `<span style="color:#44ff88">Success! ${res.entry.fleetName} joins your fleet.</span>`
         : `<span style="color:#ff4444">Failed (${Math.round(res.chance*100)}% odds): ${res.reason}</span>`;
       document.getElementById('boarding-options').style.display='none';
     });
     document.getElementById('boarding-close-btn')?.addEventListener('click',()=>this.closeBoardingPopup());
+    document.getElementById('disabled-ship-close-btn')?.addEventListener('click',()=>this.closeDisabledShipPopup());
     document.getElementById('opt-quit-btn')?.addEventListener('click',()=>{
       document.getElementById('options-overlay')?.classList.add('hidden');
       G.game.paused = false;
@@ -494,7 +509,7 @@ G.UI = class {
     const fPct=G.pct(p.fuel,p.maxFuel);
     if(e['bar-hull']) {
       e['bar-hull'].style.width=hPct+'%';
-      e['bar-hull'].style.background = p.disabled ? '#556677' : '';
+      e['bar-hull'].style.background = p.disabled ? '#556677' : (p._invulTimer > 0) ? '#ffffff' : '';
     }
     if(e['bar-shield']) e['bar-shield'].style.width=sPct+'%';
     if(e['bar-fuel'])   e['bar-fuel'].style.width=fPct+'%';
@@ -823,7 +838,8 @@ G.UI = class {
     const body=this.els['sp-body'];
     if(!body) return;
     this._spTab=tab;
-    if(tab!=='builder'){ this._builderSel=null; this._builderPickCell=null; }
+    if(tab!=='builder')  { this._builderSel=null; this._builderPickCell=null; this._stopBuilderCrewAnim(); }
+    if(tab!=='inventory'){ this._stopInventoryCrewAnim(); }
     switch(tab){
       case 'trade':     body.innerHTML=this._buildTradeHTML();     break;
       case 'missions':  body.innerHTML=this._buildMissionsHTML();  this._bindMissions();  setTimeout(()=>this._drawMiniGalaxy(document.getElementById('mission-preview-canvas'),null),10); break;
@@ -833,7 +849,7 @@ G.UI = class {
       case 'crew':      body.innerHTML=this._buildCrewHTML();      this._bindCrew();      break;
       case 'repair':    body.innerHTML=this._buildRepairHTML();    this._bindRepair();    break;
       case 'craft':     body.innerHTML=this._buildCraftHTML();     this._bindCraft();     break;
-      case 'inventory': body.innerHTML=this._buildModInventoryHTML(); this._bindModInventory(); break;
+      case 'inventory': body.innerHTML=this._buildModInventoryHTML(); this._bindModInventory(); setTimeout(()=>this._startInventoryCrewAnim(),50); break;
       case 'cantina':   body.innerHTML=this._buildCantinaHTML();      this._bindCantina();      break;
     }
     this._updateSpStatusBar();
@@ -868,15 +884,14 @@ G.UI = class {
       return `<button style="${style}" onclick="G.ui._tradeSortBy('${col}')">${arrow}</button>`;
     };
     html+=`<tr>
-      <th>ITEM ${sortBtn('name')}</th>
+      <th style="min-width:50px"></th>
+      <th style="flex:1">ITEM ${sortBtn('name')}</th>
       <th>RARITY ${sortBtn('rarity')}</th>
       <th>BUY ${sortBtn('buy')}</th>
       <th>TREND ${sortBtn('trend')}</th>
       <th>SELL ${sortBtn('sell')}</th>
       <th>AVAIL ${sortBtn('avail')}</th>
       <th>OWN ${sortBtn('own')}</th>
-      <th style="min-width:80px">BUY</th>
-      <th style="min-width:80px">SELL</th>
     </tr>`;
 
     // Compute display rows first so we can sort them
@@ -921,19 +936,20 @@ G.UI = class {
       const saleTag = item.saleDiscount > 0
         ? ` <span style="color:#ff4488;font-size:5px;font-weight:bold">-${Math.round(item.saleDiscount*100)}%</span>`
         : '';
+      const buyDisabled = item.available <= 0;
+      const sellDisabled = isAmmo ? (p.ammo[item.id]||0) <= 0 : p.cargo[item.id] <= 0;
       html+=`<tr>
-        <td title="${baseItem?.desc||''}">${item.name}${saleTag}</td>
+        <td style="text-align:center;gap:2px;display:flex;justify-content:center">
+          <button class="btn" style="padding:2px 6px;font-size:6px;min-width:20px" ${buyDisabled?'disabled style="opacity:0.3"':''} onclick="G.ui.tradeBuy('${item.id}',${adjustedPrice},1)">+</button>
+          <button class="btn" style="padding:2px 6px;font-size:6px;min-width:20px" ${sellDisabled?'disabled style="opacity:0.3"':''} onclick="${isAmmo?`G.ui.tradeSellAmmo('${item.id}',${sell})`:`G.ui.tradeSell('${item.id}',${sell},1)`}">−</button>
+        </td>
+        <td title="${baseItem?.desc||''}" style="flex:1">${item.name}${saleTag}</td>
         <td class="rarity-${item.rarity}">${G.RARITY[item.rarity]?.label||item.rarity}</td>
         <td class="price-good">$ ${adjustedPrice}</td>
         <td style="font-size:6px;color:${trendCol}">${trend}</td>
         <td class="price-bad">$ ${sell}</td>
         <td style="${avBg}">${item.available}</td>
         <td>${owned}</td>
-        <td><button class="btn btn-buy" ${item.available>0?'':'disabled style="opacity:0.3"'} onclick="G.ui.tradeBuy('${item.id}',${adjustedPrice},1)">BUY</button></td>
-        <td>${isAmmo
-          ? `<button class="btn btn-sell" style="${(p.ammo[item.id]||0)>0?'':'visibility:hidden'}" onclick="G.ui.tradeSellAmmo('${item.id}',${sell})">SELL</button>`
-          : `<button class="btn btn-sell" style="${p.cargo[item.id]>0?'':'visibility:hidden'}" onclick="G.ui.tradeSell('${item.id}',${sell},1)">SELL</button>`
-        }</td>
       </tr>`;
     }
     return html+'</table>';
@@ -1275,6 +1291,36 @@ G.UI = class {
     factionEl.textContent = FACTION_NAMES[fid] || fid.toUpperCase();
     factionEl.style.color = FACTION_COLORS[fid] || 'var(--col-text)';
 
+    const classEl = document.getElementById('char-screen-class');
+    if(classEl) {
+      const cls = G.CLASSES?.[g.playerClassId];
+      classEl.textContent = cls ? cls.name : '';
+      classEl.style.color = cls ? cls.color : 'var(--col-text)';
+    }
+
+    const levelEl = document.getElementById('char-screen-level');
+    if(levelEl) {
+      const lvl = g.playerLevel || 1;
+      const xp = g.playerXP || 0;
+      const xpNext = g._xpForNextLevel ? g._xpForNextLevel(lvl) : lvl * 100;
+      const xpPct = lvl >= 100 ? 100 : Math.min(100, Math.round(xp / xpNext * 100));
+      levelEl.innerHTML = `
+        <span style="color:#ffcc00;font-size:7px;letter-spacing:2px">LVL ${lvl}</span>
+        <div style="margin-top:4px;background:#0a1a2a;border:1px solid #1a4a6a;height:4px;width:100%;border-radius:1px;overflow:hidden">
+          <div style="width:${xpPct}%;height:100%;background:linear-gradient(90deg,#ffcc00,#ff8800);transition:width 0.3s"></div>
+        </div>
+        <div style="font-size:4px;color:#556677;margin-top:2px">${lvl < 100 ? xp+' / '+xpNext+' XP' : 'MAX LEVEL'}</div>
+      `;
+    }
+
+    const stBtn = document.getElementById('char-screen-skilltree-btn');
+    if(stBtn) {
+      const cls = G.CLASSES?.[g.playerClassId];
+      stBtn.style.borderColor = cls ? cls.color : '#446688';
+      stBtn.style.color = cls ? cls.color : '#446688';
+      stBtn.onclick = () => this.showSkillTree();
+    }
+
     // Ability library
     // Ability library — draggable items
     const abilitiesDiv = document.getElementById('char-screen-abilities');
@@ -1390,6 +1436,62 @@ G.UI = class {
   hideCharScreen() {
     document.getElementById('char-screen-overlay')?.classList.add('hidden');
     if(G.game?.player) this.updateAbilityBar(G.game.player);
+  }
+
+  showSkillTree() {
+    const g = G.game;
+    const classId = g.playerClassId || 'space_marine';
+    const cls = G.CLASSES?.[classId];
+    const tree = G.SKILL_TREES?.[classId] || [];
+    const lvl = g.playerLevel || 1;
+    const xp = g.playerXP || 0;
+    const xpNext = g._xpForNextLevel ? g._xpForNextLevel(lvl) : lvl * 100;
+    const xpPct = lvl >= 100 ? 100 : Math.min(100, Math.round(xp / xpNext * 100));
+
+    const overlay = document.getElementById('skill-tree-overlay');
+    if(!overlay) return;
+
+    // Build node HTML — index 0 at bottom, 4 at top
+    const nodeHtml = [...tree].reverse().map((node, revIdx) => {
+      const isBottom = revIdx === tree.length - 1;
+      const isAbility = node.isAbility;
+      const abilDef = isAbility ? (G.ABILITIES?.[node.id] || {}) : {};
+      const name  = isAbility ? (abilDef.name  || node.id) : node.name;
+      const icon  = isAbility ? (abilDef.icon  || '?')     : node.icon;
+      const color = isAbility ? (abilDef.color || cls?.color || '#44aaff') : (node.color || cls?.color || '#44aaff');
+      const desc  = isAbility ? (abilDef.desc  || '')       : node.desc;
+      const locked = !isBottom;
+
+      return `
+        <div class="st-node ${locked ? 'st-locked' : 'st-unlocked'}" style="border-color:${locked ? '#1a3a5a' : color}">
+          <div class="st-node-icon" style="color:${locked ? '#334455' : color}">${locked ? '🔒' : icon}</div>
+          <div class="st-node-name" style="color:${locked ? '#334455' : color}">${locked ? '???' : name}</div>
+          ${!locked ? `<div class="st-node-desc">${desc}</div>` : ''}
+        </div>
+        ${revIdx < tree.length - 1 ? `<div class="st-connector" style="background:${locked ? '#1a3a5a' : color+'44'}"></div>` : ''}
+      `;
+    }).join('');
+
+    overlay.innerHTML = `
+      <div id="skill-tree-box">
+        <div class="panel-title" style="letter-spacing:3px;margin-bottom:4px">${cls ? cls.icon+' '+cls.name : 'SKILL TREE'}</div>
+        <div style="font-size:5px;color:#ffcc00;letter-spacing:2px;margin-bottom:2px">LVL ${lvl}</div>
+        <div style="background:#0a1a2a;border:1px solid #1a4a6a;height:4px;width:200px;border-radius:1px;overflow:hidden;margin:0 auto 8px">
+          <div style="width:${xpPct}%;height:100%;background:linear-gradient(90deg,#ffcc00,#ff8800)"></div>
+        </div>
+        <div style="font-size:4px;color:#445566;margin-bottom:16px">${lvl < 100 ? xp+' / '+xpNext+' XP TO LEVEL '+(lvl+1) : 'MAX LEVEL'}</div>
+        <div id="st-tree-nodes" style="display:flex;flex-direction:column;align-items:center;gap:0">
+          ${nodeHtml}
+        </div>
+        <button class="btn" id="skill-tree-close" style="margin-top:20px;font-size:6px">BACK [C]</button>
+      </div>
+    `;
+    overlay.classList.remove('hidden');
+    document.getElementById('skill-tree-close').onclick = () => this.hideSkillTree();
+  }
+
+  hideSkillTree() {
+    document.getElementById('skill-tree-overlay')?.classList.add('hidden');
   }
 
   showMissionLog(){
@@ -1629,25 +1731,31 @@ G.UI = class {
   }
 
   // ── Ship Builder (spaceport tab) ─────────────────────────
-  // Assign a grid cell (0..99) to any installed module that doesn't have one yet.
+  // Ensure every module has a hex (q,r): core at origin, unplaced inner modules
+  // dropped on a free perimeter hex, then the hull re-wrapped. Preserves the
+  // player's existing custom placements; also migrates square-grid saves.
   _ensureBuilderCells(p) {
-    // Core always anchored to center cell 40
+    // Core anchored at origin.
     for(const inst of Object.values(p.modules)) {
-      const m = G.MODULES[inst.moduleId];
-      if(m && m.slot === 'core') { inst.cell = 40; break; }
+      if(G.MODULES[inst.moduleId]?.slot === 'core') { inst.q = 0; inst.r = 0; break; }
     }
-    // Remap out-of-range cells (9×9 grid = 0..80)
+    // Any inner module without a hex gets a free perimeter hex.
     for(const inst of Object.values(p.modules)) {
-      if(inst.cell != null && inst.cell > 80) inst.cell = null;
+      const m = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+      if(m && m.slot === 'hull') continue;
+      if(inst.q == null) { const c = p._freeBuilderCell(); inst.q = c.q; inst.r = c.r; }
     }
-    const taken = new Set();
-    for(const inst of Object.values(p.modules)) if(inst.cell != null) taken.add(inst.cell);
-    let next = 0;
-    for(const inst of Object.values(p.modules)) {
-      if(inst.cell == null) {
-        while(next < 81 && taken.has(next)) next++;
-        if(next < 81) { inst.cell = next; taken.add(next); next++; }
+    // Rebuild the hull wrap only when the inner layout actually changed — this
+    // runs every render frame, so it must be a cheap no-op in the steady state.
+    const sig = Object.values(p.modules)
+      .filter(m => { const md = G.MODULES[m.moduleId] || G.WEAPONS[m.moduleId]; return md && md.slot !== 'hull' && m.q != null; })
+      .map(m => m.q + ',' + m.r).sort().join(';');
+    if(sig !== p._hullSig) {
+      for(const [id, inst] of Object.entries(p.modules)) {
+        if(G.MODULES[inst.moduleId]?.slot === 'hull') { p.slots[inst.slotIdx] = null; delete p.modules[id]; }
       }
+      p._wrapHull();
+      p._hullSig = sig;
     }
   }
 
@@ -1664,24 +1772,13 @@ G.UI = class {
     // Hull panel: show color picker + shape selector
     if(mod.slot === 'hull') {
       const hullCol = inst.color || '#667799';
-      const shape   = inst.shape || 'square';
-      const canRemove = p.canRemoveModule(instId);
       const COLORS = ['#8899bb','#4488ff','#ff6600','#cc3322','#00ff88','#ffcc00','#aa44ff','#44aaff','#ff88cc','#ffffff','#aaaaaa','#667799'];
-      const SHAPES = ['square','triangle','right_triangle'];
-      const SHAPE_ICONS = { square:'▪', triangle:'▲', right_triangle:'◣' };
-      const SHAPE_LABELS = { square:'SQUARE', triangle:'EQUIL TRI', right_triangle:'RT TRI' };
-      const FACING_LABELS = ['0°','90°','180°','270°','◤ NW','◥ NE','◢ SE','◣ SW'];
-      const facingLabel = FACING_LABELS[inst.facing || 0];
       let controls = '';
       if(withControls) {
         const [r, g, b] = this._hexToRgb(hullCol);
         const swatches = COLORS.map(col =>
           `<div class="hull-color-swatch" style="background:${col};${col===hullCol?'border:2px solid #fff;':''}"
             onclick="G.ui.builderSetHullColor('${instId}','${col}')"></div>`
-        ).join('');
-        const shapeBtns = SHAPES.map(s =>
-          `<button class="btn" style="font-size:5px;padding:2px 5px;${s===shape?'border-color:#fff;color:#fff;':''}"
-            onclick="G.ui.builderSetHullShape('${instId}','${s}')">${SHAPE_ICONS[s]} ${SHAPE_LABELS[s]}</button>`
         ).join('');
         const rgbId = `rgb_${instId}`;
         controls = `
@@ -1691,31 +1788,10 @@ G.UI = class {
           <div style="font-size:5px;margin-bottom:2px">R: <input type="range" min="0" max="255" value="${r}" style="width:70px;vertical-align:middle" data-rgb="${rgbId}" data-ch="r" oninput="G.ui._updateRgbDisplay(this,'${rgbId}')" onchange="G.ui._finalizeRgbSlider(this,'${instId}')"> <span style="color:#ff8888" id="${rgbId}_r">${r}</span></div>
           <div style="font-size:5px;margin-bottom:2px">G: <input type="range" min="0" max="255" value="${g}" style="width:70px;vertical-align:middle" data-rgb="${rgbId}" data-ch="g" oninput="G.ui._updateRgbDisplay(this,'${rgbId}')" onchange="G.ui._finalizeRgbSlider(this,'${instId}')"> <span style="color:#88ff88" id="${rgbId}_g">${g}</span></div>
           <div style="font-size:5px;margin-bottom:4px">B: <input type="range" min="0" max="255" value="${b}" style="width:70px;vertical-align:middle" data-rgb="${rgbId}" data-ch="b" oninput="G.ui._updateRgbDisplay(this,'${rgbId}')" onchange="G.ui._finalizeRgbSlider(this,'${instId}')"> <span style="color:#8888ff" id="${rgbId}_b">${b}</span></div>
-          <div style="font-size:5px;color:#aabbcc;margin-bottom:3px">HULL SHAPE</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;margin-bottom:6px">${shapeBtns}</div>
-          ${shape==='right_triangle' ? `
-          <div style="font-size:5px;color:#aabbcc;margin-bottom:3px">HYPOTENUSE CURVE</div>
-          <div style="display:flex;align-items:center;gap:4px;font-size:5px;margin-bottom:6px">
-            <span style="color:#88aacc">CONCAVE</span>
-            <input type="range" min="-100" max="100" value="${Math.round((inst.curve||0)*100)}" style="flex:1;vertical-align:middle"
-              oninput="G.ui._updateCurveDisplay(this,'${instId}')" onchange="G.ui.builderSetHullCurve('${instId}',this.value)">
-            <span style="color:#88ccaa">CONVEX</span>
-          </div>` : ''}
-          <div style="font-size:5px;color:#aabbcc;margin-bottom:3px">ROTATION  <span style="color:#556677">[Q/E]</span></div>
-          <div style="display:flex;gap:4px;align-items:center;margin-bottom:4px">
-            <button class="btn" style="font-size:6px;padding:3px 6px" onclick="G.ui.builderRotate(-1)">◄</button>
-            <div style="flex:1;text-align:center;font-size:6px;color:#ffd24a">${facingLabel}</div>
-            <button class="btn" style="font-size:6px;padding:3px 6px" onclick="G.ui.builderRotate(1)">►</button>
-          </div>
-          ${canRemove
-            ? `<button class="btn btn-remove" style="font-size:5px;width:100%;margin-top:2px" onclick="G.ui.builderRemove()">REMOVE PANEL</button>`
-            : `<div style="font-size:5px;color:#556677;margin-top:3px;text-align:center">Inner modules adjacent — cannot remove</div>`
-          }`;
-      } else {
-        controls = `<div style="margin-top:4px;font-size:6px;color:${hullCol};text-align:center">${SHAPE_ICONS[shape]||'▪'} ${SHAPE_LABELS[shape]||'SQUARE'}</div>`;
+          <button class="btn" style="font-size:5px;width:100%;margin-top:2px;border-color:#44ffaa;color:#44ffaa" onclick="G.ui.builderOpenPickerHere('${instId}')">＋ INSTALL MODULE HERE</button>`;
       }
       return `<div style="font-size:7px;color:#aabbcc;font-weight:bold;margin-bottom:4px">HULL PANEL</div>
-        <div style="font-size:5px;color:#667799;margin-bottom:4px">Outer structural plating</div>
+        <div style="font-size:5px;color:#667799;margin-bottom:4px">Outer structural plating (perimeter build edge)</div>
         <div style="font-size:5px;display:flex;gap:4px;align-items:center;margin-bottom:2px">
           <span style="color:#889">COLOR</span>
           <span style="width:10px;height:10px;background:${hullCol};display:inline-block;border-radius:2px"></span>
@@ -1724,25 +1800,31 @@ G.UI = class {
     }
 
     const rot = inst.rot || 0;
-    const isRequired = mod.slot === 'cockpit' || mod.slot === 'core';
+    const isCore = mod.slot === 'core';
     let controls;
-    if(withControls) {
+    if(inst.broken) {
+      const repCost = Math.ceil((mod.price||500) * 0.3);
+      const canAfford = G.game.credits >= repCost;
+      controls = `
+        <div style="color:#ff4444;font-weight:bold;font-size:7px;margin-top:6px">⚠ MODULE DESTROYED</div>
+        <div style="font-size:5px;color:#ff6644;margin-top:2px;margin-bottom:6px">Non-functional until repaired</div>
+        <div style="font-size:5px;color:#889;margin-bottom:4px">Module HP: 0 / ${mod.hp||50}</div>
+        <button class="btn" style="font-size:5px;width:100%;border-color:${canAfford?'#44ff88':'#556677'};color:${canAfford?'#44ff88':'#556677'}"
+          ${canAfford?`onclick="G.ui.builderRepairModule('${instId}')"`:' disabled'}>REPAIR — ${G.fmtCredits(repCost)}</button>
+        ${!canAfford?`<div style="font-size:5px;color:#556677;margin-top:3px;text-align:center">Need ${G.fmtCredits(repCost-G.game.credits)} more</div>`:''}`;
+    } else if(withControls) {
       controls = `<div style="display:flex;gap:4px;margin-top:6px;align-items:center">
         <button class="btn" style="font-size:6px;padding:3px 6px" onclick="G.ui.builderRotate(-1)">◄</button>
         <div style="flex:1;text-align:center;font-size:6px;color:#ffd24a">${this._builderDirLabel(rot)}</div>
         <button class="btn" style="font-size:6px;padding:3px 6px" onclick="G.ui.builderRotate(1)">►</button>
       </div>
-      ${isRequired ? `<div style="font-size:5px;color:#556677;margin-top:3px;text-align:center">${mod.slot==='core'?'Class core module — cannot remove':'Cockpit is required — cannot remove'}</div>`
-                   : `<button class="btn btn-remove" style="font-size:5px;width:100%;margin-top:4px" onclick="G.ui.builderRemove()">REMOVE TO STORAGE</button>`}`;
+      <div style="font-size:5px;color:#556677;margin-top:3px">Module HP: ${Math.ceil(inst.hp||mod.hp||50)} / ${mod.hp||50}</div>
+      ${isCore ? `<div style="font-size:5px;color:#556677;margin-top:3px;text-align:center">Class core module — cannot remove</div>`
+               : `<button class="btn btn-remove" style="font-size:5px;width:100%;margin-top:4px" onclick="G.ui.builderRemove()">REMOVE TO STORAGE</button>`}`;
     } else {
       controls = `<div style="margin-top:4px;font-size:6px;color:#ffd24a;text-align:center">${this._builderDirLabel(rot)}</div>`;
     }
     return this._modCardHTML(mod, '') + controls;
-  }
-
-  // Shape icon for hull panels
-  _hullShapeIcon(shape) {
-    return { square:'▪', triangle:'▲', right_triangle:'◣' }[shape] || '▪';
   }
 
   _buildShipBuilderHTML() {
@@ -1765,41 +1847,7 @@ G.UI = class {
       else { flyCol='#ffaa44'; flyTxt='✦ HULL NOT ENCLOSED — CANNOT FLY'; }
     } else { flyCol='#44ff88'; flyTxt='✦ FLYABLE'; }
 
-    // cell -> instId
-    const cellMap = {};
-    for(const [id, inst] of Object.entries(p.modules)) if(inst.cell != null) cellMap[inst.cell] = id;
-
-    // 9×9 grid (81 cells, center=40 = core anchor)
-    let cells = '';
-    for(let i=0;i<81;i++){
-      const instId = cellMap[i];
-      if(instId){
-        const inst = p.modules[instId];
-        const mod  = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
-        const isHull = mod?.slot === 'hull';
-        const sel  = this._builderSel === instId;
-        if(isHull){
-          const hullCol = inst.color || '#667799';
-          const hullIcon = G.Sprites.getHull(inst.shape||'square', inst.facing||0, hullCol, 32, inst.curve||0).toDataURL();
-          cells += `<div class="bcell filled bcell-hull hull-locked${sel?' sel':''}" data-cell="${i}" data-instid="${instId}"
-            style="border-color:${hullCol};background:${hullCol}28;${sel?'box-shadow:0 0 0 2px #fff inset;':''}" title="Hull Panel (${inst.shape||'square'}) — click to edit">
-            <img src="${hullIcon}" class="bcell-icon" draggable="false">
-          </div>`;
-        } else {
-          const col  = G.SLOT_RING[mod?.slot]?.color || '#33556a';
-          const rot  = inst.rot || 0;
-          const icon = this._modIconURL(mod?.visual || mod?.slot);
-          const isCore = mod?.slot === 'core';
-          cells += `<div class="bcell filled${sel?' sel':''}${isCore?' core-locked':''}" data-cell="${i}" data-instid="${instId}"
-            style="border-color:${col};${sel?'box-shadow:0 0 0 2px #fff inset;':''}${inst.broken?'opacity:0.5;':''}" title="${mod?.name||''}${isCore?' — locked to center':''}">
-            <img src="${icon}" class="bcell-icon" draggable="false" style="transform:rotate(${rot*90}deg)">
-            <span class="bcell-arrow" style="transform:rotate(${rot*90}deg);color:${col}">▲</span>
-          </div>`;
-        }
-      } else {
-        cells += `<div class="bcell empty" data-cell="${i}"></div>`;
-      }
-    }
+    // The module assembly is drawn on a hex canvas (see _drawBuilderCanvas).
 
     // Card overlay (selected module). Hidden when nothing selected.
     const cardHtml = this._builderSel ? this._builderCardHTML(this._builderSel, true) : '';
@@ -1854,19 +1902,7 @@ G.UI = class {
 
     return `<style>
       .builder-root{position:relative;width:100%;height:100%;min-height:420px}
-      .builder-grid9{display:grid;grid-template-columns:repeat(9,1fr);grid-template-rows:repeat(9,1fr);gap:2px;width:100%;aspect-ratio:1/1;max-height:78vh;margin:0 auto}
-      .bcell.core-locked{cursor:default!important}
-      .bcell.core-locked::after{content:'⬛';position:absolute;bottom:0;right:1px;font-size:5px;opacity:0.4;line-height:1}
-      .bcell.hull-locked{cursor:pointer!important}
-      .bcell{border:1px solid #16303f;border-radius:2px;background:#0a1722;position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;min-width:0;min-height:0}
-      .bcell.empty:hover{background:#13283a;border-color:#2a6a8a}
-      .bcell.filled{background:#10222e;border-width:2px;border-style:solid}
-      .bcell.filled:hover{filter:brightness(1.35)}
-      .bcell-hull{border-width:1px!important;border-style:solid!important}
-      .bcell-hull-icon{font-size:9px;pointer-events:none;line-height:1}
-      .bcell.drag-over{border-color:#fff!important;background:#1a3a50!important}
-      .bcell-icon{width:100%;height:100%;image-rendering:pixelated;pointer-events:none}
-      .bcell-arrow{position:absolute;top:0;left:50%;margin-left:-4px;font-size:8px;line-height:1;transform-origin:50% 60%;pointer-events:none}
+      .builder-hex{display:block;width:100%;aspect-ratio:1/1;max-height:78vh;margin:0 auto;image-rendering:pixelated;cursor:pointer;touch-action:none}
       .builder-card{position:absolute;top:0;right:0;width:155px;background:rgba(8,20,30,0.97);border:1px solid #1a4a6a;border-radius:4px;padding:8px;z-index:5}
       .builder-picker{position:absolute;inset:0;background:rgba(2,8,14,0.94);border:1px solid #1a4a6a;border-radius:4px;padding:14px;overflow:auto;z-index:10}
       #builder-inv-panel{position:absolute;top:0;right:0;width:44%;height:100%;overflow-y:auto;background:rgba(3,10,18,0.97);border:1px solid #1a4a6a;border-radius:4px;padding:10px;z-index:6;box-sizing:border-box}
@@ -1883,9 +1919,23 @@ G.UI = class {
     <div class="panel-title">SHIP BUILDER — ${p.name.toUpperCase()} &nbsp;<span style="font-size:6px;color:${flyCol}">${flyTxt}</span> &nbsp;<span style="font-size:6px;color:#66aacc">${used} MODULE${used!==1?'S':''}</span> &nbsp;<span style="font-size:6px;color:#667799">${hullCount} HULL</span>
       &nbsp;<button class="btn" style="font-size:5px;padding:2px 8px;margin-left:8px" onclick="G.ui.builderToggleInv()">${invOpen?'CLOSE INV':'INVENTORY ('+inv.length+')'}</button>
     </div>
-    <div style="font-size:5px;color:#66aacc;margin:2px 0 6px">Click module to select (rotate/remove). Click empty cell to install. Drag to move. ${invOpen?'Drag from inventory to install.':''}</div>
+    <div style="font-size:5px;color:#66aacc;margin:2px 0 6px">Click a module to select (rotate/remove). Click a hull-edge hex to recolor or install. Drag a module to move it. ${invOpen?'Drag from inventory onto a hull hex to install.':''}</div>
+    ${(()=>{
+      const louts = this._getLoadouts();
+      const btns = louts.map((l,i) =>
+        `<span style="display:inline-flex;align-items:center;gap:1px;background:#0a1a2a;border:1px solid #1a4a6a;border-radius:2px;padding:1px 3px">
+          <button class="btn" style="font-size:4px;padding:1px 4px;border:none;color:#aaccdd" onclick="G.ui.builderLoadLoadout(${i})">${l.name}</button>
+          <button class="btn" style="font-size:4px;padding:1px 3px;border:none;color:#ff4444" onclick="G.ui.builderDeleteLoadout(${i})">✕</button>
+        </span>`
+      ).join('');
+      return `<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-bottom:6px;padding:4px 0;border-bottom:1px solid #1a3a5a">
+        <span style="font-size:5px;color:#556677">LOADOUTS:</span>
+        ${btns}
+        <button class="btn" style="font-size:4px;padding:2px 6px;border-color:#44ffaa;color:#44ffaa" onclick="G.ui.builderSaveLoadout()">+ SAVE</button>
+      </div>`;
+    })()}
     <div id="builder-root" class="builder-root">
-      <div id="builder-grid" class="builder-grid9">${cells}</div>
+      <canvas id="builder-hex" class="builder-hex"></canvas>
       <div id="builder-card" class="builder-card" style="${cardStyle}">${cardHtml}</div>
       ${picker}${invPanel}
     </div>`;
@@ -1893,34 +1943,32 @@ G.UI = class {
 
   _bindShipBuilder(){
     const root = document.getElementById('builder-root');
-    if(!root) return;
+    const canvas = document.getElementById('builder-hex');
+    if(!root || !canvas) return;
 
-    // Click to select/open (suppressed if a drag just finished)
-    root.addEventListener('click', e=>{
-      if(this._builderDragJustEnded) { this._builderDragJustEnded = false; return; }
-      if(e.target.closest('#builder-card') || e.target.closest('#builder-picker')) return;
-      const cell = e.target.closest('.bcell');
-      if(cell){
-        if(cell.classList.contains('filled')) this.builderSelect(cell.dataset.instid);
-        else this.builderOpenPicker(+cell.dataset.cell);
-      } else {
-        this.builderDeselect();
-      }
+    // Pointer down on the hex canvas — begin a potential drag of a module.
+    canvas.addEventListener('mousedown', e=>{
+      if(e.button !== 0) return;
+      const hex = this._builderHitHex(e.clientX, e.clientY);
+      const inst = hex && this._builderInstAt(hex);
+      if(inst) {
+        const mod = G.MODULES[inst.id_mod] || G.WEAPONS[inst.id_mod];
+        const movable = mod && mod.slot !== 'core' && mod.slot !== 'hull';
+        this._builderDrag = movable
+          ? { source:'canvas', instId: inst.id, startX:e.clientX, startY:e.clientY, active:false, ghost:null }
+          : null;
+      } else this._builderDrag = null;
+      e.preventDefault();
     });
 
-    // Drag init on mousedown — grid cells
-    const grid = document.getElementById('builder-grid');
-    if(grid) {
-      grid.addEventListener('mousedown', e=>{
-        if(e.button !== 0) return;
-        if(e.target.closest('#builder-card') || e.target.closest('#builder-picker')) return;
-        const cell = e.target.closest('.bcell.filled');
-        if(!cell) return;
-        if(cell.classList.contains('core-locked')) return;
-        if(cell.classList.contains('hull-locked')) return;
-        this._builderDrag = { source:'grid', instId: cell.dataset.instid, startX: e.clientX, startY: e.clientY, active: false, ghost: null };
-      });
-    }
+    // Click selects a hex (module → controls; hull → recolor/install; empty → deselect).
+    canvas.addEventListener('click', e=>{
+      if(this._builderDragJustEnded) { this._builderDragJustEnded = false; return; }
+      const hex = this._builderHitHex(e.clientX, e.clientY);
+      const inst = hex && this._builderInstAt(hex);
+      if(inst) this.builderSelect(inst.id);
+      else this.builderDeselect();
+    });
 
     // Drag init on mousedown — inventory items
     const invPanel = document.getElementById('builder-inv-panel');
@@ -1938,13 +1986,27 @@ G.UI = class {
       });
     }
 
-    // Hover preview
-    root.querySelectorAll('.bcell.filled').forEach(cell=>{
-      cell.addEventListener('mouseenter', ()=>this._showBuilderCard(cell.dataset.instid, false));
-      cell.addEventListener('mouseleave', ()=>this._restoreBuilderCard());
-    });
-
     this._initBuilderDragHandlers();
+    setTimeout(() => this._startBuilderCrewAnim(), 30);
+  }
+
+  // Map client coords → axial hex using the last drawn builder view transform.
+  _builderHitHex(clientX, clientY) {
+    const v = this._builderView, canvas = document.getElementById('builder-hex');
+    if(!v || !canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    if(!rect.width) return null;
+    const sx = (clientX - rect.left) * (canvas.width / rect.width);
+    const sy = (clientY - rect.top)  * (canvas.height / rect.height);
+    return G.pixelToHex((sx - v.cx) / v.BR, (sy - v.cy) / v.BR, 1);
+  }
+
+  // Find the installed module instance occupying a hex; returns {id, id_mod} or null.
+  _builderInstAt(hex) {
+    const p = G.game?.player; if(!p) return null;
+    for(const [id, inst] of Object.entries(p.modules))
+      if(inst.q === hex.q && inst.r === hex.r) return { id, id_mod: inst.moduleId, inst };
+    return null;
   }
 
   _initBuilderDragHandlers() {
@@ -1960,7 +2022,6 @@ G.UI = class {
         let mod;
         if(d.source === 'inventory') {
           mod = G.MODULES[d.modId] || G.WEAPONS[d.modId];
-          // Make inv panel transparent to pointer events so elementFromPoint sees grid
           document.getElementById('builder-inv-panel')?.classList.add('drag-transparent');
         } else {
           const inst = p?.modules[d.instId];
@@ -1974,12 +2035,7 @@ G.UI = class {
         document.body.appendChild(ghost);
         d.ghost = ghost;
       }
-      if(d.active) {
-        if(d.ghost) { d.ghost.style.left = e.clientX+'px'; d.ghost.style.top = e.clientY+'px'; }
-        document.querySelectorAll('.bcell.drag-over').forEach(c=>c.classList.remove('drag-over'));
-        const target = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.bcell');
-        if(target && target.dataset.instid !== d.instId) target.classList.add('drag-over');
-      }
+      if(d.active && d.ghost) { d.ghost.style.left = e.clientX+'px'; d.ghost.style.top = e.clientY+'px'; }
     });
 
     document.addEventListener('mouseup', e=>{
@@ -1987,40 +2043,182 @@ G.UI = class {
       if(!d) return;
       this._builderDrag = null;
       if(!d.active) return;
-      document.querySelectorAll('.bcell.drag-over').forEach(c=>c.classList.remove('drag-over'));
       document.getElementById('builder-inv-panel')?.classList.remove('drag-transparent');
       if(d.ghost) { d.ghost.remove(); d.ghost = null; }
       this._builderDragJustEnded = true;
 
-      const target = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.bcell');
-      if(target && target.dataset.cell != null) {
-        if(target.classList.contains('core-locked') || target.classList.contains('hull-locked')) { this._builderDragJustEnded = false; return; }
-        if(d.source === 'inventory') {
-          // Drop from inventory onto grid cell
-          if(+target.dataset.cell === 40) { this._builderDragJustEnded = false; return; }
-          if(!target.dataset.instid) {
-            this.builderInstallFromInv(d.invIdx, +target.dataset.cell);
-            return;
-          }
-        } else {
-          // Drop from grid cell to another cell
-          const p = G.game.player;
-          const dragged = p?.modules[d.instId];
-          if(dragged) {
-            const targetInstId = target.dataset.instid;
-            if(targetInstId && targetInstId !== d.instId) {
-              const targetInst = p.modules[targetInstId];
-              if(targetInst && G.MODULES[targetInst.moduleId]?.slot !== 'core') { const tmp = dragged.cell; dragged.cell = targetInst.cell; targetInst.cell = tmp; }
-            } else if(!targetInstId) {
-              dragged.cell = +target.dataset.cell;
-            }
-            this.renderSpaceportTab('builder');
-            return;
+      const hex = this._builderHitHex(e.clientX, e.clientY);
+      const targetInst = hex && this._builderInstAt(hex);
+      const targetMod = targetInst && (G.MODULES[targetInst.id_mod] || G.WEAPONS[targetInst.id_mod]);
+      if(!hex || !targetInst) { this._builderDragJustEnded = false; return; }
+
+      if(d.source === 'inventory') {
+        // Install onto a hull (perimeter) hex.
+        if(targetMod?.slot === 'hull') { this.builderInstallFromInv(d.invIdx, hex); return; }
+      } else {
+        const p = G.game.player;
+        const dragged = p?.modules[d.instId];
+        if(dragged) {
+          if(targetInst.id === d.instId) { this._builderDragJustEnded = false; return; }
+          if(targetMod?.slot === 'hull') {
+            // Move dragged module onto the perimeter hex.
+            dragged.q = hex.q; dragged.r = hex.r;
+            this.renderSpaceportTab('builder'); return;
+          } else if(targetMod?.slot !== 'core') {
+            // Swap two inner modules.
+            const ti = targetInst.inst;
+            const tq = dragged.q, tr = dragged.r;
+            dragged.q = ti.q; dragged.r = ti.r; ti.q = tq; ti.r = tr;
+            this.renderSpaceportTab('builder'); return;
           }
         }
       }
       this._builderDragJustEnded = false;
     });
+  }
+
+  _startBuilderCrewAnim() {
+    this._stopBuilderCrewAnim();
+    let last = performance.now();
+    const step = (now) => {
+      const canvas = document.getElementById('builder-hex');
+      if(!canvas) { this._crewRaf = null; return; }
+      const dt = Math.min((now - last) / 1000, 0.1);
+      last = now;
+      if(G.game?.player) G.game._updateCrewPositions(dt, G.game.player);
+      this._drawBuilderCanvas(canvas);
+      this._crewRaf = requestAnimationFrame(step);
+    };
+    this._crewRaf = requestAnimationFrame(step);
+  }
+
+  _stopBuilderCrewAnim() {
+    if(this._crewRaf) { cancelAnimationFrame(this._crewRaf); this._crewRaf = null; }
+  }
+
+  // Render the player's hex module assembly on the builder canvas, plus crew.
+  _drawBuilderCanvas(canvas) {
+    const p = G.game?.player;
+    const rect = canvas.getBoundingClientRect();
+    const W = Math.max(1, rect.width | 0), H = Math.max(1, rect.height | 0);
+    if(canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+    ctx.imageSmoothingEnabled = false;
+    if(!p?.modules) { this._builderView = null; return; }
+
+    const mods = [];
+    let umnx=Infinity,umxx=-Infinity,umny=Infinity,umxy=-Infinity;
+    for(const [id, inst] of Object.entries(p.modules)) {
+      if(inst.q == null) continue;
+      const u = G.hexToPixel(inst.q, inst.r, 1);
+      if(u.x<umnx)umnx=u.x; if(u.x>umxx)umxx=u.x; if(u.y<umny)umny=u.y; if(u.y>umxy)umxy=u.y;
+      mods.push({ id, inst, u });
+    }
+    if(!mods.length) { this._builderView = null; return; }
+
+    const pad = 26;
+    const BR = Math.max(6, Math.min((W - pad) / ((umxx - umnx) + 2.2), (H - pad) / ((umxy - umny) + 2.2)));
+    const cx = W / 2 - ((umnx + umxx) / 2) * BR;
+    const cy = H / 2 - ((umny + umxy) / 2) * BR;
+    this._builderView = { BR, cx, cy };
+    const T = BR * 2;
+
+    for(const pass of [0, 1]) {
+      for(const { id, inst, u } of mods) {
+        const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+        const isHull = mod?.slot === 'hull';
+        if((pass === 0) !== isHull) continue;
+        const px = cx + u.x * BR, py = cy + u.y * BR;
+        let tile;
+        if(isHull) tile = G.Sprites.getHexTile('hull', inst.color || '#667799', false);
+        else {
+          const slotCol = G.SLOT_RING[mod?.slot]?.color || '#334455';
+          const visual = mod?.visual || (G.WEAPONS[inst.moduleId] ? 'weapon' : 'special');
+          tile = G.Sprites.getHexTile(visual, slotCol, inst.broken);
+        }
+        ctx.drawImage(tile, (px - BR) | 0, (py - BR) | 0, T, T);
+        // Selection outline
+        if(this._builderSel === id) {
+          ctx.beginPath();
+          for(let k=0;k<6;k++){ const a=Math.PI/180*60*k; const vx=px+BR*Math.cos(a), vy=py+BR*Math.sin(a); k?ctx.lineTo(vx,vy):ctx.moveTo(vx,vy); }
+          ctx.closePath();
+          ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
+        }
+      }
+    }
+
+    // Crew sprites (positions are unit hex-pixels)
+    if(p.crew?.length) {
+      const sz = Math.max(8, (BR * 0.9) | 0);
+      for(const c of p.crew) {
+        const st = G.CrewAnim._s.get(c.id);
+        if(!st) continue;
+        const sx = (cx + st.gx * BR - sz / 2) | 0;
+        const sy = (cy + st.gy * BR - sz / 2) | 0;
+        ctx.drawImage(G.Sprites.getCrewSprite(G.crewColor(c), st.walkFrame, c.role === 'pilot'), sx, sy, sz, sz);
+      }
+    }
+  }
+
+  _startInventoryCrewAnim() {
+    this._stopInventoryCrewAnim();
+    let last = performance.now();
+    const step = (now) => {
+      const canvas = document.getElementById('inv-crew-canvas');
+      if(!canvas) { this._invCrewRaf = null; return; }
+      const dt = Math.min((now - last) / 1000, 0.1);
+      last = now;
+      const player = G.game?.player;
+      if(player) G.game._updateCrewPositions(dt, player);
+      this._drawHexMini(canvas, player);
+      this._invCrewRaf = requestAnimationFrame(step);
+    };
+    this._invCrewRaf = requestAnimationFrame(step);
+  }
+
+  // Draw a small fixed-size hex assembly + crew into a canvas (cargo tab preview).
+  _drawHexMini(canvas, player) {
+    const W = canvas.width, H = canvas.height;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+    ctx.imageSmoothingEnabled = false;
+    if(!player?.modules) return;
+    const mods = [];
+    let umnx=Infinity,umxx=-Infinity,umny=Infinity,umxy=-Infinity;
+    for(const [, inst] of Object.entries(player.modules)) {
+      if(inst.q == null) continue;
+      const u = G.hexToPixel(inst.q, inst.r, 1);
+      if(u.x<umnx)umnx=u.x; if(u.x>umxx)umxx=u.x; if(u.y<umny)umny=u.y; if(u.y>umxy)umxy=u.y;
+      mods.push({ inst, u });
+    }
+    if(!mods.length) { this._invHexView = null; return; }
+    const BR = Math.max(3, Math.min((W - 8) / ((umxx - umnx) + 2.2), (H - 8) / ((umxy - umny) + 2.2)));
+    const cx = W / 2 - ((umnx + umxx) / 2) * BR, cy = H / 2 - ((umny + umxy) / 2) * BR, T = BR * 2;
+    this._invHexView = { BR, cx, cy };
+    for(const pass of [0, 1]) {
+      for(const { inst, u } of mods) {
+        const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+        const isHull = mod?.slot === 'hull';
+        if((pass === 0) !== isHull) continue;
+        let tile;
+        if(isHull) tile = G.Sprites.getHexTile('hull', inst.color || '#667799', false);
+        else tile = G.Sprites.getHexTile(mod?.visual || (G.WEAPONS[inst.moduleId] ? 'weapon' : 'special'), G.SLOT_RING[mod?.slot]?.color || '#334455', inst.broken);
+        ctx.drawImage(tile, (cx + u.x*BR - BR)|0, (cy + u.y*BR - BR)|0, T, T);
+      }
+    }
+    if(player.crew?.length) {
+      const sz = Math.max(6, (BR * 0.9) | 0);
+      for(const c of player.crew) {
+        const st = G.CrewAnim._s.get(c.id); if(!st) continue;
+        ctx.drawImage(G.Sprites.getCrewSprite(G.crewColor(c), st.walkFrame, c.role === 'pilot'),
+          (cx + st.gx*BR - sz/2)|0, (cy + st.gy*BR - sz/2)|0, sz, sz);
+      }
+    }
+  }
+
+  _stopInventoryCrewAnim() {
+    if(this._invCrewRaf) { cancelAnimationFrame(this._invCrewRaf); this._invCrewRaf = null; }
   }
 
   _showBuilderCard(instId, withControls){
@@ -2056,13 +2254,8 @@ G.UI = class {
     const inst = G.game.player.modules[this._builderSel];
     if(!inst) return;
     const mod = G.MODULES[inst.moduleId];
-    if(mod?.slot === 'hull') {
-      const f = inst.facing || 0;
-      if(f >= 4) inst.facing = ((f - 4 + dir + 4) % 4) + 4;
-      else inst.facing = (f + dir + 4) % 4;
-    } else {
-      G.game.player.rotateModule(this._builderSel, dir);
-    }
+    if(mod?.slot === 'hull') return; // hexes are symmetric — hull rotation is a no-op
+    G.game.player.rotateModule(this._builderSel, dir);
     this.renderSpaceportTab('builder');
   }
 
@@ -2105,35 +2298,11 @@ G.UI = class {
     return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
   }
 
-  builderSetHullShape(instId, shape){
+  // Open the install picker for the hull (perimeter) hex currently selected.
+  builderOpenPickerHere(instId){
     const inst = G.game.player.modules[instId];
-    if(!inst) return;
-    inst.shape = shape;
-    if(shape !== 'right_triangle') inst.curve = 0;  // curvature only applies to RT triangle
-    this._builderSel = instId;
-    this.renderSpaceportTab('builder');
-  }
-
-  // Live preview while dragging the hypotenuse-curve slider — repaint only the
-  // affected grid tile so the slider keeps focus (no full tab re-render).
-  _updateCurveDisplay(input, instId){
-    const inst = G.game.player.modules[instId];
-    if(!inst) return;
-    inst.curve = Math.max(-1, Math.min(1, (parseInt(input.value)||0)/100));
-    const cell = document.querySelector(`.bcell-hull[data-instid="${instId}"] .bcell-icon`);
-    if(cell) cell.src = G.Sprites.getHull(inst.shape||'square', inst.facing||0, inst.color||'#667799', 32, inst.curve).toDataURL();
-  }
-
-  builderSetHullCurve(instId, val){
-    const inst = G.game.player.modules[instId];
-    if(!inst) return;
-    inst.curve = Math.max(-1, Math.min(1, (parseInt(val)||0)/100));
-    this._builderSel = instId;
-    this.renderSpaceportTab('builder');
-  }
-
-  builderOpenPicker(cell){
-    this._builderPickCell = cell;
+    if(!inst || inst.q == null) return;
+    this._builderPickCell = { q: inst.q, r: inst.r };
     this._builderSel = null;
     this.renderSpaceportTab('builder');
   }
@@ -2149,16 +2318,64 @@ G.UI = class {
     this.renderSpaceportTab('builder');
   }
 
-  builderInstallFromInv(invIdx, cellIdx) {
+  // ── Loadout save/load ─────────────────────────────────────
+  _getLoadouts() {
+    try { return JSON.parse(localStorage.getItem('nullpunkt_loadouts') || '[]'); } catch { return []; }
+  }
+  _saveLoadoutsData(arr) {
+    localStorage.setItem('nullpunkt_loadouts', JSON.stringify(arr));
+  }
+  builderSaveLoadout() {
+    const name = window.prompt('Loadout name:', 'Loadout ' + (this._getLoadouts().length + 1));
+    if(!name) return;
+    const p = G.game.player;
+    const loadouts = this._getLoadouts();
+    loadouts.push({
+      name,
+      modules: JSON.parse(JSON.stringify(p.modules)),
+      moduleInventory: [...(p.moduleInventory || [])],
+      timestamp: Date.now(),
+    });
+    this._saveLoadoutsData(loadouts);
+    this.renderSpaceportTab('builder');
+    this.addMsg('Loadout "' + name + '" saved.', '#44ffaa');
+  }
+  builderLoadLoadout(idx) {
+    const lout = this._getLoadouts()[idx];
+    if(!lout) return;
+    if(!window.confirm('Load "' + lout.name + '"? Current configuration will be replaced.')) return;
+    const p = G.game.player;
+    p.modules = JSON.parse(JSON.stringify(lout.modules));
+    p.moduleInventory = [...(lout.moduleInventory || [])];
+    p._recompute();
+    this._ensureBuilderCells(p);
+    this._builderSel = null;
+    this.renderSpaceportTab('builder');
+    this.addMsg('Loadout "' + lout.name + '" loaded.', '#44ffaa');
+  }
+  builderDeleteLoadout(idx) {
+    const lout = this._getLoadouts()[idx];
+    if(!lout) return;
+    if(!window.confirm('Delete loadout "' + lout.name + '"?')) return;
+    const arr = this._getLoadouts();
+    arr.splice(idx, 1);
+    this._saveLoadoutsData(arr);
+    this.renderSpaceportTab('builder');
+  }
+
+  // Install a stored module at a hex {q,r} (a perimeter hull hex). The hull
+  // panel there is regenerated by _ensureBuilderCells on the next render.
+  builderInstallFromInv(invIdx, hex) {
     const p = G.game.player;
     const inv = p.moduleInventory || [];
     const modId = inv[invIdx];
-    if(modId == null) return;
+    if(modId == null || !hex) return;
     const mod = G.MODULES[modId] || G.WEAPONS[modId];
     const instId = p.installModule(modId);
     if(instId){
-      p.modules[instId].cell = cellIdx;
+      p.modules[instId].q = hex.q; p.modules[instId].r = hex.r;
       inv.splice(invIdx, 1);
+      this._builderSel = instId;
       this.addMsg('Installed '+mod?.name, '#44ff44');
       this.renderSpaceportTab('builder');
     } else {
@@ -2168,15 +2385,15 @@ G.UI = class {
 
   builderPlace(invIdx){
     const p = G.game.player;
-    const cell = this._builderPickCell;
-    if(cell == null) return;
+    const hex = this._builderPickCell;
+    if(hex == null) return;
     const inv = p.moduleInventory || [];
     const modId = inv[invIdx];
     if(modId == null) return;
     const mod = G.MODULES[modId] || G.WEAPONS[modId];
     const instId = p.installModule(modId);
     if(instId){
-      p.modules[instId].cell = cell;
+      p.modules[instId].q = hex.q; p.modules[instId].r = hex.r;
       inv.splice(invIdx, 1);
       this._builderPickCell = null;
       this._builderSel = instId;
@@ -2194,7 +2411,7 @@ G.UI = class {
     if(!inst) return;
     const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
     if(!p.canRemoveModule(instId)){
-      const reason = mod?.slot==='cockpit' ? 'Cockpit required' : mod?.slot==='core' ? 'Class core module required' : mod?.slot==='thruster' ? 'Minimum thrusters required' : mod?.slot==='hull' ? 'Hull panel covers inner module — move inner modules first' : 'Minimum power module required';
+      const reason = 'Class core module required';
       this.addMsg(reason+' — cannot remove','#ff8844'); return;
     }
     p.removeModule(instId);
@@ -2205,6 +2422,21 @@ G.UI = class {
     this.renderSpaceportTab('builder');
   }
 
+  builderRepairModule(instId) {
+    const p = G.game.player;
+    const inst = p.modules[instId];
+    if(!inst || !inst.broken) return;
+    const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+    const cost = Math.ceil((mod?.price || 500) * 0.3);
+    if(G.game.credits < cost) { this.addMsg('Not enough credits!','#ff4444'); return; }
+    G.game.credits -= cost;
+    inst.broken = false;
+    inst.hp = mod?.hp || 50;
+    p._recompute();
+    this.addMsg('Repaired: '+(mod?.name||instId),'#44ff88');
+    this.renderSpaceportTab('builder');
+  }
+
   // ── Module Inventory (spaceport tab) ─────────────────────
   _buildModInventoryHTML() {
     const p = G.game.player;
@@ -2212,6 +2444,13 @@ G.UI = class {
     if(!Array.isArray(p.slots)) p.slots = new Array(tpl.slots).fill(null);
     const inv = p.moduleInventory || [];
     let html = `<div class="panel-title">CARGO & MODULES</div>`;
+
+    // Mini ship grid with crew walking
+    if(p.crew?.length) {
+      html += `<div style="position:relative;width:108px;height:108px;margin-bottom:10px;border:1px solid #1a3a5a;background:#010a14">
+        <canvas id="inv-crew-canvas" width="108" height="108" style="image-rendering:pixelated;display:block"></canvas>
+      </div>`;
+    }
 
     // Cargo section
     html += `<div style="margin-bottom:15px">
@@ -2251,6 +2490,7 @@ G.UI = class {
   }
 
   _bindModInventory() {
+    if(G.game?.player?.crew?.length) this._startInventoryCrewAnim();
     document.querySelectorAll('[data-inv-install]').forEach(btn => {
       btn.addEventListener('click', () => this.installFromInventory(+btn.dataset.invInstall));
     });
@@ -2443,6 +2683,7 @@ G.UI = class {
           G.game.credits+=hullRefund+modRefund;
           G.game.credits-=ship.price;
           G.game.player=new G.Ship(shipId);
+          G.game.player.crew=[]; // old crew replaces starting crew
           for(const[id,qty]of Object.entries(oldCargo)) if(G.ITEMS[id]?.cat!=='mission') G.game.player.addCargo(id,qty);
           for(const c of oldCrew.slice(0,G.game.player.maxCrew)) G.game.player.crew.push(c);
           this.addMsg('Purchased '+ship.name+'!'+(modCount?' All modules sold.':''),'#00ffee');
@@ -2675,12 +2916,13 @@ G.UI = class {
           if(!hasIng){this.addMsg('Missing materials!','#ff4444');return;}
           for(const[id,qty]of Object.entries(recipe.inputs)) p.removeCargo(id,qty);
           p.installModule(recipe.outputModule);
+          G.game?._addXP?.(30);
           this.addMsg('Crafted and installed: '+mod.name,'#cc44ff');
           this.renderSpaceportTab('craft');
         } else {
           const res=G.game.economy.craft(btn.dataset.craft,G.game.player);
           this.addMsg(res.msg,res.ok?'#44ff44':'#ff4444');
-          if(res.ok) this.renderSpaceportTab('craft');
+          if(res.ok) { G.game?._addXP?.(30); this.renderSpaceportTab('craft'); }
         }
       });
     });
@@ -2725,58 +2967,39 @@ G.UI = class {
     }
     html+='</div>';
 
-    // ── Installed-module grid (mirrors the Ship Builder layout) ──
+    // ── Installed-module hex display (mirrors the Ship Builder layout) ──
     this._ensureBuilderCells(p);
-    const cellMap={};
-    for(const [id,inst] of Object.entries(p.modules)) if(inst.cell!=null) cellMap[inst.cell]=id;
-    let gridCells='';
-    for(let i=0;i<81;i++){
-      const instId=cellMap[i];
-      if(!instId){ gridCells+='<div class="imod-cell"></div>'; continue; }
-      const inst=p.modules[instId];
-      const mod=G.MODULES[inst.moduleId]||G.WEAPONS[inst.moduleId];
-      if(mod?.slot==='hull'){
-        const hc=inst.color||'#667799';
-        const ic=G.Sprites.getHull(inst.shape||'square',inst.facing||0,hc,32,inst.curve||0).toDataURL();
-        gridCells+=`<div class="imod-cell filled" data-instid="${instId}" style="border-color:${hc};background:${hc}22"><img class="imod-icon" src="${ic}" draggable="false"></div>`;
-      } else {
-        const col=G.SLOT_RING[mod?.slot]?.color||'#33556a';
-        const ic=this._modIconURL(mod?.visual||mod?.slot);
-        const rot=inst.rot||0;
-        gridCells+=`<div class="imod-cell filled" data-instid="${instId}" style="border-color:${col}${inst.broken?';opacity:0.5':''}"><img class="imod-icon" src="${ic}" draggable="false" style="transform:rotate(${rot*90}deg)"></div>`;
-      }
-    }
     html+=`<div style="font-size:6px;color:#aabbcc;margin:12px 0 6px;letter-spacing:1px">SHIP MODULES <span style="color:#556677;font-size:5px">— hover or click a module for details</span></div>
     <style>
       .imod-wrap{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}
-      .imod-grid{display:grid;grid-template-columns:repeat(9,1fr);grid-template-rows:repeat(9,1fr);gap:1px;width:270px;height:270px;flex:0 0 auto}
-      .imod-cell{border:1px solid #16303f;border-radius:1px;background:#0a1722;position:relative;display:flex;align-items:center;justify-content:center;min-width:0;min-height:0}
-      .imod-cell.filled{border-width:1px;border-style:solid;cursor:pointer}
-      .imod-cell.filled:hover{filter:brightness(1.4)}
-      .imod-cell.sel{outline:2px solid #fff;outline-offset:-2px;z-index:2}
-      .imod-icon{width:100%;height:100%;image-rendering:pixelated;pointer-events:none}
+      .imod-canvas{width:270px;height:270px;flex:0 0 auto;image-rendering:pixelated;cursor:pointer;background:#050e18;border:1px solid #16303f;border-radius:2px}
       .imod-card{flex:1;min-width:135px;max-width:180px}
       .imod-card-empty{color:#556677;font-size:6px;padding:10px}
     </style>
     <div class="imod-wrap">
-      <div class="imod-grid" id="imod-grid">${gridCells}</div>
+      <canvas class="imod-canvas" id="imod-canvas" width="270" height="270"></canvas>
       <div class="imod-card" id="imod-card"><div class="imod-card-empty">Hover or click a module to see its stats.</div></div>
     </div>`;
 
     body.innerHTML=html;
 
-    // Bind grid hover/select → render stat card
-    const imodGrid=document.getElementById('imod-grid');
+    // Bind hex canvas hover/select → render stat card
+    const imodCanvas=document.getElementById('imod-canvas');
     const imodCard=document.getElementById('imod-card');
-    if(imodGrid&&imodCard){
-      const showCard=(instId)=>{
-        if(!instId||!p.modules[instId]) return;
-        imodGrid.querySelectorAll('.imod-cell.sel').forEach(c=>c.classList.remove('sel'));
-        imodGrid.querySelector(`.imod-cell[data-instid="${instId}"]`)?.classList.add('sel');
-        imodCard.innerHTML=this._builderCardHTML(instId,false);
+    if(imodCanvas&&imodCard){
+      this._drawHexMini(imodCanvas, p);   // static draw (no crew loop needed here)
+      const hitInst=(ev)=>{
+        const v=this._invHexView; if(!v) return null;
+        const rect=imodCanvas.getBoundingClientRect();
+        const sx=(ev.clientX-rect.left)*(imodCanvas.width/rect.width);
+        const sy=(ev.clientY-rect.top)*(imodCanvas.height/rect.height);
+        const h=G.pixelToHex((sx-v.cx)/v.BR,(sy-v.cy)/v.BR,1);
+        for(const [id,inst] of Object.entries(p.modules)) if(inst.q===h.q&&inst.r===h.r) return id;
+        return null;
       };
-      imodGrid.addEventListener('mouseover',e=>{ const c=e.target.closest('.imod-cell.filled'); if(c) showCard(c.dataset.instid); });
-      imodGrid.addEventListener('click',e=>{ const c=e.target.closest('.imod-cell.filled'); if(c) showCard(c.dataset.instid); });
+      const showCard=(instId)=>{ if(instId&&p.modules[instId]) imodCard.innerHTML=this._builderCardHTML(instId,false); };
+      imodCanvas.addEventListener('mousemove',e=>{ const id=hitInst(e); if(id) showCard(id); });
+      imodCanvas.addEventListener('click',e=>{ const id=hitInst(e); if(id) showCard(id); });
     }
 
     // Bind cargo jettison buttons
@@ -2894,8 +3117,7 @@ G.UI = class {
 
   setInteractPrompt(text){
     const ip=this.els['interact-prompt']; if(!ip) return;
-    if(text){ip.textContent=text;ip.classList.remove('hidden');}
-    else ip.classList.add('hidden');
+    ip.classList.add('hidden');
   }
 
   _updateLoadBtns() {
@@ -2983,6 +3205,12 @@ G.UI = class {
       this.els['comms-faction-tag'].style.color  = fac.color;
     }
     if(this.els['comms-ship-name']) this.els['comms-ship-name'].textContent = displayName;
+    if(this.els['comms-class-tag']) {
+      const cls = G.CLASSES?.[target.classId];
+      const _lvlStr = target.level ? `  ·  LVL ${target.level}` : '';
+      this.els['comms-class-tag'].textContent = cls ? cls.name + _lvlStr : _lvlStr.trim();
+      this.els['comms-class-tag'].style.color  = cls ? cls.color : '#556677';
+    }
     if(this.els['comms-response-text']) this.els['comms-response-text'].textContent = '';
 
     // Build options — enemies and fleet ships get special sets
@@ -3038,6 +3266,7 @@ G.UI = class {
       this.els['comms-faction-tag'].style.color = fac.color;
     }
     if(this.els['comms-ship-name']) this.els['comms-ship-name'].textContent = body.spaceportName || body.name || 'PLANETARY CONTROL';
+    if(this.els['comms-class-tag']) { this.els['comms-class-tag'].textContent = ''; }
     if(this.els['comms-response-text']) this.els['comms-response-text'].textContent = '';
 
     const opts = [{ key:'planet_hail', label:'Hail', color:'#00ffee' }];
@@ -3070,7 +3299,13 @@ G.UI = class {
       this.els['comms-faction-tag'].textContent = fac.name.toUpperCase();
       this.els['comms-faction-tag'].style.color  = fac.color;
     }
-    if(this.els['comms-ship-name'])    this.els['comms-ship-name'].textContent    = displayName;
+    if(this.els['comms-ship-name']) this.els['comms-ship-name'].textContent = displayName;
+    if(this.els['comms-class-tag']) {
+      const cls = G.CLASSES?.[target.classId];
+      const _lvlStr = target.level ? `  ·  LVL ${target.level}` : '';
+      this.els['comms-class-tag'].textContent = cls ? cls.name + _lvlStr : _lvlStr.trim();
+      this.els['comms-class-tag'].style.color  = cls ? cls.color : '#556677';
+    }
     this._speakComms(text);
     const list = this.els['comms-options-list'];
     if(list) list.innerHTML = '';
@@ -3490,7 +3725,7 @@ G.UI = class {
     this._commsNPC = null;
   }
 
-  showSTCWelcome(portName, faction) {
+  showSTCWelcome(portName, faction, pod) {
     const overlay = this.els['comms-overlay'];
     if(!overlay) return;
     const stc = { type:'planet', faction: faction||'neutral', name: portName+' Control' };
@@ -3500,6 +3735,22 @@ G.UI = class {
     if(this.els['comms-faction-tag']){ this.els['comms-faction-tag'].textContent='SPACE TRAFFIC CONTROL'; this.els['comms-faction-tag'].style.color=fac.color; }
     if(this.els['comms-ship-name']) this.els['comms-ship-name'].textContent = portName+' Control';
     if(this.els['comms-options-list']) this.els['comms-options-list'].innerHTML='';
+    // Emergency escape-pod arrival gets its own rescue dialogue.
+    if(pod) {
+      const n = pod.survived || 1;
+      const podLines = [
+        'Distress beacon received — your escape pod is down safe at '+portName+'. '+n+' aboard recovered.',
+        portName+' Control: emergency pod tracked and retrieved. '+n+' survivor'+(n!==1?'s':'')+' safe. Your ship was lost.',
+        'Mayday acknowledged. Rescue crews have you, pilot — '+n+' made it to '+portName+'. Hang in there.',
+      ];
+      const line = podLines[Math.floor(Math.random()*podLines.length)];
+      G.sound?.commsPing();
+      this._speakComms('"'+line+'"');
+      overlay.classList.remove('hidden');
+      clearTimeout(this._noRespTimer);
+      this._noRespTimer = setTimeout(()=>this.closeComms(), 5200);
+      return;
+    }
     const lines = [
       'Welcome to '+portName+'. Docking sequence complete — enjoy your stay.',
       portName+' Control to inbound vessel — docking confirmed. Welcome aboard.',
@@ -3523,22 +3774,31 @@ G.UI = class {
     this._boardingTarget = enemy;
     const popup = document.getElementById('boarding-popup');
     if(!popup) return;
-    const player = G.game.player;
-    const playerSize = G.SHIPS[player.templateId]?.size || 1.0;
-    const enemyHpScale = (enemy.maxHp||120)/120;
-    const enemyEff = (enemy.size||1.0) * enemyHpScale;
-    const baseChance = enemy.disabled ? 0.90 : 0.65;
-    const chance = G.clamp(baseChance*playerSize/enemyEff, 0.10, 0.95);
     const fleetFull = G.game.fleet.length >= 5;
-    const fac = (enemy.faction||'unknown').toUpperCase();
-    const shape = (enemy.shapeId||'ship').replace(/_/g,' ').toUpperCase();
-    const statusStr = enemy.disabled ? '<span style="color:#ff6600">DISABLED</span>' : `Hull: ${Math.round((enemy.hp||0)/Math.max(enemy.maxHp||1,1)*100)}%`;
     const el = document.getElementById('boarding-ship-info');
-    if(el) el.innerHTML = `
-      <div>${fac} ${shape}</div>
-      <div>${statusStr}</div>
-      <div style="color:#ffcc44">Commandeer chance: ${Math.round(chance*100)}%</div>
-      <div style="color:#${fleetFull?'ff4444':'556677'}">Fleet: ${G.game.fleet.length}/5 ships</div>`;
+    if(enemy.type === 'derelict') {
+      const shape = (enemy.shapeId||'ship').replace(/_/g,' ').toUpperCase();
+      if(el) el.innerHTML = `
+        <div style="color:#445566">DERELICT ${shape}</div>
+        <div><span style="color:#ff6600">ABANDONED</span> — Hull: ${Math.round((enemy.hp||0)/Math.max(enemy.maxHp||1,1)*100)}%</div>
+        <div style="color:#44ffaa">Commandeer chance: 100% (no crew)</div>
+        <div style="color:#${fleetFull?'ff4444':'556677'}">Fleet: ${G.game.fleet.length}/5 ships</div>`;
+    } else {
+      const player = G.game.player;
+      const playerSize = G.SHIPS[player.templateId]?.size || 1.0;
+      const enemyHpScale = (enemy.maxHp||120)/120;
+      const enemyEff = (enemy.size||1.0) * enemyHpScale;
+      const baseChance = enemy.disabled ? 0.90 : 0.65;
+      const chance = G.clamp(baseChance*playerSize/enemyEff, 0.10, 0.95);
+      const fac = (enemy.faction||'unknown').toUpperCase();
+      const shape = (enemy.shapeId||'ship').replace(/_/g,' ').toUpperCase();
+      const statusStr = enemy.disabled ? '<span style="color:#ff6600">DISABLED</span>' : `Hull: ${Math.round((enemy.hp||0)/Math.max(enemy.maxHp||1,1)*100)}%`;
+      if(el) el.innerHTML = `
+        <div>${fac} ${shape}</div>
+        <div>${statusStr}</div>
+        <div style="color:#ffcc44">Commandeer chance: ${Math.round(chance*100)}%</div>
+        <div style="color:#${fleetFull?'ff4444':'556677'}">Fleet: ${G.game.fleet.length}/5 ships</div>`;
+    }
     const resultEl = document.getElementById('boarding-result');
     if(resultEl) resultEl.innerHTML = '';
     const opts = document.getElementById('boarding-options');
@@ -3552,6 +3812,46 @@ G.UI = class {
     document.getElementById('boarding-popup')?.classList.add('hidden');
     this._boardingTarget = null;
     G.game.paused = false;
+  }
+
+  showDisabledShipPopup() {
+    const popup = document.getElementById('disabled-ship-popup');
+    if(!popup) return;
+    const opts = document.getElementById('disabled-ship-options');
+    if(!opts) return;
+    opts.innerHTML = '';
+    const player = G.game?.player;
+    const podMods = player ? Object.values(player.modules||{}).filter(m=>m.moduleId==='escape_pod'&&!m.broken) : [];
+    const hasPods = podMods.length > 0;
+    if(hasPods) {
+      const btn = document.createElement('button');
+      btn.className = 'btn';
+      btn.style.fontSize = '6px';
+      btn.style.borderColor = '#44ff88';
+      btn.style.color = '#44ff88';
+      btn.textContent = 'EJECT PODS';
+      btn.onclick = () => {
+        G.game.ejectEscapePods();
+        this.closeDisabledShipPopup();
+      };
+      opts.appendChild(btn);
+    }
+    const downBtn = document.createElement('button');
+    downBtn.className = 'btn';
+    downBtn.style.fontSize = '6px';
+    downBtn.style.borderColor = '#ff4444';
+    downBtn.style.color = '#ff4444';
+    downBtn.textContent = hasPods ? 'GO DOWN WITH SHIP' : 'ACCEPT FATE';
+    downBtn.onclick = () => {
+      G.game._playerDied();
+      this.closeDisabledShipPopup();
+    };
+    opts.appendChild(downBtn);
+    popup.classList.remove('hidden');
+  }
+
+  closeDisabledShipPopup() {
+    document.getElementById('disabled-ship-popup')?.classList.add('hidden');
   }
 
   // ── Fleet management ──────────────────────────────────────
@@ -3973,7 +4273,7 @@ G.UI = class {
       { id:'neutral',   name:'INDEPENDENT', color:'#888888' },
     ];
 
-    let sex = 'female', factionId = 'earth', faceIdx = 0, shipId = 'shuttle', startingAbility = 'frost_nova';
+    let sex = 'female', factionId = 'earth', faceIdx = 0, shipId = 'shuttle', startingAbility = 'frost_nova', classId = 'space_marine';
 
     // Starting ship selection
     const STARTING_SHIPS = [
@@ -3986,19 +4286,54 @@ G.UI = class {
     STARTING_SHIPS.forEach((s, si) => {
       const wrap = document.createElement('div');
       wrap.className = 'char-ship-wrap' + (si === 0 ? ' selected' : '');
-      const tpl = G.SHIPS[s.id];
-      const shapeId = tpl?.shape || s.id;
-      const color   = tpl?.color || '#8899bb';
+      const ship = new G.Ship(s.id);
       const c = document.createElement('canvas');
-      c.width = 80; c.height = 64;
+      c.width = 120; c.height = 100;
       const ctx2 = c.getContext('2d');
       ctx2.fillStyle = '#000a18';
-      ctx2.fillRect(0, 0, 80, 64);
-      const imgC = G.ShipImages?.get(shapeId);
-      const SZ = G.Sprites.SZ;
-      const sc = 2;
-      ctx2.imageSmoothingEnabled = !!imgC;
-      ctx2.drawImage(imgC || G.Sprites.get(shapeId, color), (80 - SZ*sc)/2|0, (64 - SZ*sc)/2|0, SZ*sc, SZ*sc);
+      ctx2.fillRect(0, 0, 120, 100);
+
+      const entries = [];
+      for(const [, inst] of Object.entries(ship.modules || {})) {
+        if(inst.q == null) continue;
+        const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+        if(!mod) continue;
+        entries.push({ q: inst.q, r: inst.r, slot: mod.slot || 'special' });
+      }
+
+      if(entries.length > 0) {
+        const R = 14;
+        let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
+        for(const e of entries) {
+          const p = G.hexToPixel(e.q, e.r, R);
+          if(p.x < minx) minx = p.x;
+          if(p.x > maxx) maxx = p.x;
+          if(p.y < miny) miny = p.y;
+          if(p.y > maxy) maxy = p.y;
+        }
+        const ox = (minx + maxx) / 2, oy = (miny + maxy) / 2;
+        ctx2.save();
+        ctx2.translate(60, 50);
+        for(const e of entries) {
+          const p = G.hexToPixel(e.q, e.r, R);
+          const SQ3 = Math.sqrt(3);
+          ctx2.beginPath();
+          for(let i = 0; i < 6; i++) {
+            const a = Math.PI / 3 * i;
+            const x = p.x - ox + R * Math.cos(a);
+            const y = p.y - oy + R * Math.sin(a);
+            if(i === 0) ctx2.moveTo(x, y);
+            else ctx2.lineTo(x, y);
+          }
+          ctx2.closePath();
+          ctx2.strokeStyle = e.slot === 'hull' ? '#667799' : '#556677';
+          ctx2.lineWidth = 1;
+          ctx2.stroke();
+          ctx2.fillStyle = e.slot === 'hull' ? 'rgba(102,119,153,0.2)' : 'rgba(100,150,200,0.1)';
+          ctx2.fill();
+        }
+        ctx2.restore();
+      }
       wrap.appendChild(c);
       wrap.insertAdjacentHTML('beforeend', `<div class="char-ship-name">${s.label}</div><div class="char-ship-desc">${s.desc}</div>`);
       wrap.addEventListener('click', () => {
@@ -4009,7 +4344,7 @@ G.UI = class {
         shipId = s.id;
         const name = nameInput.value.trim() || 'Commander';
         overlay.classList.add('hidden');
-        onConfirm({ name, sex, faceIdx, factionId, shipId });
+        onConfirm({ name, sex, faceIdx, factionId, shipId, classId });
       });
       shipGrid.appendChild(wrap);
     });
@@ -4019,6 +4354,30 @@ G.UI = class {
     factionRow.innerHTML = FACTIONS.map(f =>
       `<button class="btn char-faction-btn${f.id==='earth'?' active':''}" data-faction="${f.id}" style="border-color:${f.color};color:${f.color}">${f.name}</button>`
     ).join('');
+
+    // Class selection grid
+    const classGrid = document.getElementById('char-class-grid');
+    if(classGrid && G.CLASSES) {
+      classGrid.innerHTML = '';
+      Object.values(G.CLASSES).forEach((cls, ci) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'char-ship-wrap' + (cls.id === classId ? ' selected' : '');
+        wrap.style.borderColor = cls.id === classId ? cls.color : '';
+        wrap.innerHTML = `<div style="font-size:20px;color:${cls.color};margin:6px 0">${cls.icon}</div>
+          <div class="char-ship-name" style="color:${cls.color}">${cls.name}</div>
+          <div class="char-ship-desc">${cls.desc}</div>`;
+        wrap.addEventListener('click', () => {
+          classId = cls.id;
+          classGrid.querySelectorAll('.char-ship-wrap').forEach((w, j) => {
+            const c2 = Object.values(G.CLASSES)[j];
+            w.classList.toggle('selected', c2.id === classId);
+            w.style.borderColor = c2.id === classId ? c2.color : '';
+          });
+          redrawAbility();
+        });
+        classGrid.appendChild(wrap);
+      });
+    }
 
     // Single faction+sex avatar image
     const FACTION_FILE = { earth:'earth', rebellion:'rebel', pirate:'pirate', alien:'alien', neutral:'independent' };
@@ -4060,23 +4419,27 @@ G.UI = class {
       redraw();
     };
 
-    // All abilities — display only, player starts with all of them
+    // Starting ability preview — updates with class selection
     const abilityGrid = document.getElementById('char-ability-grid');
-    if(abilityGrid && G.ABILITIES) {
-      abilityGrid.innerHTML = Object.values(G.ABILITIES).map(def =>
-        `<div class="char-ship-wrap selected" style="text-align:center;cursor:default">
-          <div style="font-size:20px;color:${def.color};margin:6px 0">${def.icon}</div>
-          <div class="char-ship-name" style="color:${def.color}">${def.name}</div>
-          <div class="char-ship-desc">${def.desc}</div>
-          <div style="font-size:5px;color:#556677;margin-top:2px">CD: ${def.cooldown}s  E: ${def.energyCost}</div>
-        </div>`
-      ).join('');
-    }
+    const redrawAbility = () => {
+      if(!abilityGrid) return;
+      const cls = G.CLASSES[classId];
+      const def = cls?.startAbility ? G.ABILITIES?.[cls.startAbility] : null;
+      abilityGrid.innerHTML = def
+        ? `<div class="char-ship-wrap selected" style="text-align:center;cursor:default;border-color:${def.color}">
+            <div style="font-size:20px;color:${def.color};margin:6px 0">${def.icon}</div>
+            <div class="char-ship-name" style="color:${def.color}">${def.name}</div>
+            <div class="char-ship-desc">${def.desc}</div>
+            <div style="font-size:5px;color:#556677;margin-top:2px">CD: ${def.cooldown}s  E: ${def.energyCost}</div>
+          </div>`
+        : '<div style="font-size:6px;color:#556677;padding:8px">No starting ability</div>';
+    };
+    redrawAbility();
 
     document.getElementById('char-confirm-btn').onclick = () => {
       const name = nameInput.value.trim() || 'Commander';
       overlay.classList.add('hidden');
-      onConfirm({ name, sex, faceIdx, factionId, shipId });
+      onConfirm({ name, sex, faceIdx, factionId, shipId, classId });
     };
 
     redraw();

@@ -21,6 +21,8 @@ G.EnemyAI = class {
     this.angle    = data.angle || 0;
     this._boosting = false;
     if (!this.captain) this.captain = { sex: Math.random() < 0.5 ? 'male' : 'female', faceIdx: Math.floor(Math.random() * 5) };
+    if (!this.classId) this.classId = G.CLASS_IDS[Math.floor(Math.random()*G.CLASS_IDS.length)];
+    if (!this.level) this.level = G.randInt(1, 30);
     this._lockT = 0;
     this._locked = false;
     this._lockBeepT = 0;
@@ -263,6 +265,9 @@ G.EnemyAI = class {
       }
     }
 
+    // Soft obstacle avoidance (ships + asteroids)
+    this._avoidObstacles(dt, player);
+
     // Apply velocity to position
     this.x += this.vx * dt;
     this.y += this.vy * dt;
@@ -300,6 +305,38 @@ G.EnemyAI = class {
     if(spd > this.speed*mult) {
       this.vx *= (this.speed*mult)/spd;
       this.vy *= (this.speed*mult)/spd;
+    }
+  }
+
+  // Soft steering repulsion from nearby ships and asteroids
+  _avoidObstacles(dt, player) {
+    const SHIP_R = 130, AST_R = 180;
+    const space = G.game?.space;
+    if(!space) return;
+
+    const ships = [player, ...space.enemies, ...space.npcs];
+    for(const s of ships) {
+      if(s === this || (s.dead) || (s._deathDone) || (s.boarded)) continue;
+      const dx = this.x - s.x, dy = this.y - s.y;
+      const d2 = dx*dx + dy*dy;
+      if(d2 < SHIP_R*SHIP_R && d2 > 0.01) {
+        const d = Math.sqrt(d2);
+        const f = (SHIP_R - d) / SHIP_R;
+        this.vx += (dx/d) * f * 280 * dt;
+        this.vy += (dy/d) * f * 280 * dt;
+      }
+    }
+
+    for(const a of space.asteroids) {
+      const dx = this.x - a.x, dy = this.y - a.y;
+      const threshold = AST_R + (a.r || 20);
+      const d2 = dx*dx + dy*dy;
+      if(d2 < threshold*threshold && d2 > 0.01) {
+        const d = Math.sqrt(d2);
+        const f = (threshold - d) / threshold;
+        this.vx += (dx/d) * f * 320 * dt;
+        this.vy += (dy/d) * f * 320 * dt;
+      }
     }
   }
 

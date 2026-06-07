@@ -162,6 +162,7 @@
       <div id="comms-header">
         <span id="comms-faction-tag"></span>
         <span id="comms-ship-name"></span>
+        <span id="comms-class-tag"></span>
       </div>
       <div id="comms-portrait"></div>
       <div id="comms-response-text"></div>
@@ -313,6 +314,17 @@
     </div>
   </div>
 
+  <!-- Disabled ship popup -->
+  <div id="disabled-ship-popup" class="hidden" style="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:200">
+    <div id="disabled-ship-box" style="background:#050e1a;border:2px solid #ff4444;padding:20px;width:380px;font-family:'Press Start 2P',monospace">
+      <div class="panel-title" style="color:#ff4444;margin-bottom:12px">SHIP DISABLED</div>
+      <div id="disabled-ship-info" style="font-size:6px;color:#aabbcc;margin-bottom:14px;line-height:2.2">Hull integrity lost. Emergency systems activated.</div>
+      <div id="disabled-ship-options" style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      </div>
+      <button id="disabled-ship-close-btn" class="btn" style="font-size:6px">CLOSE</button>
+    </div>
+  </div>
+
   <!-- Fleet overlay -->
   <div id="fleet-overlay" class="hidden" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.85);z-index:200">
     <div id="fleet-window" style="background:#050e1a;border:2px solid #44ff88;padding:20px;width:640px;max-height:82vh;display:flex;flex-direction:column;font-family:'Press Start 2P',monospace">
@@ -359,6 +371,9 @@
       <div id="char-screen-name" class="char-screen-field char-screen-name"></div>
       <div id="char-screen-sex"  class="char-screen-field"></div>
       <div id="char-screen-faction" class="char-screen-field"></div>
+      <div id="char-screen-class" class="char-screen-field"></div>
+      <div id="char-screen-level" style="margin-top:6px;width:100%;text-align:center"></div>
+      <button id="char-screen-skilltree-btn" class="btn" style="margin-top:8px;font-size:5px;letter-spacing:2px;padding:5px 12px">⬡ SKILL TREE</button>
       <div style="margin-top:16px;width:100%">
         <div style="font-family:'Press Start 2P',monospace;font-size:6px;color:#556677;letter-spacing:2px;margin-bottom:8px">ABILITIES</div>
         <div id="char-screen-abilities"></div>
@@ -369,6 +384,9 @@
     </div>
   </div>
 
+  <!-- Skill Tree -->
+  <div id="skill-tree-overlay" class="hidden"></div>
+
   <!-- Character creation -->
   <div id="char-create-overlay" class="hidden">
     <div id="char-create-box">
@@ -377,6 +395,8 @@
         <div class="char-label">NAME</div>
         <input id="char-name-input" class="char-input" type="text" maxlength="20" placeholder="Commander" spellcheck="false" autocomplete="off" />
       </div>
+      <div class="char-section-lbl">AVATAR</div>
+      <div id="char-face-grid" class="char-face-grid"></div>
       <div class="char-row">
         <div class="char-label">SEX</div>
         <div class="char-toggle">
@@ -388,12 +408,12 @@
         <div class="char-label">FACTION</div>
         <div id="char-faction-btns" class="char-faction-row"></div>
       </div>
+      <div class="char-section-lbl">SELECT CLASS</div>
+      <div id="char-class-grid" class="char-ship-grid"></div>
       <div class="char-section-lbl">SELECT STARTING SHIP</div>
       <div id="char-ship-grid" class="char-ship-grid"></div>
       <div class="char-section-lbl">STARTING ABILITY</div>
       <div id="char-ability-grid" class="char-ship-grid"></div>
-      <div class="char-section-lbl">AVATAR</div>
-      <div id="char-face-grid" class="char-face-grid"></div>
       <button id="char-confirm-btn" class="btn btn-big">BEGIN JOURNEY</button>
     </div>
   </div>

@@ -87,7 +87,11 @@
       "Bash(awk '/G.SHIP_CLASSES *=/{f=1} f{print} f&&/^};/{exit}' data.js)",
       "Bash(echo \"EXIT=$?\")",
       "Bash(awk '/^\\\\+[^+]/')",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Bash(rtk gh pr create --title 'Mobile UX: bigger controls, iOS audio fix, menu placement' --body ' *)",
+      "Bash(rtk gh pr create --title 'Mobile joystick, bigger controls, hull panel art, perf fixes' --body ' *)",
+      "Bash(gh pr *)",
+      "Bash(rtk gh *)"
     ]
   }
 }

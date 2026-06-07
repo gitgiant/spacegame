@@ -104,27 +104,41 @@ G.Ship = class {
     });
     (tpl.startWeapons  || []).forEach(wid => this.installModule(wid));
 
-    if(tpl.startCells) {
-      const sorted = Object.entries(this.modules).sort((a,b) => +a[0].slice(1) - +b[0].slice(1));
-      sorted.forEach(([,inst], i) => { if(tpl.startCells[i] != null) inst.cell = tpl.startCells[i]; });
-    }
-
     // Fighter-class hulls ship with a sensor array as standard kit, granting
-    // the Scan ability out of the box. Installed after the start kit so the
-    // startCells alignment is untouched, and placed on a free hull cell
-    // before hull panels are generated so the plating wraps it cleanly.
-    if(tpl.class === 'fighter' && !this.canScan) {
-      const sInst = this.installModule('basic_sensors');
-      if(sInst) this.modules[sInst].cell = this._freeBuilderCell();
-    }
+    // the Scan ability out of the box. Installed before the hex layout runs so
+    // it gets a cell and the plating wraps it cleanly.
+    if(tpl.class === 'fighter' && !this.canScan) this.installModule('basic_sensors');
 
-    this._addHullPanels(tpl);
+    this._generateHexLayout(tpl);
 
     this._recompute();
     this.hull    = this.maxHull;
     this.shields = this.maxShields;
     this.energy  = this.maxEnergy;
     this.fuel    = this.maxFuel;
+
+    this._initStartingCrew();
+  }
+
+  _initStartingCrew() {
+    const fac = this.faction || 'neutral';
+    const roleOrder = ['pilot','engineer','gunner','navigator','medic','marine'];
+    const names = G.CREW_NAMES;
+    let ni = 0;
+    for(let i = 0; i < this.maxCrew; i++) {
+      const roleId = roleOrder[Math.min(i, roleOrder.length - 1)];
+      const role = G.CREW_ROLES[roleId];
+      this.crew.push({
+        id: 'c' + (Math.random() * 1e9 | 0),
+        name: names[ni++ % names.length],
+        role: roleId, roleName: role.name,
+        faction: fac,
+        skill: 2, hp: 100, maxHp: 100,
+        wage: role.wage * 2,
+        hireCost: role.wage * 20,
+        desc: role.desc,
+      });
+    }
   }
 
   // ── Module management ────────────────────────────────
@@ -136,26 +150,25 @@ G.Ship = class {
     if(idx === -1) { this.slots.push(null); idx = this.slots.length - 1; }
 
     const instId = 'm'+(this._nextModId++);
-    this.modules[instId] = { moduleId, slotIdx:idx, hp:mod.hp||50, broken:false, rot, cell:null };
+    this.modules[instId] = { moduleId, slotIdx:idx, hp:mod.hp||50, broken:false, rot, q:null, r:null };
     this.slots[idx] = instId;
 
     this._recompute();
     return instId;
   }
 
-  // Pick a free grid cell orthogonally adjacent to an existing module — used
-  // to auto-place a module that wasn't given an explicit startCell.
+  // Pick a free hex orthogonally adjacent to an existing module — used to
+  // auto-place a module that wasn't given an explicit cell (e.g. builder drops).
   _freeBuilderCell() {
-    const COLS = 9;
     const used = new Set();
-    for(const inst of Object.values(this.modules)) if(inst.cell != null) used.add(inst.cell);
-    for(const c of used) {
-      const neigh = [c - COLS, c + COLS];
-      if(c % COLS !== 0)        neigh.push(c - 1);
-      if(c % COLS !== COLS - 1) neigh.push(c + 1);
-      for(const n of neigh) if(n >= 0 && !used.has(n)) return n;
+    for(const inst of Object.values(this.modules)) if(inst.q != null) used.add(G.hexKey(inst.q, inst.r));
+    if(!used.size) return { q:0, r:0 };
+    for(const k of used) {
+      const { q, r } = G.hexFromKey(k);
+      for(const nb of G.hexNeighbors(q, r))
+        if(!used.has(G.hexKey(nb.q, nb.r))) return nb;
     }
-    return used.size ? Math.max(...used) + 1 : 0;
+    return { q:0, r:0 };
   }
 
   // Install into a specific slot index (used by the ship builder drag-and-drop)
@@ -164,7 +177,7 @@ G.Ship = class {
     if(!mod) return false;
     if(idx < 0 || idx >= this.slots.length || this.slots[idx] !== null) return false;
     const instId = 'm'+(this._nextModId++);
-    this.modules[instId] = { moduleId, slotIdx:idx, hp:mod.hp||50, broken:false, rot, cell:null };
+    this.modules[instId] = { moduleId, slotIdx:idx, hp:mod.hp||50, broken:false, rot, q:null, r:null };
     this.slots[idx] = instId;
     this._recompute();
     return instId;
@@ -178,88 +191,109 @@ G.Ship = class {
     this._recompute();
   }
 
-  // Auto-generate hull panels around all installed inner modules
-  _addHullPanels(tpl) {
-    const DIRS = [[-1,0],[ 0,1],[1,0],[0,-1]]; // N(0) E(1) S(2) W(3)
-    // Faction ships use faction color; neutral/independent use template color
-    const _fac = tpl.faction;
-    const hullColor = (_fac && _fac !== 'neutral' && _fac !== 'independent' && G.FACTIONS?.[_fac]?.color)
+  // Faction ships use faction color; neutral/independent use template color.
+  _hullColor(tpl) {
+    tpl = tpl || G.SHIPS[this.templateId] || {};
+    const _fac = tpl.faction || this.faction;
+    return (_fac && _fac !== 'neutral' && _fac !== 'independent' && G.FACTIONS?.[_fac]?.color)
       || tpl.color || '#667799';
-
-    // Build set of inner (non-hull) cells
-    const inner = new Set();
-    for(const inst of Object.values(this.modules)) {
-      if(inst.cell == null) continue;
-      const m = G.MODULES[inst.moduleId];
-      if(!m || m.slot !== 'hull') inner.add(inst.cell);
-    }
-
-    // Already-occupied cells (for collision avoidance)
-    const occupied = new Set();
-    for(const inst of Object.values(this.modules)) if(inst.cell != null) occupied.add(inst.cell);
-
-    // Candidate hull cells: empty cells orthogonally adjacent to inner cells
-    const candidates = new Map(); // cell -> innerDirs[]
-    for(const cell of inner) {
-      const r = (cell / 9) | 0, c = cell % 9;
-      for(let d = 0; d < 4; d++) {
-        const nr = r + DIRS[d][0], nc = c + DIRS[d][1];
-        if(nr < 0 || nr >= 9 || nc < 0 || nc >= 9) continue;
-        const ncell = nr * 9 + nc;
-        if(!occupied.has(ncell)) {
-          if(!candidates.has(ncell)) candidates.set(ncell, []);
-          candidates.get(ncell).push(d);
-        }
-      }
-    }
-
-    for(const [hcell, innerDirs] of candidates) {
-      // Determine shape and facing from adjacency
-      let shape, facing;
-      if(innerDirs.length >= 3) {
-        shape = 'concave'; facing = 0;
-      } else if(innerDirs.length === 2) {
-        shape = 'quarterround';
-        const has = {};
-        for(const d of innerDirs) has[d] = true;
-        // facing 4-7 = corner: 4=NW outer, 5=NE outer, 6=SE outer, 7=SW outer
-        if(has[2] && has[1])      facing = 4; // S+E inner → NW outer
-        else if(has[2] && has[3]) facing = 5; // S+W inner → NE outer
-        else if(has[0] && has[3]) facing = 6; // N+W inner → SE outer
-        else if(has[0] && has[1]) facing = 7; // N+E inner → SW outer
-        else                      facing = 4;
-      } else {
-        shape = 'square';
-        facing = (innerDirs[0] + 2) % 4; // outer face = opposite of inner neighbor
-      }
-
-      const instId = this.installModule('hull_panel');
-      if(instId) {
-        this.modules[instId].cell   = hcell;
-        this.modules[instId].color  = hullColor;
-        this.modules[instId].shape  = shape;
-        this.modules[instId].facing = facing;
-        occupied.add(hcell);
-      }
-    }
   }
 
-  // Returns true if every non-hull module has all in-grid orthogonal neighbors occupied
-  _hullEnclosed() {
-    const cellMap = new Map();
-    for(const inst of Object.values(this.modules))
-      if(inst.cell != null) cellMap.set(inst.cell, inst.moduleId);
+  // Generate the full hex layout: assign (q,r) to every inner module on a
+  // flat-top hex grid (core at origin, weapons fore, thrusters aft, rest
+  // compact), then wrap the whole assembly in a hull-panel perimeter.
+  _generateHexLayout(tpl) {
+    // Drop any existing hull panels and clear all positions — we rebuild from scratch.
+    for(const [id, inst] of Object.entries(this.modules)) {
+      const m = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+      if(m && m.slot === 'hull') { this.slots[inst.slotIdx] = null; delete this.modules[id]; }
+      else { inst.q = null; inst.r = null; }
+    }
 
+    const used = new Set();
+    const assign = (id, q, r) => { this.modules[id].q = q; this.modules[id].r = r; used.add(G.hexKey(q, r)); };
+
+    // Core anchors the origin.
+    const inner = Object.entries(this.modules).map(([id, inst]) => {
+      const m = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+      return { id, inst, slot: m ? m.slot : 'special' };
+    });
+    const core = inner.find(e => e.slot === 'core');
+    if(core) assign(core.id, 0, 0); else used.add('0,0'); // reserve origin regardless
+
+    // Frontier candidates = empty hexes adjacent to the current blob.
+    const frontier = () => {
+      const set = new Map();
+      for(const k of used) {
+        const { q, r } = G.hexFromKey(k);
+        for(const nb of G.hexNeighbors(q, r)) {
+          const nk = G.hexKey(nb.q, nb.r);
+          if(!used.has(nk)) set.set(nk, nb);
+        }
+      }
+      return [...set.values()];
+    };
+    const yOf = c => c.r + c.q / 2;                 // ∝ pixel y (fore = −, aft = +)
+    const dOf = c => G.hexDist(0, 0, c.q, c.r);
+    const cmpCompact = (a, b) => dOf(a) - dOf(b) || yOf(a) - yOf(b) || a.q - b.q;
+    const cmpFore    = (a, b) => yOf(a) - yOf(b) || dOf(a) - dOf(b) || a.q - b.q;
+    const cmpAft     = (a, b) => yOf(b) - yOf(a) || dOf(a) - dOf(b) || a.q - b.q;
+    const placeOne = (id, cmp) => {
+      const cand = frontier();
+      if(!cand.length) return;
+      cand.sort(cmp);
+      assign(id, cand[0].q, cand[0].r);
+    };
+
+    // Fill the body first (compact), then weapons fore, then thrusters aft so
+    // weapons/thrusters land on the fore/aft edges of the finished blob.
+    const body      = inner.filter(e => e.slot !== 'core' && e.slot !== 'thruster' && e.slot !== 'weapon' && e.slot !== 'turret');
+    const weapons   = inner.filter(e => e.slot === 'weapon' || e.slot === 'turret');
+    const thrusters = inner.filter(e => e.slot === 'thruster');
+    for(const e of body)      placeOne(e.id, cmpCompact);
+    for(const e of weapons)   placeOne(e.id, cmpFore);
+    for(const e of thrusters) placeOne(e.id, cmpAft);
+
+    this._wrapHull(tpl);
+  }
+
+  // Wrap every inner module's open hex neighbours with hull-panel hexes.
+  // Hexes tile perfectly, so the result is a gapless, overlap-free perimeter.
+  _wrapHull(tpl) {
+    const hullColor = this._hullColor(tpl);
+    const occupied = new Set();
+    for(const inst of Object.values(this.modules)) if(inst.q != null) occupied.add(G.hexKey(inst.q, inst.r));
+
+    const hullCells = new Set();
     for(const inst of Object.values(this.modules)) {
-      if(inst.cell == null) continue;
+      if(inst.q == null) continue;
+      const m = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+      if(m && m.slot === 'hull') continue;
+      for(const nb of G.hexNeighbors(inst.q, inst.r)) {
+        const k = G.hexKey(nb.q, nb.r);
+        if(!occupied.has(k)) hullCells.add(k);
+      }
+    }
+    for(const k of hullCells) {
+      const { q, r } = G.hexFromKey(k);
+      const id = this.installModule('hull_panel');
+      if(id) { this.modules[id].q = q; this.modules[id].r = r; this.modules[id].color = hullColor; occupied.add(k); }
+    }
+    // installModule recomputes with the panel's q/r still null; recompute once
+    // more now that every panel is positioned so `flyable`/enclosure are correct.
+    this._recompute();
+  }
+
+  // True if every inner module has all 6 hex neighbours occupied (fully plated).
+  _hullEnclosed() {
+    const cells = new Set();
+    for(const inst of Object.values(this.modules)) if(inst.q != null) cells.add(G.hexKey(inst.q, inst.r));
+    for(const inst of Object.values(this.modules)) {
+      if(inst.q == null) continue;
       const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
       if(mod?.slot === 'hull') continue;
-      const r = (inst.cell / 9) | 0, c = inst.cell % 9;
-      for(const [dr, dc] of [[-1,0],[0,1],[1,0],[0,-1]]) {
-        const nr = r + dr, nc = c + dc;
-        if(nr < 0 || nr >= 9 || nc < 0 || nc >= 9) continue; // grid edge = OK
-        if(!cellMap.has(nr * 9 + nc)) return false;
-      }
+      for(const nb of G.hexNeighbors(inst.q, inst.r))
+        if(!cells.has(G.hexKey(nb.q, nb.r))) return false;
     }
     return true;
   }
@@ -275,13 +309,14 @@ G.Ship = class {
     this.installModule('cockpit');
   }
 
-  // Ensure hull panels exist (save migration for saves predating hull system)
+  // Ensure hull panels wrap the inner modules. With the hex grid the whole
+  // layout is regenerated deterministically (also serves as save migration for
+  // square-grid saves, which had no q/r).
   ensureHullPanels() {
-    const hasHull = Object.values(this.modules).some(inst => G.MODULES[inst.moduleId]?.slot === 'hull');
-    if(!hasHull) {
-      const tpl = G.SHIPS[this.templateId];
-      if(tpl) this._addHullPanels(tpl);
-    }
+    const needs = Object.values(this.modules).some(inst => inst.q == null && G.MODULES[inst.moduleId]?.slot !== 'hull')
+      || !Object.values(this.modules).some(inst => G.MODULES[inst.moduleId]?.slot === 'hull');
+    if(needs) this._generateHexLayout();
+    else this._wrapHull();
   }
 
   // Install missing class core module (save migration)
@@ -303,37 +338,7 @@ G.Ship = class {
     if(!inst) return false;
     const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
     if(!mod) return true;
-    if(mod.slot === 'cockpit') return false;
     if(mod.slot === 'core') return false;
-    if(mod.slot === 'hull') {
-      // Cannot remove if any orthogonal neighbor is a non-hull module (would expose it)
-      if(inst.cell == null) return true;
-      const cellMap = new Map();
-      for(const [id2, i2] of Object.entries(this.modules))
-        if(id2 !== instId && i2.cell != null) cellMap.set(i2.cell, i2.moduleId);
-      const r = (inst.cell / 9) | 0, c = inst.cell % 9;
-      for(const [dr, dc] of [[-1,0],[0,1],[1,0],[0,-1]]) {
-        const nr = r + dr, nc = c + dc;
-        if(nr < 0 || nr >= 9 || nc < 0 || nc >= 9) continue;
-        const adjMod = G.MODULES[cellMap.get(nr * 9 + nc)];
-        if(adjMod && adjMod.slot !== 'hull') return false;
-      }
-      return true;
-    }
-    if(mod.slot === 'thruster') {
-      const rot = (inst.rot || 0) % 4;
-      const otherThrusters = id => {
-        const i = this.modules[id];
-        const m = G.MODULES[i?.moduleId];
-        return id !== instId && m?.slot === 'thruster' && (i.rot||0)%4 === rot;
-      };
-      if(rot === 0 && Object.keys(this.modules).filter(otherThrusters).length < 2) return false;
-      if(rot === 2 && Object.keys(this.modules).filter(otherThrusters).length < 1) return false;
-    }
-    if(mod.slot === 'power') {
-      const otherPower = Object.values(this.modules).filter(i => i !== inst && (G.MODULES[i.moduleId]?.slot === 'power'));
-      if(otherPower.length < 1) return false;
-    }
     return true;
   }
 
@@ -363,8 +368,9 @@ G.Ship = class {
     this.canCraft   = false;
     this.tractorRange=0;
     this.sensorRange   = 600;
-    this.canScan       = false;
-    this.canRadarScan  = false;
+    this.canScan        = false;
+    this.canRadarScan   = false;
+    this.canOpticalLock = false;
     this.canJump        = false;
     this.jumpRange      = 0;
     this.jumpChargeTime = 99; // set from module
@@ -435,8 +441,9 @@ G.Ship = class {
       if(s.canCraft)        this.canCraft     = true;
       if(s.tractorRange)    this.tractorRange+= s.tractorRange;
       if(s.sensorRange)     this.sensorRange  += s.sensorRange;
-      if(s.canScan)         this.canScan       = true;
-      if(s.canRadarScan)    this.canRadarScan  = true;
+      if(s.canScan)         this.canScan        = true;
+      if(s.canRadarScan)    this.canRadarScan   = true;
+      if(s.canOpticalLock)  this.canOpticalLock = true;
       if(s.canJump)         this.canJump      = true;
       if(s.jumpRange)       this.jumpRange   += s.jumpRange;
       if(s.jumpChargeTime !== undefined) this.jumpChargeTime = Math.min(this.jumpChargeTime, s.jumpChargeTime);
@@ -497,14 +504,24 @@ G.Ship = class {
     if(this.canRadarScan && !_hasRadarScan)       this.abilities = [...this.abilities, 'radar_scan'];
     else if(!this.canRadarScan && _hasRadarScan)  this.abilities = this.abilities.filter(a => a !== 'radar_scan');
 
-    // A missile launcher grants missile_lock; keep in sync with weapon slots.
-    const _hasML = this.weaponSlots.some(w => G.WEAPONS[w.weaponId]?.type === 'missile');
-    const _hasMLock   = this.abilities.includes('missile_lock');
+    // Migrate old missile_lock ability ID from saves
+    this.abilities = this.abilities.filter(a => a !== 'missile_lock');
+
+    // Targeting pod grants optical_target_lock (independent ability)
+    const _hasOptLock = this.abilities.includes('optical_target_lock');
+    if(this.canOpticalLock && !_hasOptLock) {
+      this.abilities = [...this.abilities, 'optical_target_lock'];
+    } else if(!this.canOpticalLock && _hasOptLock) {
+      this.abilities = this.abilities.filter(a => a !== 'optical_target_lock');
+    }
+
+    // Missile launcher weapon grants missile_launch ability (independent of optical lock)
+    const _hasMissileWpn = this.weaponSlots.some(w => G.WEAPONS[w.weaponId]?.type === 'missile');
     const _hasMLaunch = this.abilities.includes('missile_launch');
-    if(_hasML && !_hasMLock && !_hasMLaunch) {
-      this.abilities = [...this.abilities, 'missile_lock'];
-    } else if(!_hasML && (_hasMLock || _hasMLaunch)) {
-      this.abilities = this.abilities.filter(a => a !== 'missile_lock' && a !== 'missile_launch');
+    if(_hasMissileWpn && !_hasMLaunch) {
+      this.abilities = [...this.abilities, 'missile_launch'];
+    } else if(!_hasMissileWpn && _hasMLaunch) {
+      this.abilities = this.abilities.filter(a => a !== 'missile_launch');
     }
   }
 
@@ -518,6 +535,12 @@ G.Ship = class {
       this._regenPassive(dt*0.3);
       return;
     }
+
+    // Tick stim
+    if((this._stimTimer||0) > 0) this._stimTimer = Math.max(0, this._stimTimer - dt);
+    // Tick invulnerability
+    if((this._invulTimer||0) > 0) this._invulTimer = Math.max(0, this._invulTimer - dt);
+    const stimMult = (this._stimTimer||0) > 0 ? 1.25 : 1.0;
 
     // Power distribution affects effective stats
     const thrustEff = 0.5 + this.powerEngines;
@@ -549,7 +572,7 @@ G.Ship = class {
     // Thrust — requires rear thrusters
     const boostMult = boostActive ? 5.0 : 1.0;
     if(inp.thrust && this.thrustForward > 0) {
-      const thrust = this.thrustForward * thrustEff * boostMult / effectiveMass;
+      const thrust = this.thrustForward * thrustEff * boostMult * stimMult / effectiveMass;
       this.vx += fwdX * thrust * dt;
       this.vy += fwdY * thrust * dt;
       if(boostActive && !superBoostActive) this.energy = Math.max(0, this.energy - 450 * dt);
@@ -633,9 +656,9 @@ G.Ship = class {
       this.hull = Math.min(this.maxHull, this.hull + this.autoRepair*dt);
     }
 
-    // Update weapon cooldowns
+    // Update weapon cooldowns (stim reduces cooldown time)
     for(const w of this.weaponSlots) {
-      if(w.cooldown > 0) w.cooldown -= dt;
+      if(w.cooldown > 0) w.cooldown -= dt * stimMult;
     }
   }
 
@@ -654,6 +677,7 @@ G.Ship = class {
 
   // ── Damage ───────────────────────────────────────────
   takeDamage(amount, type) {
+    if((this._invulTimer||0) > 0) return { shieldDmg:0, hullDmg:0 };
     // Armor reduces physical damage
     if(type !== 'emp' && type !== 'laser') {
       amount = Math.max(1, amount - this.armor);
@@ -692,19 +716,61 @@ G.Ship = class {
     return { shieldDmg, hullDmg };
   }
 
+  // Randomly damage a module; returns { name, slot } if one breaks, else null
   _damageModule(dmg) {
-    // Randomly damage an installed module
     const instIds = Object.keys(this.modules).filter(id=>!this.modules[id].broken);
-    if(instIds.length === 0) return;
-    const roll = Math.random();
-    if(roll > 0.3) return; // 30% chance to hit a module
+    if(instIds.length === 0) return null;
+    if(Math.random() > 0.3) return null; // 30% chance to hit a module
     const id = G.randEl(instIds);
     const inst = this.modules[id];
+    const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
     inst.hp -= dmg * 0.5;
     if(inst.hp <= 0) {
       inst.broken = true;
       this._recompute();
+      if(mod?.slot === 'core') { this.hull = 0; this.disabled = true; }
+      return { name: mod?.name || inst.moduleId, slot: mod?.slot || '' };
     }
+    return null;
+  }
+
+  // Bounding radius computed from installed module hex cells
+  getCollisionRadius() {
+    let max = 20;
+    for(const inst of Object.values(this.modules)) {
+      if(inst.q == null) continue;
+      const p = G.hexToPixel(inst.q, inst.r, G.HEX_R);
+      const d = Math.hypot(p.x, p.y) + G.HEX_R;
+      if(d > max) max = d;
+    }
+    return max;
+  }
+
+  // Damage module closest to world point (wx, wy); returns { name, slot } if one breaks
+  _damageModuleAtPoint(wx, wy, dmg) {
+    const ca = Math.cos(this.angle), sa = Math.sin(this.angle);
+    let bestId = null, bestDist = Infinity;
+    for(const [id, inst] of Object.entries(this.modules)) {
+      if(inst.q == null || inst.broken) continue;
+      const p = G.hexToPixel(inst.q, inst.r, G.HEX_R);
+      const lx = p.x, ly = p.y;
+      const ex = this.x + lx * ca - ly * sa;
+      const ey = this.y + lx * sa + ly * ca;
+      const d = Math.hypot(wx - ex, wy - ey);
+      if(d < bestDist) { bestDist = d; bestId = id; }
+    }
+    if(bestId) {
+      const inst = this.modules[bestId];
+      const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+      inst.hp -= dmg;
+      if(inst.hp <= 0) {
+        inst.broken = true;
+        this._recompute();
+        if(mod?.slot === 'core') { this.hull = 0; this.disabled = true; }
+        return { name: mod?.name || inst.moduleId, slot: mod?.slot || '' };
+      }
+    }
+    return null;
   }
 
   // ── Weapon firing ────────────────────────────────────
@@ -746,15 +812,14 @@ G.Ship = class {
       }
     }
 
-    // Fire from weapon module's grid cell in world space
+    // Fire from weapon module's hex cell in world space
     const weapInst = Object.values(this.modules||{}).find(m =>
       (m.moduleId + '_' + m.slotIdx) === slot.instId
     );
     let ox, oy;
-    if(weapInst?.cell != null) {
-      const STEP = 12, tCC = 4, tCR = 4;
-      const col = weapInst.cell % 9, row = (weapInst.cell / 9) | 0;
-      const dx = (col - tCC) * STEP, dy = (row - tCR) * STEP;
+    if(weapInst?.q != null) {
+      const p = G.hexToPixel(weapInst.q, weapInst.r, G.HEX_R);
+      const dx = p.x, dy = p.y;
       const ca = Math.cos(this.angle), sa = Math.sin(this.angle);
       ox = this.x + dx * ca - dy * sa;
       oy = this.y + dx * sa + dy * ca;
@@ -851,4 +916,99 @@ G.Ship = class {
       abilities: [...(this.abilities||[])],
     };
   }
+};
+
+// ── Shared hex layout for non-player ships (enemies/NPCs/fleet) ────────────
+// Builds a template's deterministic hex assembly once and caches the tile
+// entries {q,r,visual,slot,rot,color,broken}. Player ships read live modules.
+G._hexLayoutCache = {};
+G.hexLayoutForTemplate = function(tplId) {
+  if(!tplId) return [];
+  // Resolve a ship id: accept a direct G.SHIPS key, or an old shape id (some
+  // enemies store the SHAPES key in `shapeId`) by matching ship.shape.
+  let key = G.SHIPS[tplId] ? tplId
+    : Object.keys(G.SHIPS).find(k => G.SHIPS[k].shape === tplId);
+  if(!key) return [];
+  if(G._hexLayoutCache[key]) return G._hexLayoutCache[key];
+  let entries = [];
+  try {
+    const s = new G.Ship(key);
+    for(const inst of Object.values(s.modules)) {
+      if(inst.q == null) continue;
+      const m = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId] || {};
+      entries.push({
+        q: inst.q, r: inst.r,
+        visual: m.visual || (G.WEAPONS[inst.moduleId] ? 'weapon' : 'special'),
+        slot: m.slot || 'special',
+        rot: inst.rot || 0,
+        color: inst.color || null,
+        broken: false,
+      });
+    }
+  } catch(e) { entries = []; }
+  G._hexLayoutCache[key] = entries;
+  return entries;
+};
+
+// ── Hex-shaped collision / hitbox ─────────────────────────────────────────
+// Footprint = occupied hex cells + bbox centre + max extent, all in unit hex
+// space (size 1). World scale applied per call: R = G.HEX_R * scale.
+function _buildFootprint(coords) {
+  const cells = new Set();
+  let mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity;
+  const us = [];
+  for(const c of coords) {
+    const k = G.hexKey(c.q, c.r);
+    if(cells.has(k)) continue;
+    cells.add(k);
+    const u = G.hexToPixel(c.q, c.r, 1);
+    us.push(u);
+    if(u.x < mnx) mnx = u.x; if(u.x > mxx) mxx = u.x;
+    if(u.y < mny) mny = u.y; if(u.y > mxy) mxy = u.y;
+  }
+  if(!cells.size) return null;
+  const cux = (mnx + mxx) / 2, cuy = (mny + mxy) / 2;
+  let maxU = 0;
+  for(const u of us) { const d = Math.hypot(u.x - cux, u.y - cuy); if(d > maxU) maxU = d; }
+  return { cells, cux, cuy, maxU: maxU + 1 }; // +1 unit ≈ one hex radius
+}
+
+G._tplFootprint = {};
+G.shipFootprint = function(ship) {
+  if(ship instanceof G.Ship) {
+    const tok = ship._nextModId + ':' + Object.keys(ship.modules).length;
+    if(ship._fpTok === tok && ship._fp !== undefined) return ship._fp;
+    const coords = [];
+    for(const m of Object.values(ship.modules)) if(m.q != null) coords.push(m);
+    ship._fp = _buildFootprint(coords); ship._fpTok = tok;
+    return ship._fp;
+  }
+  const id = ship.shipId || ship.shapeId || ship.templateId;
+  if(!id) return null;
+  if(id in G._tplFootprint) return G._tplFootprint[id];
+  return (G._tplFootprint[id] = _buildFootprint(G.hexLayoutForTemplate(id)));
+};
+
+// World-space radius that bounds the ship's hex assembly (for broad collisions).
+G.shipCollisionRadius = function(ship) {
+  const scale = (ship instanceof G.Ship) ? 1 : (ship.size || 1);
+  const fp = G.shipFootprint(ship);
+  if(!fp) return scale * 16;
+  return fp.maxU * G.HEX_R * scale;
+};
+
+// True if world point (wx,wy) lands inside the ship's hex assembly. Because
+// flat-top hexes tile the plane, the hex nearest a point is the hex containing
+// it — so a hit is just "the containing cell is occupied".
+G.shipHexHit = function(ship, wx, wy) {
+  const fp = G.shipFootprint(ship);
+  const scale = (ship instanceof G.Ship) ? 1 : (ship.size || 1);
+  if(!fp) { const r = scale * 16; return Math.hypot(wx - ship.x, wy - ship.y) < r; }
+  const R = G.HEX_R * scale;
+  const a = ship.angle || 0, ca = Math.cos(a), sa = Math.sin(a);
+  const dx = wx - ship.x, dy = wy - ship.y;
+  const ux = (dx * ca + dy * sa) / R + fp.cux;
+  const uy = (-dx * sa + dy * ca) / R + fp.cuy;
+  const h = G.pixelToHex(ux, uy, 1);
+  return fp.cells.has(G.hexKey(h.q, h.r));
 };

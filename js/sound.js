@@ -132,13 +132,27 @@ G.SoundEngine = class {
     this._sfxWetGain = ac.createGain();
     this._sfxWetGain.gain.value = 0;
 
-    // master → filter → zoomNode (dry path)
+    // Dust-field muffle — independent lowpass after the sfx filter so it stacks
+    // with the disabled/low-hp muffle without fighting it.
+    this._dustFilter = ac.createBiquadFilter();
+    this._dustFilter.type = 'lowpass';
+    this._dustFilter.frequency.value = 20000;
+    this._dustFilter.Q.value = 0.7;
+
+    // master → sfxFilter → dustFilter → zoomNode (dry path)
     this._master.connect(this._sfxFilter);
-    this._sfxFilter.connect(this._zoomNode);
-    // master → filter → conv → wetGain → zoomNode (wet reverb path)
-    this._sfxFilter.connect(this._sfxConv);
+    this._sfxFilter.connect(this._dustFilter);
+    this._dustFilter.connect(this._zoomNode);
+    // dustFilter → conv → wetGain → zoomNode (wet reverb path)
+    this._dustFilter.connect(this._sfxConv);
     this._sfxConv.connect(this._sfxWetGain);
     this._sfxWetGain.connect(this._zoomNode);
+  }
+
+  // Muffle all SFX while the player sits inside a dust field.
+  setDustMuffle(on) {
+    if(!this._dustFilter || !this._ac) return;
+    this._dustFilter.frequency.setTargetAtTime(on ? 520 : 20000, this._ac.currentTime, 0.25);
   }
 
   // Called each frame from main.js game loop

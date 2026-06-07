@@ -14,6 +14,7 @@ G.Space = class {
     this.bgStars    = [];
     this.nebula     = null;
     this.fleetShips = [];
+    this.escapePodEntities=[];
     this._cargoFullTimer = 0;
     this.time       = 0;
     this._npcSpawnTimer = 0;
@@ -82,7 +83,8 @@ G.Space = class {
 
     const local = G.generateLocalSystem(sys);
     this.bodies     = local.bodies;
-    this.asteroids  = [...local.asteroids, ...(local.ringAsteroids||[])];
+    this.asteroids  = local.asteroids;
+    this.hexTiles   = local.hexTiles || new Map();
     this.derelicts  = local.derelicts;
     this.turrets    = local.turrets || [];
     this.nebula     = local.nebula || null;
@@ -92,6 +94,7 @@ G.Space = class {
     this.fleetShips = [];
     this.projectiles= [];
     this.floatingLoot=[];
+    this.escapePodEntities=[];
     this._npcSpawnTimer = 5;
 
     // Hostile enemy ships
@@ -341,6 +344,9 @@ G.Space = class {
         particles.boost_trail(n.x,n.y,n.angle,n.size||1);
     }
 
+    // Ship and asteroid collision resolution
+    this._resolveShipCollisions(player, dt, particles);
+
     // NPC respawn timer
     this._npcSpawnTimer -= dt;
     if(this._npcSpawnTimer <= 0 && this.npcs.length < 6) {
@@ -383,6 +389,21 @@ G.Space = class {
           G.sound?.abilityChaff?.();
           this.chaffBalls.splice(bi,1);
         }
+      }
+    }
+
+    // Escape pod entities
+    for(let _epi=this.escapePodEntities.length-1;_epi>=0;_epi--) {
+      const _ep=this.escapePodEntities[_epi];
+      _ep.x+=_ep.vx*dt; _ep.y+=_ep.vy*dt;
+      _ep.vx*=0.997; _ep.vy*=0.997;
+      _ep.angle+=_ep.rotSpeed*dt;
+      _ep.timer-=dt;
+      if(_ep.timer<=0) {
+        if(G.game?._escapePodFollowing === _ep) {
+          G.game._podLanded(_ep);
+        }
+        this.escapePodEntities.splice(_epi,1);
       }
     }
 
@@ -492,6 +513,7 @@ G.Space = class {
                 });
                 this.asteroids.splice(j,1);
                 if(particles) particles.explosion(a.x,a.y,0,0,0.6);
+                G.game?._addXP?.(5);
                 G.ui?.addMsg('Asteroid mined!','#ffcc44');
               }
               this.projectiles.splice(i,1);
@@ -520,6 +542,7 @@ G.Space = class {
               });
               this.asteroids.splice(j,1);
               if(particles) particles.explosion(a.x,a.y,0,0,0.5);
+              G.game?._addXP?.(5);
               G.ui?.addMsg('Asteroid cracked!','#aa8833');
             }
             if(!p.pierce) { this.projectiles.splice(i,1); break; }
@@ -531,7 +554,7 @@ G.Space = class {
         for(let j=this.enemies.length-1;j>=0;j--) {
           const e=this.enemies[j];
           if(e.dead||e._deathDone||e.boarded) continue;
-          if(G.circleHit(p.x,p.y,4,e.x,e.y,(e.size||1)*16+4)) {
+          if(G.shipHexHit(e,p.x,p.y)) {
             this._onHitEnemy(e,p,particles); if(!p.pierce){this.projectiles.splice(i,1);break;}
           }
         }
@@ -540,7 +563,7 @@ G.Space = class {
           for(let j=this.npcs.length-1;j>=0;j--) {
             const n=this.npcs[j];
             if(n.dead||n._deathDone||n.boarded) continue;
-            if(G.circleHit(p.x,p.y,4,n.x,n.y,(n.size||1)*16+4)) {
+            if(G.shipHexHit(n,p.x,p.y)) {
               this._playerHitsNPC(n,p,player,particles);
               if(!p.pierce){this.projectiles.splice(i,1);break;}
             }
@@ -621,7 +644,7 @@ G.Space = class {
           for(let j=this.enemies.length-1;j>=0;j--){
             const e=this.enemies[j];
             if(e.dead||e._deathDone||e.boarded) continue;
-            if(G.circleHit(p.x,p.y,4,e.x,e.y,(e.size||1)*16+4)){
+            if(G.shipHexHit(e,p.x,p.y)){
               this._onHitEnemy(e,p,particles);
               if(p.type==='missile' && particles) this._missileExplosion(p,particles);
               if(!p.pierce){this.projectiles.splice(i,1);break;}
@@ -631,7 +654,7 @@ G.Space = class {
             for(let j=this.npcs.length-1;j>=0;j--){
               const n=this.npcs[j];
               if(!n.hostile||n.dead||n._deathDone) continue;
-              if(G.circleHit(p.x,p.y,4,n.x,n.y,(n.size||1)*16+4)){
+              if(G.shipHexHit(n,p.x,p.y)){
                 n.takeDamage(p.damage,p.type);
                 if(particles)particles.burst({x:p.x,y:p.y,minSpd:20,maxSpd:80,life:0.15,r:2,color:p.color},4);
                 if(p.type==='missile' && particles) this._missileExplosion(p,particles);
@@ -641,14 +664,14 @@ G.Space = class {
           }
         } else {
           // Enemy/NPC/turret projectile: hits player and fleet ships
-          if(G.circleHit(p.x,p.y,4,player.x,player.y,18)){
+          if(G.shipHexHit(player,p.x,p.y)){
             this._onHitPlayer(player,p,particles);
             if(p.type==='missile' && particles) this._missileExplosion(p,particles);
             this.projectiles.splice(i,1);
           } else if(this.projectiles[i]===p) {
             for(const fs of this.fleetShips){
               if(fs.dead||fs._deathDone) continue;
-              if(G.circleHit(p.x,p.y,4,fs.x,fs.y,(fs.size||1)*16+4)){
+              if(G.shipHexHit(fs,p.x,p.y)){
                 fs.takeDamage(p.damage,p.type);
                 if(particles)particles.burst({x:p.x,y:p.y,minSpd:20,maxSpd:80,life:0.15,r:2,color:p.color},4);
                 if(p.type==='missile' && particles) this._missileExplosion(p,particles);
@@ -665,7 +688,7 @@ G.Space = class {
                 const e=this.enemies[j];
                 if(e.dead||e._deathDone||e.boarded||e.id===shooter.id) continue;
                 if(!hostile[e.faction]) continue;
-                if(G.circleHit(p.x,p.y,4,e.x,e.y,(e.size||1)*16+4)){
+                if(G.shipHexHit(e,p.x,p.y)){
                   this._onHitEnemy(e,p,particles);
                   if(p.type==='missile'&&particles) this._missileExplosion(p,particles);
                   if(!p.pierce){this.projectiles.splice(i,1);break;}
@@ -676,7 +699,7 @@ G.Space = class {
                   const n=this.npcs[j];
                   if(n.dead||n._deathDone||n.id===shooter.id) continue;
                   if(!hostile[n.faction]) continue;
-                  if(G.circleHit(p.x,p.y,4,n.x,n.y,(n.size||1)*16+4)){
+                  if(G.shipHexHit(n,p.x,p.y)){
                     n.takeDamage(p.damage,p.type);
                     if(particles)particles.burst({x:p.x,y:p.y,minSpd:20,maxSpd:80,life:0.15,r:2,color:p.color},4);
                     if(p.type==='missile'&&particles) this._missileExplosion(p,particles);
@@ -777,6 +800,64 @@ G.Space = class {
         }
       }
     }
+
+    this._applyHexEffects(dt, player, particles);
+  }
+
+  // Hex tile type at a world position ('empty' if untyped/out of range).
+  tileTypeAt(x, y) {
+    if(!this.hexTiles) return 'empty';
+    const h = G.worldToHex(x, y);
+    return this.hexTiles.get(h.q + ',' + h.r)?.type || 'empty';
+  }
+
+  // Per-frame typed-hex effects: sun/near-sun damage-over-time on every ship,
+  // dust obscuring flags, and AI avoidance of the sun hex.
+  _applyHexEffects(dt, player, particles) {
+    const SUN_DPS = 30, NEAR_SUN_DPS = 0.8;
+    const ships = [player, ...this.enemies, ...this.npcs, ...this.fleetShips];
+    for(const s of ships) {
+      if(!s || s.dead || s._deathDone) continue;
+      const type = this.tileTypeAt(s.x, s.y);
+      s._inDust = (type === 'dust');
+      if(type === 'sun' || type === 'near_sun') {
+        const dps = type === 'sun' ? SUN_DPS : NEAR_SUN_DPS;
+        // Environmental heat/radiation burns hull directly (bypasses shields/armor),
+        // applied continuously so it's frame-rate independent and sun > near-sun.
+        if(!s.disabled) {
+          s.hull = (s.hull || 0) - dps * dt;
+          if(s.shields > 0) s.shields = Math.max(0, s.shields - dps * dt * 0.5);
+          if(s.hull <= 0) { s.hull = 0; s.disabled = true; s._postDisableDmg = s._postDisableDmg || 0; }
+        }
+        if(s === player) {
+          this._sunWarnT = (this._sunWarnT || 0) - dt;
+          if(this._sunWarnT <= 0) {
+            this._sunWarnT = 2;
+            G.ui?.addMsg(type === 'sun' ? '⚠ SOLAR CORONA — hull burning!' : '⚠ Near-sun radiation damaging hull', '#ff7722');
+          }
+          if(particles && Math.random() < 0.5) particles.burst({ x:s.x+(Math.random()-0.5)*24, y:s.y+(Math.random()-0.5)*24, minSpd:20, maxSpd:80, life:0.3, r:2, color:'#ffaa33' }, 3);
+        }
+      }
+      // AI ships steer/push away from the central sun hex.
+      if(s !== player) {
+        const sunR = G.HEX_WORLD * 1.6; // sun + near-sun danger radius
+        const d = Math.hypot(s.x, s.y);
+        if(d < sunR && d > 1) {
+          const push = (1 - d / sunR) * 900;
+          s.vx += (s.x / d) * push * dt;
+          s.vy += (s.y / d) * push * dt;
+        }
+      }
+    }
+    this._playerInDust = !!player && !player.dead && this.tileTypeAt(player.x, player.y) === 'dust';
+
+    // Sun glow effect based on distance to sun center
+    if(player && !player.dead && G.game) {
+      const sunR = G.HEX_WORLD * 1.6;
+      const d = Math.hypot(player.x, player.y);
+      const targetAlpha = Math.max(0, 1 - (d / sunR)) * 0.8;
+      G.game._sunGlowAlpha += (targetAlpha - G.game._sunGlowAlpha) * Math.min(dt * 3, 1);
+    }
   }
 
   // ── Damage handlers ─────────────────────────────────────
@@ -835,7 +916,8 @@ G.Space = class {
     }
 
     const shieldsBefore = npc.shields;
-    npc.takeDamage(proj.damage, proj.type);
+    const _npcMarkMult = (npc._marked && npc._markedTimer > 0) ? 1.5 : 1.0;
+    npc.takeDamage(proj.damage * _npcMarkMult, proj.type);
     if(particles) {
       const _nPan = G.clamp((npc.x-(G.game?.player?.x||0))/900,-1,1);
       if(shieldsBefore>0) {
@@ -859,7 +941,8 @@ G.Space = class {
     const sb = enemy.shields;
     const wasDisabled = enemy.disabled;
     const wasDead = enemy.dead;
-    enemy.takeDamage(proj.damage, proj.type);
+    const _markMult = (enemy._marked && enemy._markedTimer > 0) ? 1.5 : 1.0;
+    enemy.takeDamage(proj.damage * _markMult, proj.type);
     enemy._lastAttackerId = proj.sourceId;
     if(particles) {
       if(sb>0&&enemy.shields<sb) particles.shield_hit(proj.x,proj.y,(enemy.size||1)*16);
@@ -895,6 +978,14 @@ G.Space = class {
     if(res.hullDmg > 0 && G.game?._jumpChargeT > 0) {
       G.game._jumpChargeT = 0;
       G.ui?.addMsg('Jump cancelled — hull hit!','#ff4444');
+    }
+    // Module damage from projectile hit — uses projectile position to hit nearest module
+    if(res.hullDmg > 0) {
+      const bm = player._damageModuleAtPoint(proj.x, proj.y, res.hullDmg * 0.3);
+      if(bm) {
+        if(bm.slot === 'core') G.ui?.addMsg('⚠ CORE MODULE DESTROYED — CATASTROPHIC FAILURE!','#ff1111');
+        else G.ui?.addMsg('⚠ MODULE DESTROYED: '+bm.name,'#ff6622');
+      }
     }
     if(particles) {
       if(res.shieldDmg>0) {
@@ -963,6 +1054,127 @@ G.Space = class {
     G.sound?.explosion(dist, pl ? G.clamp((proj.x - pl.x)/900,-1,1) : 0);
   }
 
+  // ── Ship / asteroid collision resolution ─────────────────
+  _resolveShipCollisions(player, dt, particles) {
+    const ships = [player, ...this.enemies, ...this.npcs];
+
+    // Ship vs ship
+    for(let i = 0; i < ships.length; i++) {
+      const a = ships[i];
+      if(a.dead || a._deathDone || a.boarded || (a.arriving||0) > 0) continue;
+      for(let j = i+1; j < ships.length; j++) {
+        const b = ships[j];
+        if(b.dead || b._deathDone || b.boarded || (b.arriving||0) > 0) continue;
+
+        const rA = G.shipCollisionRadius(a);
+        const rB = G.shipCollisionRadius(b);
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d = Math.sqrt(dx*dx + dy*dy);
+        const minD = rA + rB;
+        if(d >= minD || d < 0.1) continue;
+
+        const nx = dx/d, ny = dy/d;
+        // Separate
+        const push = (minD - d) * 0.5;
+        a.x -= nx * push; a.y -= ny * push;
+        b.x += nx * push; b.y += ny * push;
+
+        const avx = (a.vx||0), avy = (a.vy||0);
+        const bvx = (b.vx||0), bvy = (b.vy||0);
+        const relV = (bvx - avx)*nx + (bvy - avy)*ny;
+        if(relV >= 0) continue; // already separating
+
+        const impactSpeed = -relV;
+        const restitution = 0.3;
+        const impulse = (1 + restitution) * relV * 0.5;
+        a.vx = avx + impulse * nx; a.vy = avy + impulse * ny;
+        b.vx = bvx - impulse * nx; b.vy = bvy - impulse * ny;
+
+        const THRESHOLD = 35;
+        if(impactSpeed < THRESHOLD) continue;
+
+        const dmg = (impactSpeed - THRESHOLD) * 0.10;
+        const ix = a.x + nx * rA, iy = a.y + ny * rA;
+
+        if(a === player) {
+          a.takeDamage(dmg, 'projectile');
+          const bmA = a._damageModuleAtPoint(ix, iy, dmg * 0.5);
+          if(bmA) G.ui?.addMsg(bmA.slot==='core'?'⚠ CORE DESTROYED — CATASTROPHIC FAILURE!':'⚠ MODULE DESTROYED: '+bmA.name,'#ff6622');
+        } else { a.takeDamage(dmg, 'projectile'); }
+
+        if(b === player) {
+          b.takeDamage(dmg, 'projectile');
+          const bmB = b._damageModuleAtPoint(ix, iy, dmg * 0.5);
+          if(bmB) G.ui?.addMsg(bmB.slot==='core'?'⚠ CORE DESTROYED — CATASTROPHIC FAILURE!':'⚠ MODULE DESTROYED: '+bmB.name,'#ff6622');
+        } else { b.takeDamage(dmg, 'projectile'); }
+
+        if(particles) particles.burst({x:ix,y:iy,minSpd:40,maxSpd:130,life:0.25,r:2.5,color:'#ff9955'},8);
+        const _colDist = Math.hypot(ix-(player.x||0), iy-(player.y||0));
+        G.sound?.weaponHit?.('projectile', G.clamp((ix-player.x)/900,-1,1));
+      }
+    }
+
+    // Ship vs asteroid (knockback + damage, no planet/body collision)
+    for(const ship of ships) {
+      if(ship.dead || ship._deathDone || ship.boarded || (ship.arriving||0) > 0) continue;
+      const sr = G.shipCollisionRadius(ship);
+
+      for(let ai = this.asteroids.length-1; ai >= 0; ai--) {
+        const ast = this.asteroids[ai];
+        const dx = ship.x - ast.x, dy = ship.y - ast.y;
+        const minD = sr + (ast.r || 20);
+        const d = Math.sqrt(dx*dx + dy*dy);
+        if(d >= minD || d < 0.1) continue;
+
+        const nx = dx/d, ny = dy/d;
+        // Separate ship from asteroid (asteroid is heavy — only ship moves)
+        const overlap = minD - d;
+        ship.x += nx * overlap; ship.y += ny * overlap;
+
+        // Relative velocity of ship along collision normal
+        const relV = (ship.vx||0)*nx + (ship.vy||0)*ny;
+        if(relV >= 0) continue;
+
+        const impactSpeed = -relV;
+        const restitution = 0.4;
+        // Knockback: reflect velocity component along normal with restitution
+        ship.vx += nx * impactSpeed * (1 + restitution);
+        ship.vy += ny * impactSpeed * (1 + restitution);
+
+        const THRESHOLD = 25;
+        if(impactSpeed > THRESHOLD) {
+          const dmg = (impactSpeed - THRESHOLD) * 0.12;
+          if(ship === player) {
+            ship.takeDamage(dmg, 'projectile');
+            const ix = ast.x + (ast.r||20) * (-nx), iy = ast.y + (ast.r||20) * (-ny);
+            const bmAst = ship._damageModuleAtPoint(ix, iy, dmg * 0.5);
+            if(bmAst) G.ui?.addMsg(bmAst.slot==='core'?'⚠ CORE DESTROYED — CATASTROPHIC FAILURE!':'⚠ MODULE DESTROYED: '+bmAst.name,'#ff6622');
+          } else {
+            ship.takeDamage(dmg, 'projectile');
+          }
+          // Asteroids take scratch damage from hard collisions
+          ast.hp -= dmg * 0.15;
+          if(particles) {
+            const ix = ast.x + (ast.r||20)*(-nx), iy = ast.y + (ast.r||20)*(-ny);
+            particles.burst({x:ix,y:iy,minSpd:30,maxSpd:100,life:0.2,r:2,color:'#cc8844'},5);
+          }
+          if(ship === player) G.sound?.weaponHit?.('projectile', G.clamp((ast.x-player.x)/900,-1,1));
+          if(ast.hp <= 0) {
+            const dropId = G.randEl(ast.drops);
+            const qty = G.randInt(1,2);
+            this.floatingLoot.push({
+              x:ast.x,y:ast.y,vx:(Math.random()-0.5)*80,vy:(Math.random()-0.5)*80,
+              type:'item',itemId:dropId,qty,rarity:G.ITEMS[dropId]?.rarity||'c',
+              ttl:60,color:G.rarityColor(G.ITEMS[dropId]?.rarity||'c'),
+            });
+            if(particles) particles.explosion(ast.x,ast.y,0,0,0.6);
+            this.asteroids.splice(ai,1);
+          }
+        }
+      }
+    }
+  }
+
   _dropLoot(ship) {
     const sys=G.SYSTEMS.find(s=>s.id===this.sysId);
     const danger=sys?.danger||1;
@@ -1003,7 +1215,6 @@ G.Space = class {
     } else {
       // Fallback for ships without weapons array
       if(Math.random() < 0.45) ammoTypesToDrop.add('kinetic_rounds');
-      if(Math.random() < 0.08) ammoTypesToDrop.add('missiles');
     }
     for(const ammoId of ammoTypesToDrop) {
       if(Math.random() < 0.40 && G.ITEMS[ammoId]) {
@@ -1055,6 +1266,31 @@ G.Space = class {
         G.game.setRel(ship.faction, G.game.getRel(ship.faction)-10, ship.name+' destroyed');
         for(const [fac,hostile] of Object.entries(G.HOSTILE)) {
           if(hostile[ship.faction]) G.game.setRel(fac, Math.min(100, G.game.getRel(fac)+3), (G.FACTIONS[ship.faction]?.name||ship.faction)+' enemy eliminated');
+        }
+      }
+      // Launch escape pods from their module positions
+      if((ship.escapePods || 0) > 0) {
+        const podMods = Object.values(ship.modules || {}).filter(m => m.moduleId === 'escape_pod' && !m.broken);
+        const count = Math.min(ship.escapePods, podMods.length || 1);
+        for(let _pi = 0; _pi < count; _pi++) {
+          const inst = podMods[_pi];
+          let px = ship.x, py = ship.y;
+          if(inst?.q != null) {
+            const hp = G.hexToPixel(inst.q, inst.r, G.HEX_R);
+            const ca = Math.cos(ship.angle), sa = Math.sin(ship.angle);
+            px = ship.x + hp.x * ca - hp.y * sa;
+            py = ship.y + hp.x * sa + hp.y * ca;
+          }
+          const ejectAngle = Math.atan2(py - ship.y, px - ship.x) + (Math.random()-0.5)*1.2;
+          const speed = 180 + Math.random() * 120;
+          this.escapePodEntities.push({
+            x: px, y: py,
+            vx: ship.vx + Math.cos(ejectAngle) * speed,
+            vy: ship.vy + Math.sin(ejectAngle) * speed,
+            angle: Math.random() * Math.PI * 2,
+            rotSpeed: (Math.random()-0.5) * 3,
+            timer: 10 + Math.random() * 5,
+          });
         }
       }
     }
@@ -1203,6 +1439,21 @@ G.Space = class {
       }
     }
     return collected;
+  }
+
+  scuttleDerelict(derelict) {
+    derelict.looted = true;
+    derelict.dead   = true;
+    if(G.game?.particles) G.game.particles.explosion(derelict.x, derelict.y, 0, 0, 1.2);
+    G.sound?.explosion(G.game?.player ? Math.hypot(derelict.x-G.game.player.x, derelict.y-G.game.player.y) : 0);
+    const sys  = G.SYSTEMS.find(s=>s.id===this.sysId);
+    const drops = G.genLoot((sys?.danger||1)+1, 100);
+    for(const d of drops) {
+      const item = G.ITEMS[d.id];
+      if(item && G.game.fleetCargoFreeSpace() >= (item.mass||1)*d.qty) {
+        G.game.player.addCargo(d.id, d.qty);
+      }
+    }
   }
 
   nearestSpaceport(x,y,dockPad) {

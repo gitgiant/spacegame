@@ -132,6 +132,7 @@ G.Economy = class {
       }
     }
     for(const m of completed) {
+      G.game._addXP?.(100);
       G.game.addCombatLog?.('MISSION COMPLETE: '+m.title.toUpperCase()+' +'+G.fmtCredits(m.reward)+(m.repReward?' +'+m.repReward+' REP':''), '#44ff88');
       G.ui?.showMissionResult?.(true, m.title, m.reward, m.repReward||0);
     }
@@ -148,6 +149,7 @@ G.Economy = class {
         if(m.progress>=1) {
           m.completed=true;
           G.game.credits+=m.reward;
+          G.game._addXP?.(100);
           const bRep = m.repReward||8;
           G.game.setRel(m.repFaction||m.faction, G.game.getRel(m.repFaction||m.faction)+bRep, 'bounty: '+m.title);
           G.ui.addMsg('Bounty complete! +'+G.fmtCredits(m.reward), '#ffcc00');
@@ -254,16 +256,21 @@ G.Economy = class {
   // Get crew for hire
   getCrew(sysId) {
     const rng = G.seededRng(sysId+'_crew_'+Math.floor(Date.now()/600000));
+    const sys = G.SYSTEMS.find(s=>s.id===sysId);
+    const sysFac = sys?.faction || 'neutral';
     const roles = Object.values(G.CREW_ROLES);
+    const factions = ['neutral','neutral',sysFac,sysFac,sysFac]; // mostly locals
     const count = 2+Math.floor(rng()*4);
     const crew = [];
     for(let i=0;i<count;i++) {
       const role = roles[Math.floor(rng()*roles.length)];
       const name = G.CREW_NAMES[Math.floor(rng()*G.CREW_NAMES.length)];
       const skill= 1+Math.floor(rng()*3);
+      const faction = factions[Math.floor(rng()*factions.length)];
       crew.push({
         id:'c'+(Math.random()*1e9|0),
         name, role:role.id, roleName:role.name,
+        faction,
         skill, hp:100, maxHp:100,
         wage: role.wage * skill,
         hireCost: role.wage * skill * 10,

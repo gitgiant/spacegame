@@ -519,7 +519,7 @@ html, body {
 #char-screen-overlay.hidden { display: none; }
 #char-screen-box {
   background: #050e1a; border: 1px solid var(--col-border);
-  padding: 28px 36px; text-align: center; min-width: 300px; max-width: 480px;
+  padding: 28px 36px; text-align: center; min-width: 580px; max-width: min(680px, 94vw);
   max-height: 90vh; overflow-y: auto;
 }
 .char-screen-avatar {
@@ -532,6 +532,32 @@ html, body {
 }
 .char-screen-name { font-size: 10px; color: var(--col-bright); margin-bottom: 12px; }
 
+/* ── Skill Tree ─────────────────────────────────────────── */
+#skill-tree-overlay {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.82); z-index: 97;
+}
+#skill-tree-overlay.hidden { display: none; }
+#skill-tree-box {
+  background: #050e1a; border: 1px solid var(--col-border);
+  padding: 28px 36px; text-align: center; min-width: 300px; max-width: 380px;
+  max-height: 90vh; overflow-y: auto;
+}
+.st-node {
+  width: 220px; padding: 10px 14px;
+  background: rgba(0,10,20,0.9);
+  border: 1px solid #1a3a5a; border-radius: 2px;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+}
+.st-node-icon { font-size: 18px; }
+.st-node-name { font-family: 'Press Start 2P', monospace; font-size: 6px; letter-spacing: 1px; }
+.st-node-desc { font-size: 4px; color: #556677; max-width: 200px; line-height: 1.6; margin-top: 2px; }
+.st-locked .st-node-icon { opacity: 0.35; }
+.st-connector {
+  width: 2px; height: 24px; background: #1a3a5a; margin: 0 auto;
+}
+
 /* ── Character Creation ─────────────────────────────────── */
 #char-create-overlay {
   position: absolute;
@@ -542,7 +568,7 @@ html, body {
   overflow-y: auto;
 }
 #char-create-overlay.hidden { display: none; }
-#char-create-box { text-align: center; padding: 24px 32px; max-width: 540px; width: 100%; background: rgba(0,4,18,0.72); border: 1px solid var(--col-border); }
+#char-create-box { text-align: center; padding: 24px 32px; max-width: 540px; width: 100%; background: transparent; border: none; }
 #char-create-title {
   font-size: 16px;
   color: var(--col-bright);

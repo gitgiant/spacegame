@@ -446,6 +446,8 @@ G.NPCShip = class {
     this.color   = G.FACTIONS[faction]?.color||'#888888';
     this.size    = tpl.size||1.0;
     this.captain = { sex: Math.random() < 0.5 ? 'male' : 'female', faceIdx: Math.floor(Math.random() * 5) };
+    this.classId = G.CLASS_IDS[Math.floor(Math.random()*G.CLASS_IDS.length)];
+    this.level = G.randInt(1, 20);
 
     // Resolve base stats from class core module (stats now live there, not on template)
     const _coreId    = 'core_' + tpl.id;
@@ -736,7 +738,7 @@ G.NPCShip = class {
     if(this._scanCheckTimer > 0) return;
     this._scanCheckTimer = 8 + Math.random()*12;
     if(Math.hypot(this.x - player.x, this.y - player.y) > 1800) return;
-    if(Math.random() < 0.5) this._startScanDemand();
+    if(Math.random() < 0.05) this._startScanDemand();
   }
 
   _startScanDemand() {
@@ -1297,6 +1299,9 @@ G.FleetShip = class {
     const fsTpl = G.SHIPS[entry.ship?.templateId];
     this.weaponIds = (fsTpl?.startWeapons || [this.weaponType]).filter(id => !!G.WEAPONS[id]);
     if(!this.weaponIds.length) this.weaponIds = [this.weaponType];
+
+    this.classId = G.CLASS_IDS[Math.floor(Math.random()*G.CLASS_IDS.length)];
+    this.level = G.randInt(1, 20);
 
     this.x = 0; this.y = 0;
     this.vx = 0; this.vy = 0;
