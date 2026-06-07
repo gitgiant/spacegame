@@ -937,14 +937,29 @@ G.NPCShip = class {
         this.mineTimer -= dt;
         if(this.mineTimer <= 0) {
           this.mineTimer = 0.5;
-          this.mineTarget.hp -= 12;
-          if(particles) particles.mine_spark(this.mineTarget.x, this.mineTarget.y);
-          if(this.mineTarget.hp <= 0) {
-            const dropId = G.randEl(this.mineTarget.drops);
-            if(dropId) { const qty=1+Math.floor(Math.random()*2); this.cargo[dropId]=(this.cargo[dropId]||0)+qty; this.cargoUsed+=qty; }
-            if(particles) particles.explosion(this.mineTarget.x, this.mineTarget.y, 0, 0, 0.6);
-            const idx = spc.asteroids.indexOf(this.mineTarget);
-            if(idx>=0) spc.asteroids.splice(idx,1);
+          const cl = this.mineTarget;
+          const idx = spc.asteroids.indexOf(cl);
+          // Mine the exposed tile nearest the NPC
+          let t=null, td=Infinity;
+          for(const tt of cl.tiles.values()){
+            if(!tt.exposed) continue;
+            const w=G.astTileWorld(cl,tt);
+            const dd=(this.x-w.x)**2+(this.y-w.y)**2;
+            if(dd<td){ td=dd; t=tt; }
+          }
+          if(t){
+            t.hp -= 12;
+            if(particles) particles.mine_spark(this.x, this.y);
+            if(t.hp <= 0){
+              const dropId=(G.ASTEROID_MAT[t.mat]||G.ASTEROID_MAT.rock).drop;
+              const qty=1+Math.floor(Math.random()*2);
+              this.cargo[dropId]=(this.cargo[dropId]||0)+qty; this.cargoUsed+=qty;
+              G.astRemoveTile(cl, t);
+              if(particles) particles.explosion(this.x, this.y, 0, 0, 0.4);
+            }
+          }
+          if(!t || cl.tileCount <= 0){
+            if(cl.tileCount <= 0 && idx>=0) spc.asteroids.splice(idx,1);
             this.mineTarget = null;
             if(this.cargoUsed >= this.cargoMax) this._returnToPort();
             else if(spc.asteroids.length) this.aiState = 'seek_asteroid';
@@ -1193,9 +1208,9 @@ G.NPCShip = class {
   }
 
   takeDamage(amount, type) {
-    if(type==='emp'){this.empTimer=4;this.shields=0;return;}
+    if(type==='emp'){if(this.shields>0)this._shieldFlash=Date.now();this.empTimer=4;this.shields=0;return;}
     if(this.disabled){this.hp-=amount;if(this.hp<=0)this.dead=true;return;}
-    if(this.shields>0){const sd=Math.min(this.shields,amount);this.shields-=sd;amount=(amount-sd)*0.2;}
+    if(this.shields>0){this._shieldFlash=Date.now();const sd=Math.min(this.shields,amount);this.shields-=sd;amount=(amount-sd)*0.2;}
     this.hp-=amount;
     if(this.hp<=0){this.disabled=true;}
   }
@@ -1439,7 +1454,7 @@ G.FleetShip = class {
 
   takeDamage(amount, type) {
     if(type==='emp') return;
-    if(this.shields>0){ const sd=Math.min(this.shields,amount); this.shields-=sd; amount=(amount-sd)*0.2; }
+    if(this.shields>0){ this._shieldFlash=Date.now(); const sd=Math.min(this.shields,amount); this.shields-=sd; amount=(amount-sd)*0.2; }
     this.hull -= amount;
     const entry = G.game?.fleet?.find(e => e.id === this.fleetDataId);
     if(entry && entry.ship) entry.ship.hull = this.hull;

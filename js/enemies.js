@@ -342,6 +342,7 @@ G.EnemyAI = class {
 
   takeDamage(amount, type) {
     if(type==='emp') {
+      if(this.shields > 0) this._shieldFlash = Date.now();
       this.shields = Math.max(0, this.shields - amount*0.5);
       this.empTimer = 5;
       return;
@@ -353,6 +354,7 @@ G.EnemyAI = class {
       return;
     }
     if(this.shields > 0) {
+      this._shieldFlash = Date.now();
       const sd = Math.min(this.shields, amount);
       this.shields -= sd;
       amount -= sd;

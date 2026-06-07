@@ -91,7 +91,12 @@
       "Bash(rtk gh pr create --title 'Mobile UX: bigger controls, iOS audio fix, menu placement' --body ' *)",
       "Bash(rtk gh pr create --title 'Mobile joystick, bigger controls, hull panel art, perf fixes' --body ' *)",
       "Bash(gh pr *)",
-      "Bash(rtk gh *)"
+      "Bash(rtk gh *)",
+      "Bash(sed -n '1,40p')",
+      "Bash(sed -n '2900,2935p' js/main.js)",
+      "Bash(sort -t: -k2 -n)",
+      "Bash(sed -i '' \"s/{id:'thruster',rot:1},//g; s/{id:'thruster',rot:3},//g; s/{id:'thruster_imp',rot:1},//g; s/{id:'thruster_imp',rot:3},//g; s/{id:'thruster_mil',rot:1},//g; s/{id:'thruster_mil',rot:3},//g\" js/data.js)",
+      "Bash(awk 'NR>521 && /^G\\\\.[A-Z]/ {print NR\": \"$0; exit}' js/data.js)"
     ]
   }
 }

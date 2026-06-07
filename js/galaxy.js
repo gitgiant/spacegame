@@ -59,6 +59,17 @@ G.Galaxy = class {
       }
     });
 
+    this._canvas.addEventListener('dblclick', e => {
+      if(!this.hoveredSys) return;
+      const space = G.game?.space;
+      if(!space) return;
+      const hailable = [...(space.npcs||[]), ...(space.fleetShips||[])]
+        .filter(n => !n.dead && !n._deathDone && !n.hostile);
+      if(hailable.length > 0) {
+        G.ui?.openComms(hailable[0]);
+      }
+    });
+
     // Mouse-wheel zoom centered on cursor position
     this._canvas.addEventListener('wheel', e => {
       e.preventDefault();
@@ -473,8 +484,13 @@ G.Galaxy = class {
     ctx.fillText('HOPS: ' + hops, px+8, py+60);
     ctx.fillStyle = fuel >= hops*10 ? '#44ff44' : '#ff4444';
     ctx.fillText('FUEL: ' + Math.ceil(fuel) + ' (' + Math.floor(fuel/10) + ' jumps)', px+8, py+74);
-    ctx.fillStyle = '#00ffee';
-    ctx.fillText('HOLD [J] TO JUMP', px+8, py+92);
+    if(G.game?.player.canJump) {
+      ctx.fillStyle = '#00ffee';
+      ctx.fillText('HOLD [J] TO JUMP', px+8, py+92);
+    } else {
+      ctx.fillStyle = '#ff4444';
+      ctx.fillText('NO HYPERSPACE DRIVE', px+8, py+92);
+    }
     ctx.fillStyle = '#556677'; ctx.font = '6px "Press Start 2P",monospace';
     ctx.fillText('click system to reroute', px+8, py+107);
     ctx.fillText('[M] close map', px+8, py+120);

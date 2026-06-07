@@ -85,6 +85,7 @@ G.Space = class {
     this.bodies     = local.bodies;
     this.asteroids  = local.asteroids;
     this.hexTiles   = local.hexTiles || new Map();
+    this._hazardTiles = this._buildHazardTiles();
     this.derelicts  = local.derelicts;
     this.turrets    = local.turrets || [];
     this.nebula     = local.nebula || null;
@@ -496,58 +497,35 @@ G.Space = class {
         if(p.type === 'mining') {
           let mined = false;
           for(let j=this.asteroids.length-1;j>=0;j--){
-            const a=this.asteroids[j];
-            if(G.circleHit(p.x,p.y,6,a.x,a.y,a.r)){
-              // Mine with the weapon's mineRate
-              const wpnDef = G.WEAPONS[p.weaponId];
-              const mineRate = wpnDef?.mineRate || 12;
-              a.hp -= mineRate;
-              if(particles) particles.mine_spark(a.x, a.y);
-              if(a.hp <= 0) {
-                const dropId = G.randEl(a.drops);
-                const qty = G.randInt(1,3);
-                this.floatingLoot.push({
-                  x:a.x, y:a.y, vx:(Math.random()-0.5)*80, vy:(Math.random()-0.5)*80,
-                  type:'item', itemId:dropId, qty, rarity:G.ITEMS[dropId]?.rarity||'c',
-                  ttl:60, color:G.rarityColor(G.ITEMS[dropId]?.rarity||'c'),
-                });
-                this.asteroids.splice(j,1);
-                if(particles) particles.explosion(a.x,a.y,0,0,0.6);
-                G.game?._addXP?.(5);
-                G.ui?.addMsg('Asteroid mined!','#ffcc44');
-              }
-              this.projectiles.splice(i,1);
-              mined=true; break;
-            }
+            const cl=this.asteroids[j];
+            if((p.x-cl.x)**2+(p.y-cl.y)**2 > (cl.r+8)**2) continue;
+            const t = G.astHitTile(cl, p.x, p.y, 6);
+            if(!t) continue;
+            const wpnDef = G.WEAPONS[p.weaponId];
+            const mineRate = wpnDef?.mineRate || 12;
+            this._mineTile(cl, j, t, mineRate, particles, { qty:G.randInt(1,3) });
+            this.projectiles.splice(i,1);
+            mined=true; break;
           }
           if(mined) continue;
         }
 
-        // Regular weapons can chip at asteroids (much less efficient than mining laser)
+        // Regular weapons can chip at asteroid tiles (much less efficient than the mining laser)
         if(p.type !== 'mining') {
-          for(let j=this.asteroids.length-1;j>=0;j--) {
-            const a = this.asteroids[j];
-            if(!G.circleHit(p.x,p.y,4,a.x,a.y,a.r)) continue;
-            // ~2% of normal weapon damage as mining effectiveness — use the mining laser
+          let hitC=false;
+          for(let j=this.asteroids.length-1;j>=0;j--){
+            const cl=this.asteroids[j];
+            if((p.x-cl.x)**2+(p.y-cl.y)**2 > (cl.r+6)**2) continue;
+            const t = G.astHitTile(cl, p.x, p.y, 4);
+            if(!t) continue;
+            // ~2% of normal weapon damage as mining effectiveness
             const chipDmg = Math.max(0.05, p.damage * 0.02);
-            a.hp -= chipDmg;
-            if(particles) particles.mine_spark(a.x, a.y);
-            if(a.hp <= 0) {
-              const dropId = G.randEl(a.drops);
-              const qty = G.randInt(1,2); // smaller yield than mining laser
-              this.floatingLoot.push({
-                x:a.x, y:a.y, vx:(Math.random()-0.5)*80, vy:(Math.random()-0.5)*80,
-                type:'item', itemId:dropId, qty, rarity:G.ITEMS[dropId]?.rarity||'c',
-                ttl:60, color:G.rarityColor(G.ITEMS[dropId]?.rarity||'c'),
-              });
-              this.asteroids.splice(j,1);
-              if(particles) particles.explosion(a.x,a.y,0,0,0.5);
-              G.game?._addXP?.(5);
-              G.ui?.addMsg('Asteroid cracked!','#aa8833');
-            }
-            if(!p.pierce) { this.projectiles.splice(i,1); break; }
+            this._mineTile(cl, j, t, chipDmg, particles, { qty:1 });
+            hitC=true;
+            if(!p.pierce) this.projectiles.splice(i,1);
+            break;
           }
-          if(!this.projectiles[i] || this.projectiles[i]!==p) continue;
+          if(hitC && !p.pierce) continue;
         }
 
         // vs enemies
@@ -811,6 +789,23 @@ G.Space = class {
     return this.hexTiles.get(h.q + ',' + h.r)?.type || 'empty';
   }
 
+  // Hex tile types that damage ships (NPC AI steers around these).
+  static DAMAGING_TILES = { sun:1, near_sun:1 };
+  _isDamagingTile(type) { return !!G.Space.DAMAGING_TILES[type]; }
+
+  // World centres of every damaging hex tile in the current system (cached on load).
+  _buildHazardTiles() {
+    const out = [];
+    if(!this.hexTiles) return out;
+    for(const t of this.hexTiles.values()) {
+      if(this._isDamagingTile(t.type)) {
+        const w = G.hexToWorld(t.q, t.r);
+        out.push({ x:w.x, y:w.y, type:t.type });
+      }
+    }
+    return out;
+  }
+
   // Per-frame typed-hex effects: sun/near-sun damage-over-time on every ship,
   // dust obscuring flags, and AI avoidance of the sun hex.
   _applyHexEffects(dt, player, particles) {
@@ -838,14 +833,34 @@ G.Space = class {
           if(particles && Math.random() < 0.5) particles.burst({ x:s.x+(Math.random()-0.5)*24, y:s.y+(Math.random()-0.5)*24, minSpd:20, maxSpd:80, life:0.3, r:2, color:'#ffaa33' }, 3);
         }
       }
-      // AI ships steer/push away from the central sun hex.
-      if(s !== player) {
-        const sunR = G.HEX_WORLD * 1.6; // sun + near-sun danger radius
-        const d = Math.hypot(s.x, s.y);
-        if(d < sunR && d > 1) {
-          const push = (1 - d / sunR) * 900;
-          s.vx += (s.x / d) * push * dt;
-          s.vy += (s.y / d) * push * dt;
+      // AI ships steer around every damaging hex tile (sun, near-sun, etc.).
+      // Repulsion is summed from each hazard tile within range, evaluated at a
+      // look-ahead point so ships turn before entering, and any inward velocity
+      // is stripped once actually inside a hazard tile.
+      if(s !== player && this._hazardTiles && this._hazardTiles.length) {
+        const avoidR = G.HEX_WORLD * 2.0;
+        // Look slightly ahead along velocity so ships veer off early.
+        const px = s.x + (s.vx||0)*0.6, py = s.y + (s.vy||0)*0.6;
+        for(const hz of this._hazardTiles) {
+          const dx = px - hz.x, dy = py - hz.y;
+          const d = Math.hypot(dx, dy);
+          if(d >= avoidR || d < 1) continue;
+          const nx = dx/d, ny = dy/d;
+          const t = 1 - d/avoidR;
+          const push = t * t * 3000;
+          s.vx += nx * push * dt;
+          s.vy += ny * push * dt;
+        }
+        // Inside a hazard tile: kill velocity heading deeper in + hard push out.
+        if(this._isDamagingTile(type)) {
+          let best=null, bd=Infinity;
+          for(const hz of this._hazardTiles) { const ddx=s.x-hz.x, ddy=s.y-hz.y, dd=ddx*ddx+ddy*ddy; if(dd<bd){ bd=dd; best=hz; } }
+          if(best) {
+            const d = Math.sqrt(bd)||1, nx=(s.x-best.x)/d, ny=(s.y-best.y)/d;
+            const inward = -(s.vx*nx + s.vy*ny);
+            if(inward > 0) { s.vx += nx*inward; s.vy += ny*inward; }
+            s.vx += nx * 2400 * dt; s.vy += ny * 2400 * dt;
+          }
         }
       }
     }
@@ -1056,6 +1071,7 @@ G.Space = class {
 
   // ── Ship / asteroid collision resolution ─────────────────
   _resolveShipCollisions(player, dt, particles) {
+    if(!G.game?.collisionsEnabled) return;
     const ships = [player, ...this.enemies, ...this.npcs];
 
     // Ship vs ship
@@ -1120,59 +1136,79 @@ G.Space = class {
       const sr = G.shipCollisionRadius(ship);
 
       for(let ai = this.asteroids.length-1; ai >= 0; ai--) {
-        const ast = this.asteroids[ai];
-        const dx = ship.x - ast.x, dy = ship.y - ast.y;
-        const minD = sr + (ast.r || 20);
+        const cl = this.asteroids[ai];
+        // Broad phase against cluster bounding circle
+        if((ship.x-cl.x)**2 + (ship.y-cl.y)**2 > (sr+cl.r)**2) continue;
+        // Narrow phase: nearest exposed tile
+        let t=null, td=Infinity, tw=null;
+        for(const tt of cl.tiles.values()){
+          if(!tt.exposed) continue;
+          const w = G.astTileWorld(cl, tt);
+          const dd = (ship.x-w.x)**2 + (ship.y-w.y)**2;
+          if(dd<td){ td=dd; t=tt; tw=w; }
+        }
+        if(!t) continue;
+
+        const TR = G.ASTEROID_TILE_R;
+        const dx = ship.x - tw.x, dy = ship.y - tw.y;
+        const minD = sr + TR;
         const d = Math.sqrt(dx*dx + dy*dy);
         if(d >= minD || d < 0.1) continue;
 
         const nx = dx/d, ny = dy/d;
-        // Separate ship from asteroid (asteroid is heavy — only ship moves)
+        // Separate ship from tile (cluster is heavy — only ship moves)
         const overlap = minD - d;
         ship.x += nx * overlap; ship.y += ny * overlap;
 
-        // Relative velocity of ship along collision normal
         const relV = (ship.vx||0)*nx + (ship.vy||0)*ny;
         if(relV >= 0) continue;
 
         const impactSpeed = -relV;
         const restitution = 0.4;
-        // Knockback: reflect velocity component along normal with restitution
         ship.vx += nx * impactSpeed * (1 + restitution);
         ship.vy += ny * impactSpeed * (1 + restitution);
 
         const THRESHOLD = 25;
         if(impactSpeed > THRESHOLD) {
           const dmg = (impactSpeed - THRESHOLD) * 0.12;
+          ship.takeDamage(dmg, 'projectile');
           if(ship === player) {
-            ship.takeDamage(dmg, 'projectile');
-            const ix = ast.x + (ast.r||20) * (-nx), iy = ast.y + (ast.r||20) * (-ny);
-            const bmAst = ship._damageModuleAtPoint(ix, iy, dmg * 0.5);
+            const bmAst = ship._damageModuleAtPoint(tw.x + nx*TR, tw.y + ny*TR, dmg * 0.5);
             if(bmAst) G.ui?.addMsg(bmAst.slot==='core'?'⚠ CORE DESTROYED — CATASTROPHIC FAILURE!':'⚠ MODULE DESTROYED: '+bmAst.name,'#ff6622');
-          } else {
-            ship.takeDamage(dmg, 'projectile');
           }
-          // Asteroids take scratch damage from hard collisions
-          ast.hp -= dmg * 0.15;
-          if(particles) {
-            const ix = ast.x + (ast.r||20)*(-nx), iy = ast.y + (ast.r||20)*(-ny);
-            particles.burst({x:ix,y:iy,minSpd:30,maxSpd:100,life:0.2,r:2,color:'#cc8844'},5);
-          }
-          if(ship === player) G.sound?.weaponHit?.('projectile', G.clamp((ast.x-player.x)/900,-1,1));
-          if(ast.hp <= 0) {
-            const dropId = G.randEl(ast.drops);
-            const qty = G.randInt(1,2);
-            this.floatingLoot.push({
-              x:ast.x,y:ast.y,vx:(Math.random()-0.5)*80,vy:(Math.random()-0.5)*80,
-              type:'item',itemId:dropId,qty,rarity:G.ITEMS[dropId]?.rarity||'c',
-              ttl:60,color:G.rarityColor(G.ITEMS[dropId]?.rarity||'c'),
-            });
-            if(particles) particles.explosion(ast.x,ast.y,0,0,0.6);
-            this.asteroids.splice(ai,1);
-          }
+          if(particles) particles.burst({x:tw.x,y:tw.y,minSpd:30,maxSpd:100,life:0.2,r:2,color:'#cc8844'},5);
+          if(ship === player) G.sound?.weaponHit?.('projectile', G.clamp((cl.x-player.x)/900,-1,1));
+          // Tile takes scratch damage from hard collisions
+          this._mineTile(cl, ai, t, dmg * 0.15, particles, { qty:1, msg:false });
         }
       }
     }
+  }
+
+  // Damage one exposed tile of cluster `cl`; drop its material on destroy,
+  // remove the cluster when its last tile is gone.
+  _mineTile(cl, idx, t, dmg, particles, opts) {
+    opts = opts || {};
+    const wt = G.astTileWorld(cl, t);
+    t.hp -= dmg;
+    if(particles) particles.mine_spark(wt.x, wt.y);
+    if(t.hp > 0) return false;
+    const mat = G.ASTEROID_MAT[t.mat] || G.ASTEROID_MAT.rock;
+    const dropId = mat.drop;
+    const qty = opts.qty || G.randInt(1,2);
+    this.floatingLoot.push({
+      x:wt.x, y:wt.y, vx:(Math.random()-0.5)*80, vy:(Math.random()-0.5)*80,
+      type:'item', itemId:dropId, qty, rarity:G.ITEMS[dropId]?.rarity||'c',
+      ttl:60, color:G.rarityColor(G.ITEMS[dropId]?.rarity||'c'),
+    });
+    G.astRemoveTile(cl, t);
+    if(particles) particles.explosion(wt.x, wt.y, 0, 0, 0.4);
+    G.game?._addXP?.(2);
+    if(cl.tileCount <= 0) {
+      this.asteroids.splice(idx, 1);
+      if(opts.msg !== false) G.ui?.addMsg('Asteroid depleted!','#ffcc44');
+    }
+    return true;
   }
 
   _dropLoot(ship) {

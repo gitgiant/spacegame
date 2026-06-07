@@ -2199,7 +2199,7 @@ G.Game = class {
           const nz = (this._hexMapZoom || 1) * this.hexmapcam_zoomIn;
           if(nz > this.hexmapcam_maxZoom) {
             this.state = 'space';
-            this._zoomManual = -(1.0 - this.spacecam_minZoom) * 0.5 - 0.1;
+            this._zoomManual = 0.5;
             this._hexMapOffX = 0; this._hexMapOffY = 0; this._hexMapZoom = 1;
             document.getElementById('minimap-wrap')?.classList.remove('hidden');
             document.getElementById('hexmap-controls')?.classList.add('hidden');

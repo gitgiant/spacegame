@@ -71,17 +71,9 @@ G.Particles = class {
     });
   }
 
-  shield_hit(x, y, r) {
-    for(let i=0;i<8;i++) {
-      this.emit({ x,y,
-        minSpd:20, maxSpd:80,
-        life:0.3+Math.random()*0.3,
-        r:2, color:'#4488ff', drag:0.92,
-      });
-    }
-    this.active.push({ type:'ring', x, y, r:r||20, maxR:r*1.5||40,
-      life:0.2, maxLife:0.2, color:'#4488ff', vx:0, vy:0, fade:true });
-  }
+  // Shield impacts are shown by the hex-shield white flash (see drawShieldOutline),
+  // so this no longer spawns its own ring/spark animation.
+  shield_hit(x, y, r) {}
 
   shockwave(x, y) {
     this.active.push({ type:'ring', x, y, r:30, maxR:700,

@@ -363,6 +363,26 @@ G.UI = class {
       }
       if(nearest) { G.game.target=nearest; G.sound?.targetLock(); }
     });
+
+    document.getElementById('minimap')?.addEventListener('dblclick', e=>{
+      if(!G.game?.space) return;
+      const canvas=e.currentTarget;
+      const rect=canvas.getBoundingClientRect();
+      const mx=(e.clientX-rect.left)/rect.width;
+      const my=(e.clientY-rect.top)/rect.height;
+      const p=G.game.player;
+      const RANGE=8000;
+      const wx=p.x+(mx-0.5)*RANGE*2;
+      const wy=p.y+(my-0.5)*RANGE*2;
+      const CLICK_RADIUS=200;
+      const all=G.game.space.allTargets().filter(s=>!s._inDust&&s.type!=='derelict'&&s.type!=='turret');
+      let best=null,bestD=CLICK_RADIUS;
+      for(const s of all){
+        const d=Math.hypot(s.x-wx,s.y-wy);
+        if(d<bestD){bestD=d;best=s;}
+      }
+      if(best) { G.game.target=best; this.openComms(best); }
+    });
   }
 
   // Highlight the active scheme button and show what 'auto' currently
@@ -2242,8 +2262,8 @@ G.UI = class {
       mods.push({ inst, u });
     }
     if(!mods.length) { this._invHexView = null; return; }
-    const BR = Math.max(3, Math.min((W - 8) / ((umxx - umnx) + 2.2), (H - 8) / ((umxy - umny) + 2.2)));
-    const cx = W / 2 - ((umnx + umxx) / 2) * BR, cy = H / 2 - ((umny + umxy) / 2) * BR, T = BR * 2;
+    const BR = Math.max(3, Math.min((W - 8) / ((umxx - umnx) + 2.0), (H - 8) / ((umxy - umny) + 2.0)));
+    const cx = W / 2 - ((umnx + umxx) / 2) * BR, cy = H / 2 - ((umny + umxy) / 2) * BR, T = BR * 2.05;
     this._invHexView = { BR, cx, cy };
     for(const pass of [0, 1]) {
       for(const { inst, u } of mods) {
@@ -3984,9 +4004,11 @@ G.UI = class {
     text = text.replace(/\{name\}/g, npcName).replace(/\{[^}]*\}/g, '').replace(/\s{2,}/g, ' ');
 
     const resp = this.els['comms-response-text'];
+    this._worldCommsText = '';
     if(window.speechSynthesis) speechSynthesis.cancel();
     if(!this._voiceEnabled || !window.speechSynthesis) {
       if(resp) resp.textContent = text;
+      this._worldCommsText = text;
       return;
     }
     if(resp) resp.textContent = '';
@@ -3998,10 +4020,12 @@ G.UI = class {
     const estDuration = text.split(/\s+/).length * 0.42 / (utter.rate || 0.95);
     G.sound?.voiceChannelOpen(estDuration);
     utter.onboundary = (e) => {
-      if(e.name !== 'word' || !resp) return;
-      resp.textContent = text.substring(0, e.charIndex + e.charLength);
+      if(e.name !== 'word') return;
+      const displayText = text.substring(0, e.charIndex + e.charLength);
+      if(resp) resp.textContent = displayText;
+      this._worldCommsText = displayText;
     };
-    utter.onend = utter.onerror = () => { if(resp) resp.textContent = text; };
+    utter.onend = utter.onerror = () => { if(resp) resp.textContent = text; this._worldCommsText = text; };
     window.speechSynthesis.speak(utter);
   }
 
@@ -4031,6 +4055,7 @@ G.UI = class {
     if(window.speechSynthesis) speechSynthesis.cancel();
     this.els['comms-overlay']?.classList.add('hidden');
     this._commsNPC = null;
+    this._worldCommsText = '';
   }
 
   showSTCWelcome(portName, faction, pod) {
@@ -4141,19 +4166,26 @@ G.UI = class {
     helpBtn.onclick = () => { this.closeDisabledShipPopup(); this._openRescueComms(); };
     opts.appendChild(helpBtn);
 
-    if(hasPods) {
-      const btn = document.createElement('button');
-      btn.className = 'btn';
-      btn.style.fontSize = '6px';
-      btn.style.borderColor = '#44ff88';
-      btn.style.color = '#44ff88';
-      btn.textContent = 'EJECT PODS';
-      btn.onclick = () => {
+    const ejectBtn = document.createElement('button');
+    ejectBtn.className = 'btn';
+    ejectBtn.style.fontSize = '6px';
+    ejectBtn.style.borderColor = '#44ff88';
+    ejectBtn.style.color = '#44ff88';
+    ejectBtn.textContent = 'EJECT PODS';
+    if(!hasPods) {
+      ejectBtn.disabled = true;
+      ejectBtn.style.borderColor = '#666666';
+      ejectBtn.style.color = '#666666';
+      ejectBtn.style.cursor = 'not-allowed';
+      ejectBtn.style.opacity = '0.5';
+      ejectBtn.title = 'no escape pods equipped!';
+    } else {
+      ejectBtn.onclick = () => {
         G.game.ejectEscapePods();
         this.closeDisabledShipPopup();
       };
-      opts.appendChild(btn);
     }
+    opts.appendChild(ejectBtn);
     const downBtn = document.createElement('button');
     downBtn.className = 'btn';
     downBtn.style.fontSize = '6px';

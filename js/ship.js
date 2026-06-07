@@ -431,7 +431,7 @@ G.Ship = class {
     this.jumpFuelCost   = 99;
     this.mass           = this._baseMass;
     this.thrustForward  = 0;  // rot=0 thrusters — pushes ship forward, drives turning
-    this.thrustRetro    = 0;  // rot=2 thrusters — required for reverse flight
+    this.thrustRetro    = 0;  // rot=2 thrusters — extra brake/reverse force (optional)
     this.thrustStrafeL  = 0;  // rot=3 thrusters — pushes ship left
     this.thrustStrafeR  = 0;  // rot=1 thrusters — pushes ship right
     this.thrustPower    = 0;  // alias for thrustForward (compat)
@@ -645,38 +645,38 @@ G.Ship = class {
         }
       }
     }
-    // Q = strafe left (requires rot:3 thruster); E = strafe right (requires rot:1 thruster)
+    // Q = strafe left, E = strafe right — powered by main rear thrusters (no side thruster required)
     this._strafeCooldown = Math.max(0, (this._strafeCooldown || 0) - dt);
-    if(this._strafeCooldown <= 0) {
-      if(inp.strafeL && this.thrustStrafeL > 0) {
-        const dodgeAccel = this.thrustStrafeL * 0.8 / effectiveMass;
+    if(this._strafeCooldown <= 0 && this.thrustForward > 0) {
+      const dodgeAccel = this.thrustForward * 0.8 / effectiveMass;
+      if(inp.strafeL) {
         this.vx -= latX * dodgeAccel * dt;
         this.vy -= latY * dodgeAccel * dt;
         this._strafeCooldown = 0.5;
         if(boostActive && !superBoostActive) this.energy = Math.max(0, this.energy - 30);
-      } else if(inp.strafeR && this.thrustStrafeR > 0) {
-        const dodgeAccel = this.thrustStrafeR * 0.8 / effectiveMass;
+      } else if(inp.strafeR) {
         this.vx += latX * dodgeAccel * dt;
         this.vy += latY * dodgeAccel * dt;
         this._strafeCooldown = 0.5;
         if(boostActive && !superBoostActive) this.energy = Math.max(0, this.energy - 30);
       }
     }
-    // S = braking (any thrust) / reverse flight (requires front thruster)
+    // S = braking, then reverse flight. Any thruster can reverse — no dedicated
+    // backward thruster required. The 1s hold gate is the pause-when-stopped.
     const spd = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
     if(inp.reverse) {
       this._reverseHeldTime += dt;
-      const brakeAvail = this.thrustForward + this.thrustRetro;
-      if(spd > 1 && this._reverseHeldTime < 1.0 && brakeAvail > 0) {
-        // Braking: combined forward + retro thrust against velocity vector
-        const brakeMag = brakeAvail * 2.0 * thrustEff * boostMult / effectiveMass;
+      const reverseAvail = this.thrustForward + this.thrustRetro;
+      if(spd > 1 && this._reverseHeldTime < 1.0 && reverseAvail > 0) {
+        // Braking: thrust against the velocity vector until stopped or 1s elapses
+        const brakeMag = reverseAvail * 2.0 * thrustEff * boostMult / effectiveMass;
         const bx = -(this.vx/spd) * brakeMag * dt;
         const by = -(this.vy/spd) * brakeMag * dt;
         this.vx = Math.abs(this.vx + bx) < Math.abs(bx) ? 0 : this.vx + bx;
         this.vy = Math.abs(this.vy + by) < Math.abs(by) ? 0 : this.vy + by;
-      } else if(this._reverseHeldTime >= 1.0 && this.thrustRetro > 0) {
-        // Reverse flight: front thruster required
-        const thrustMag = this.thrustRetro * thrustEff * boostMult * 0.8 / effectiveMass;
+      } else if(this._reverseHeldTime >= 1.0 && reverseAvail > 0) {
+        // Reverse flight: any thruster fires to push the ship backward
+        const thrustMag = reverseAvail * thrustEff * boostMult * 0.8 / effectiveMass;
         this.vx -= fwdX * thrustMag * dt;
         this.vy -= fwdY * thrustMag * dt;
         this.fuel = Math.max(0, this.fuel - this.fuelBurnRate * 0.04 * dt);
@@ -689,7 +689,7 @@ G.Ship = class {
     let vFwd = this.vx*fwdX + this.vy*fwdY;
     let vLat = this.vx*latX + this.vy*latY;
     vFwd *= Math.max(0, 1 - 0.06 * dt);
-    const _strafeActive = (inp.strafeL && this.thrustStrafeL > 0) || (inp.strafeR && this.thrustStrafeR > 0);
+    const _strafeActive = (inp.strafeL || inp.strafeR) && this.thrustForward > 0;
     const _latDrag = _strafeActive ? 0.25 : 2.5;
     vLat *= Math.max(0, 1 - _latDrag * dt);
     this.vx = fwdX*vFwd + latX*vLat;
@@ -737,6 +737,7 @@ G.Ship = class {
     }
 
     if(type === 'emp') {
+      if(this.shields > 0) this._shieldFlash = Date.now();
       this.shields = Math.max(0, this.shields - amount*0.5);
       this.energy  = Math.max(0, this.energy  - amount);
       this.empTimer = 3 + amount*0.01;
@@ -751,6 +752,7 @@ G.Ship = class {
 
     let shieldDmg = 0, hullDmg = 0;
     if(this.shields > 0) {
+      this._shieldFlash = Date.now();
       shieldDmg = Math.min(this.shields, amount);
       this.shields -= shieldDmg;
       amount -= shieldDmg;
@@ -968,6 +970,16 @@ G.Ship = class {
       powerEngines: this.powerEngines,
       abilities: [...(this.abilities||[])],
     };
+  }
+};
+
+// Migrate older saves: drop deprecated side/retro thrusters — only rear-facing
+// (rot:0) thrusters remain. Re-orients any stray thruster to rear.
+G.stripBackThrusters = (modules) => {
+  if(!modules) return;
+  for(const inst of Object.values(modules)) {
+    const m = G.MODULES[inst.moduleId];
+    if(m?.slot === 'thruster' && (inst.rot||0) !== 0) inst.rot = 0;
   }
 };
 
