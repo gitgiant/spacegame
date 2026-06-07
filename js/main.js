@@ -1312,6 +1312,16 @@ G.Renderer = class {
       }
     }
 
+    // Asteroid and dust cloud hex outlines
+    ctx.save(); ctx.strokeStyle='rgba(120,100,80,0.30)'; ctx.lineWidth=1;
+    for(const tile of (space.hexTiles?.values() || [])) {
+      if(tile.type === 'asteroid' || tile.type === 'dust') {
+        drawHexOutline(tile.q, tile.r);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+
     for(const b of space.bodies) {
       if(b.type==='star') {
         const col = b.color||'#ffff88';
