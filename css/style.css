@@ -684,6 +684,7 @@ html, body {
 .btn:focus { box-shadow: 0 0 0 2px rgba(0,255,238,0.45); }
 .btn-big { font-size: 11px; padding: 14px 24px; margin-bottom: 12px; border-color: var(--col-bright); color: var(--col-bright); }
 .btn-big:hover, .btn-big:focus { background: rgba(0,100,150,0.3); box-shadow: 0 0 20px rgba(0,255,238,0.3); outline: none; }
+#options-box > div[style*="grid"] .btn-big { margin-bottom: 0; }
 .btn-launch { border-color: var(--col-hull); color: var(--col-hull); margin-left: auto; }
 .btn-launch:hover { background: rgba(0,80,0,0.3); }
 .btn-buy    { border-color: var(--col-bright); color: var(--col-bright); font-size: 6px; padding: 4px 8px; }
