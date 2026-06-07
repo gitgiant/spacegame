@@ -1283,14 +1283,14 @@ G.Renderer = class {
     ctx.scale(_zoom, _zoom);
     ctx.translate(-(camX + G.CANVAS_W/2), -(camY + G.CANVAS_H/2));
 
-    // Landing zone hexes (planet hex + all 6 neighbors)
-    const HEX_SIZE = G.HEX_WORLD / Math.sqrt(3);
+    // Hex outline helper - circumradius for drawing vertices
+    const HEX_R = G.HEX_WORLD / Math.sqrt(3);
     const drawHexOutline = (q, r) => {
       const hexW = G.hexToWorld(q, r);
       ctx.beginPath();
       for(let i=0; i<6; i++) {
         const a = Math.PI/6 + i*Math.PI/3;
-        const hx = hexW.x + HEX_SIZE*Math.cos(a), hy = hexW.y + HEX_SIZE*Math.sin(a);
+        const hx = hexW.x + HEX_R*Math.cos(a), hy = hexW.y + HEX_R*Math.sin(a);
         i===0 ? ctx.moveTo(hx,hy) : ctx.lineTo(hx,hy);
       }
       ctx.closePath();
