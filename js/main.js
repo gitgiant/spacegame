@@ -1034,8 +1034,11 @@ G.Renderer = class {
     ctx.fillStyle='rgba(0,8,20,0.9)'; ctx.fillRect(0,0,w,h);
     const RANGE=8000;
     const cx=w/2, cy=h/2, scale=w/(RANGE*2);
-    const tx=obj=>cx+(obj.x-player.x)*scale;
-    const ty=obj=>cy+(obj.y-player.y)*scale;
+    // Center minimap on camera view center instead of player position
+    const camCenterX = (game?.camX || 0) + G.CANVAS_W/2;
+    const camCenterY = (game?.camY || 0) + G.CANVAS_H/2;
+    const tx=obj=>cx+(obj.x-camCenterX)*scale;
+    const ty=obj=>cy+(obj.y-camCenterY)*scale;
     const inBounds=(x,y)=>x>=0&&x<=w&&y>=0&&y<=h;
 
     // Mission objective systems in current system
@@ -1238,6 +1241,22 @@ G.Renderer = class {
 
     // Player — slightly larger triangle
     drawShipTriangle(cx,cy,player.angle,'#00ffee',5);
+
+    // EVA crew — small cyan dots with rotation indicator
+    for(const cr of (player.crew||[])) {
+      if(!cr.eva) continue;
+      const ex=tx({x:cr.ex||0,y:cr.ey||0})|0, ey=ty({x:cr.ex||0,y:cr.ey||0})|0;
+      if(!inBounds(ex,ey)) continue;
+      ctx.fillStyle=cr===game?._selectedCrew?'#44ffff':'#0088ff';
+      ctx.beginPath(); ctx.arc(ex,ey,2,0,Math.PI*2); ctx.fill();
+      // Draw heading indicator for selected EVA crew
+      if(cr===game?._selectedCrew) {
+        const ang = cr._evaAngle || 0;
+        ctx.strokeStyle='#44ffff'; ctx.lineWidth=1;
+        ctx.beginPath(); ctx.moveTo(ex,ey); ctx.lineTo(ex+Math.sin(ang)*4,ey-Math.cos(ang)*4);
+        ctx.stroke();
+      }
+    }
 
     // Target: ring when in range, arrow when out of range
     const tgt=game.target;
@@ -2871,6 +2890,19 @@ G.Renderer = class {
       drawTri(x,y,player.angle,'#ffffff',7);
       ctx.beginPath(); ctx.arc(x,y,11,0,Math.PI*2);
       ctx.strokeStyle='rgba(0,255,238,0.65)'; ctx.lineWidth=1.5; ctx.stroke();
+    }
+
+    // EVA crew — small diamonds on hex map
+    for(const cr of (player.crew||[])) {
+      if(!cr.eva) continue;
+      const {x,y}=wts(cr.ex||0,cr.ey||0);
+      const inView = !(x < -S || x > G.CANVAS_W+S || y < -S || y > G.CANVAS_H+S);
+      if(!inView) continue;
+      ctx.save(); ctx.translate(x,y); ctx.rotate(cr._evaAngle || 0);
+      ctx.fillStyle=cr===game._selectedCrew?'#44ffff':'#0088ff';
+      ctx.beginPath(); ctx.moveTo(4,0); ctx.lineTo(0,4); ctx.lineTo(-4,0); ctx.lineTo(0,-4); ctx.closePath();
+      ctx.fill();
+      ctx.restore();
     }
 
     // Current target marker (ships at world pos, bodies on their hex cell)
