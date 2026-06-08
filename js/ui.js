@@ -148,6 +148,19 @@ G.UI = class {
         this.closeComms();
       }
     });
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyE') {
+        const spaceportOpen = this.els['spaceport-overlay'] && !this.els['spaceport-overlay']?.classList.contains('hidden');
+        const inventoryOpen = this.els['inventory-overlay'] && !this.els['inventory-overlay']?.classList.contains('hidden');
+        const charScreenOpen = document.getElementById('char-screen-overlay') && !document.getElementById('char-screen-overlay')?.classList.contains('hidden');
+        if (spaceportOpen || inventoryOpen || charScreenOpen) {
+          e.preventDefault();
+          if (spaceportOpen) this.hideSpaceport();
+          if (inventoryOpen) this.hideInventory();
+          if (charScreenOpen) this.hideCharScreen();
+        }
+      }
+    });
     this._commsNPC = null;
   }
 
@@ -167,6 +180,8 @@ G.UI = class {
         document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
         e.target.classList.add('active');
         this.renderSpaceportTab(this._spTab);
+      } else if(e.target.id === 'spaceport-overlay') {
+        this.hideSpaceport();
       }
     });
     document.getElementById('launch-btn').addEventListener('click',()=>G.game.launch());
@@ -1600,9 +1615,9 @@ G.UI = class {
 
     const overlay = document.getElementById('char-screen-overlay');
     overlay.classList.remove('hidden');
-    // Only close via the close button, not background clicks
+    // Close on background click or close button
     overlay.onclick = e => {
-      if(e.target === overlay) e.stopPropagation();
+      if(e.target === overlay) this.hideCharScreen();
     };
     document.getElementById('char-screen-close').onclick = () => this.hideCharScreen();
   }
@@ -2500,6 +2515,7 @@ G.UI = class {
         const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
         const isHull = mod?.slot === 'hull';
         if((pass === 0) !== isHull) continue;
+        if(inst.broken) continue;
         const px = cx + u.x * BR, py = cy + u.y * BR;
         let tile;
         if(isHull) tile = G.Sprites.getHexTile('hull', inst.color || '#667799', false);
@@ -2581,6 +2597,7 @@ G.UI = class {
         const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
         const isHull = mod?.slot === 'hull';
         if((pass === 0) !== isHull) continue;
+        if(inst.broken) continue;
         let tile;
         if(isHull) tile = G.Sprites.getHexTile('hull', inst.color || '#667799', false);
         else tile = G.Sprites.getHexTile(mod?.visual || (G.WEAPONS[inst.moduleId] ? 'weapon' : 'special'), G.SLOT_RING[mod?.slot]?.color || '#334455', inst.broken);
@@ -3084,6 +3101,7 @@ G.UI = class {
         for(const e of entries) {
           const isHull = e.slot === 'hull';
           if((pass === 0) !== isHull) continue;
+          if(e.broken) continue;
           const u = G.hexToPixel(e.q, e.r, 1);
           const px = cx + u.x * BR, py = cy + u.y * BR;
           let tile;
