@@ -547,7 +547,7 @@ G.PTYPE_TERRAIN = {
 };
 
 // Walkable-on-foot biomes (others block crew movement).
-G.TERRAIN_IMPASSABLE = new Set(['deep_water','ocean','shallow_water','liquid']);
+G.TERRAIN_IMPASSABLE = new Set(['deep_water','ocean','liquid']);
 
 // Earth's real continents, as lon/lat ellipse blobs (deg). `h` weights peak
 // land height. Sampled equirectangularly so a "terran" world named Earth gets a
@@ -692,11 +692,90 @@ function _placeSettlements(tiles, W, H, rng, port) {
   }
 }
 
+// Weighted A* connecting two tiles across the torus, preferring flat land.
+// Returns array of intermediate tile objects (excluding endpoints).
+function _roadPath(tiles, W, H, from, to) {
+  const at = (q, r) => { const w = G.wrapHex(W, H, q, r); return tiles.get(G.hexKey(w.q, w.r)); };
+  const COST = { road:0.2, spaceport:0.3, settlement:0.4, building:0.4,
+    coast:0.9, valley:0.9, dirt:1.0, grassland:1.0, river:2.5, hills:1.8, desert:1.8,
+    forest:2.0, jungle:2.2, rocks:2.4, tundra:2.0, ridge:3.0, mountain:60, glacier:60,
+    deep_water:200, ocean:200, shallow_water:12, liquid:200 };
+  const costOf = t => !t ? 200 : t.road ? 0.2 : (COST[t.biome] ?? 1.5);
+  const heur = (q, r) => {
+    let best = Infinity;
+    for(let kq=-1;kq<=1;kq++) for(let kr=-1;kr<=1;kr++) { const d=G.hexDist(q,r,to.q+kq*W,to.r+kr*H); if(d<best) best=d; }
+    return best;
+  };
+  const sk = G.hexKey(from.q, from.r), gk = G.hexKey(to.q, to.r);
+  const g = new Map([[sk, 0]]), prev = new Map([[sk, null]]);
+  const open = [[0, sk]];   // [fScore, key] min-heap via sorted insertion
+  let iters = 0;
+  while(open.length && iters++ < 6000) {
+    open.sort((a, b) => a[0] - b[0]);
+    const [, ck] = open.shift();
+    if(ck === gk) break;
+    const { q: cq, r: cr } = G.hexFromKey(ck), cg = g.get(ck) ?? Infinity;
+    for(const nb of G.hexNeighbors(cq, cr)) {
+      const w = G.wrapHex(W, H, nb.q, nb.r), nk = G.hexKey(w.q, w.r);
+      const ng = cg + costOf(at(w.q, w.r));
+      if(ng < (g.get(nk) ?? Infinity)) {
+        g.set(nk, ng); prev.set(nk, ck);
+        open.push([ng + heur(w.q, w.r), nk]);
+      }
+    }
+  }
+  if(!prev.has(gk)) return null;
+  const path = []; let k = gk;
+  while(k) { const { q, r } = G.hexFromKey(k); path.unshift({ q, r }); k = prev.get(k); }
+  path.shift(); path.pop();   // drop start + end (already have their biome)
+  return path;
+}
+
+// Stamp road biome along paths connecting every settlement cluster. Uses a
+// minimum-spanning-tree (nearest-neighbor greedy) to avoid redundant crossings.
+// Also connects the spaceport (if any) to its nearest settlement cluster.
+function _placeRoads(tiles, W, H, port) {
+  const NOROAD = new Set(['deep_water','ocean','shallow_water','liquid','building']);
+  // Collect one representative tile per settlement cluster (flood-fill groups).
+  const settles = [...tiles.values()].filter(t => t.biome === 'settlement' || t.biome === 'spaceport');
+  const clusters = [];
+  const visited = new Set();
+  for(const seed of settles) {
+    const sk = G.hexKey(seed.q, seed.r);
+    if(visited.has(sk)) continue;
+    const members = [], queue = [seed];
+    while(queue.length) {
+      const t = queue.shift(), k = G.hexKey(t.q, t.r);
+      if(visited.has(k)) continue;
+      visited.add(k); members.push(t);
+      for(const nb of G.hexNeighbors(t.q, t.r)) {
+        const w = G.wrapHex(W, H, nb.q, nb.r), nt = tiles.get(G.hexKey(w.q, w.r));
+        if(nt && (nt.biome==='settlement'||nt.biome==='spaceport') && !visited.has(G.hexKey(w.q,w.r))) queue.push(nt);
+      }
+    }
+    if(members.length) clusters.push(members[Math.floor(members.length/2)]);  // median tile as anchor
+  }
+  if(clusters.length < 2) return;
+  const tdist = (a, b) => { let best=Infinity; for(let kq=-1;kq<=1;kq++) for(let kr=-1;kr<=1;kr++) { const d=G.hexDist(a.q,a.r,b.q+kq*W,b.r+kr*H); if(d<best) best=d; } return best; };
+  // Greedy MST: repeatedly connect the nearest unconnected cluster.
+  const connected = [clusters[0]], unconn = clusters.slice(1);
+  while(unconn.length) {
+    let bestI = 0, bestJ = 0, bestD = Infinity;
+    for(let i = 0; i < connected.length; i++) for(let j = 0; j < unconn.length; j++) {
+      const d = tdist(connected[i], unconn[j]); if(d < bestD) { bestD = d; bestI = i; bestJ = j; }
+    }
+    const from = connected[bestI], to = unconn[bestJ];
+    const path = _roadPath(tiles, W, H, from, to);
+    if(path) for(const t of path) { if(!NOROAD.has(t.biome)) { t.road = true; t.walkable = true; } }
+    connected.push(unconn.splice(bestJ, 1)[0]);
+  }
+}
+
 G.genPlanetTerrain = function(body) {
   if(body._terrain) return body._terrain;
   const ptype = body.ptype || 'rocky';
   const cfg = G.PTYPE_TERRAIN[ptype] || G.PTYPE_TERRAIN.rocky;
-  const seed = (body.name || 'planet') + '|' + ptype + '|v3';   // bump to regenerate all worlds
+  const seed = (body.name || 'planet') + '|' + ptype + '|v4';   // bump to regenerate all worlds
   // Wrapping rectangular hex field (torus) — no map edge. Very large surface
   // (~10x the previous tile count) so there's lots of room to roam; only the
   // visible tiles are drawn each frame, so size is cheap at render time.
@@ -749,6 +828,7 @@ G.genPlanetTerrain = function(body) {
   // settlement, stamped onto a flat dry-land patch near the block centre.
   const port = body.hasSpaceport ? _placeSpaceport(tiles, W, H, rng) : null;
   _placeSettlements(tiles, W, H, rng, port);   // riverside + coastal villages
+  _placeRoads(tiles, W, H, port);              // road network between clusters
   _seedDeposits(tiles, W, H, rng);
   body._terrain = { W, H, tiles, ptype, seed, name: body.name, hasSpaceport: !!body.hasSpaceport, port };
   return body._terrain;
@@ -762,7 +842,7 @@ function _seedDeposits(tiles, W, H, rng) {
   const COLD = new Set(['glacier', 'tundra', 'coast', 'river']);
   const STONY = new Set(['rocks', 'ridge', 'hills', 'mountain', 'desert', 'dirt']);
   const SKIP = new Set(['deep_water', 'ocean', 'shallow_water', 'liquid', 'river', 'coast', 'spaceport', 'settlement']);
-  const land = [...tiles.values()].filter(t => t.walkable && !SKIP.has(t.biome));
+  const land = [...tiles.values()].filter(t => t.walkable && !SKIP.has(t.biome) && !t.road);
   if(!land.length) return;
   const target = G.clamp(Math.round((W * H) / 2200), 10, 120);
   for(let i = 0; i < target; i++) {
@@ -826,6 +906,27 @@ function _placeSpaceport(tiles, W, H, rng) {
     taken.add(G.hexKey(best.q, best.r));
     best.biome = 'building'; best.walkable = false; best.building = services[i].service;
     buildings.push(Object.assign({ q: best.q, r: best.r }, services[i]));
+  }
+  // Stamp road tiles between the landing pad and each building using cube-coord
+  // interpolation so roads run in straight spokes through the settlement ring.
+  for(const b of buildings) {
+    const n = tdist(site.q, site.r, b.q, b.r);
+    if(n < 2) continue;
+    // Cube coords for both endpoints
+    const [aq, ar, as_] = [site.q, site.r, -site.q - site.r];
+    const [bq, br, bs] = [b.q, b.r, -b.q - b.r];
+    for(let i = 1; i < n; i++) {
+      const t = i / n, rx = aq + (bq - aq) * t, ry = ar + (br - ar) * t, rz = as_ + (bs - as_) * t;
+      let cx = Math.round(rx), cy = Math.round(ry), cz = Math.round(rz);
+      const dx = Math.abs(cx - rx), dy = Math.abs(cy - ry), dz = Math.abs(cz - rz);
+      if(dx > dy && dx > dz) cx = -cy - cz; else if(dy > dz) cy = -cx - cz; else cz = -cx - cy;
+      const ww = G.wrapHex(W, H, cx, cy), tk = G.hexKey(ww.q, ww.r), rt = tiles.get(tk);
+      if(rt && rt.biome === 'settlement') { rt.road = true; rt.walkable = true; }
+    }
+  }
+  // Also carve a circular road ring at d=2 around the landing pad (inner loop).
+  for(const t of tiles.values()) {
+    if(tdist(site.q, site.r, t.q, t.r) === 2 && t.biome === 'settlement') { t.road = true; t.walkable = true; }
   }
   return { q: site.q, r: site.r, buildings };
 }
@@ -1035,6 +1136,88 @@ G.TerrainTiles = {
         const wall='rgba(186,156,116,0.92)', roof='rgba(154,72,56,0.94)', door='rgba(78,52,32,0.92)', win='rgba(150,200,232,0.85)';
         const house = (x, y, w, h) => { P(x-1,y,roof,w+2,1); P(x,y-1,roof,w,1); P(x,y+1,wall,w,h); P(x+1,y+2,door,1,h-1); P(x+w-2,y+2,win,1,1); };
         house(3,6,4,4); house(9,8,3,3); break;
+      }
+    }
+  },
+};
+// Pixel-art ore deposit sprites — transparent 64×64 canvases, drawn over terrain tiles.
+G.OreSprites = {
+  _cache: new Map(),
+  Z: 64,
+  sprite(matId) {
+    if(this._cache.has(matId)) return this._cache.get(matId);
+    const Z = this.Z, cv = document.createElement('canvas');
+    cv.width = Z; cv.height = Z;
+    const c = cv.getContext('2d'); c.imageSmoothingEnabled = false;
+    this._draw(c, matId, Z);
+    this._cache.set(matId, cv); return cv;
+  },
+  _draw(c, matId, Z) {
+    const N = 16, u = Z / N;
+    const P = (gx, gy, col, gw=1, gh=1) => { c.fillStyle=col; c.fillRect(Math.round(gx*u), Math.round(gy*u), Math.ceil(gw*u), Math.ceil(gh*u)); };
+    switch(matId) {
+      case 'ice': {
+        P(7,3,'rgba(230,248,255,0.97)',2,1); P(6,4,'rgba(155,218,248,0.95)',4,1); P(5,5,'rgba(135,200,240,0.93)',6,3); P(5,8,'rgba(85,155,210,0.85)',6,2);
+        P(3,6,'rgba(218,244,255,0.9)',2,1); P(2,7,'rgba(145,208,244,0.92)',3,2); P(2,9,'rgba(85,150,204,0.82)',3,2);
+        P(11,5,'rgba(218,244,255,0.9)',2,1); P(11,6,'rgba(145,208,244,0.92)',3,2); P(11,8,'rgba(85,150,204,0.82)',3,2);
+        P(7,3,'rgba(255,255,255,0.97)',1,1); P(3,6,'rgba(255,255,255,0.82)',1,1); P(12,5,'rgba(255,255,255,0.82)',1,1);
+        break;
+      }
+      case 'iron': {
+        P(2,5,'rgba(88,38,28,0.95)',12,1); P(2,6,'rgba(152,70,52,0.95)',12,2); P(3,8,'rgba(88,38,28,0.95)',10,1);
+        P(2,9,'rgba(152,70,52,0.95)',12,2); P(3,11,'rgba(88,38,28,0.95)',10,1);
+        P(4,6,'rgba(195,115,92,0.72)',2,1); P(8,9,'rgba(195,115,92,0.72)',2,1); P(11,6,'rgba(195,115,92,0.55)',1,1);
+        break;
+      }
+      case 'copper': {
+        P(3,5,'rgba(158,72,38,0.95)',10,1); P(2,6,'rgba(172,86,48,0.95)',12,5); P(3,11,'rgba(138,62,32,0.9)',10,1); P(4,4,'rgba(182,98,60,0.9)',8,1);
+        P(5,7,'rgba(42,128,78,0.84)',2,2); P(10,6,'rgba(42,128,78,0.84)',2,2); P(7,10,'rgba(42,128,78,0.76)',2,1);
+        P(4,6,'rgba(214,145,98,0.72)',1,1);
+        break;
+      }
+      case 'nickel': {
+        P(3,5,'rgba(92,102,82,0.9)',5,1); P(2,6,'rgba(132,142,122,0.95)',6,4); P(3,10,'rgba(92,102,82,0.88)',5,1); P(3,6,'rgba(188,198,178,0.72)',1,1);
+        P(9,4,'rgba(92,102,82,0.9)',5,1); P(9,5,'rgba(132,142,122,0.95)',6,4); P(9,9,'rgba(92,102,82,0.88)',5,1); P(10,5,'rgba(188,198,178,0.72)',1,1);
+        P(5,10,'rgba(92,102,82,0.9)',6,1); P(5,11,'rgba(132,142,122,0.95)',6,3); P(5,14,'rgba(92,102,82,0.88)',5,1); P(6,11,'rgba(188,198,178,0.68)',1,1);
+        break;
+      }
+      case 'gold': {
+        P(7,3,'rgba(255,248,95,0.98)',2,1); P(6,4,'rgba(228,182,18,0.97)',4,2); P(5,6,'rgba(208,162,12,0.96)',6,3); P(4,9,'rgba(168,122,8,0.92)',8,2);
+        P(3,7,'rgba(255,238,75,0.92)',2,1); P(2,8,'rgba(208,162,12,0.94)',3,2); P(2,10,'rgba(158,118,6,0.88)',3,1);
+        P(11,6,'rgba(255,238,75,0.92)',2,1); P(11,7,'rgba(208,162,12,0.94)',3,2); P(11,9,'rgba(158,118,6,0.88)',3,1);
+        P(7,3,'rgba(255,255,215,0.98)',1,1); P(3,7,'rgba(255,255,175,0.92)',1,1); P(12,6,'rgba(255,255,175,0.92)',1,1); P(8,3,'rgba(255,255,255,0.62)',1,1);
+        break;
+      }
+      case 'carbon': {
+        P(5,4,'rgba(28,28,34,0.97)',6,8); P(4,6,'rgba(28,28,34,0.97)',1,5); P(11,5,'rgba(28,28,34,0.97)',1,4);
+        P(5,4,'rgba(86,86,98,0.55)',1,5); P(10,5,'rgba(86,86,98,0.5)',1,3); P(6,4,'rgba(106,106,118,0.42)',2,1);
+        P(2,9,'rgba(28,28,34,0.97)',3,4); P(2,9,'rgba(86,86,98,0.45)',1,2); P(12,8,'rgba(28,28,34,0.97)',3,4); P(14,8,'rgba(86,86,98,0.45)',1,2);
+        break;
+      }
+      case 'tin': {
+        P(2,5,'rgba(92,92,100,0.92)',12,1); P(2,6,'rgba(145,148,156,0.94)',12,2); P(2,8,'rgba(92,92,100,0.92)',12,1);
+        P(2,9,'rgba(145,148,156,0.94)',12,2); P(2,11,'rgba(92,92,100,0.92)',12,1); P(2,12,'rgba(145,148,156,0.9)',12,2);
+        P(4,6,'rgba(202,205,214,0.76)',2,1); P(9,9,'rgba(202,205,214,0.76)',2,1); P(6,12,'rgba(202,205,214,0.7)',2,1);
+        break;
+      }
+      case 'titanium': {
+        P(6,4,'rgba(152,178,198,0.88)',4,1); P(4,5,'rgba(86,106,122,0.95)',8,1); P(3,6,'rgba(86,106,122,0.95)',10,4); P(4,10,'rgba(50,66,78,0.95)',8,1); P(6,11,'rgba(152,178,198,0.88)',4,1);
+        P(3,6,'rgba(50,66,78,0.95)',1,4); P(13,6,'rgba(50,66,78,0.95)',1,4);
+        P(5,5,'rgba(192,215,232,0.72)',2,1); P(11,8,'rgba(192,215,232,0.6)',1,2);
+        P(2,10,'rgba(152,178,198,0.88)',3,1); P(2,11,'rgba(86,106,122,0.95)',3,2); P(2,13,'rgba(50,66,78,0.95)',3,1); P(2,10,'rgba(50,66,78,0.95)',1,3);
+        break;
+      }
+      case 'platinum': {
+        P(7,3,'rgba(240,249,255,0.98)',2,1); P(6,4,'rgba(210,220,226,0.97)',4,2); P(5,6,'rgba(192,202,212,0.95)',6,4); P(4,10,'rgba(142,155,165,0.9)',8,2);
+        P(3,7,'rgba(236,246,255,0.92)',2,1); P(2,8,'rgba(202,212,220,0.94)',3,2); P(2,10,'rgba(145,160,170,0.88)',3,1);
+        P(11,6,'rgba(236,246,255,0.92)',2,1); P(11,7,'rgba(202,212,220,0.94)',3,2); P(11,9,'rgba(145,160,170,0.88)',3,1);
+        P(7,3,'rgba(255,255,255,0.98)',1,1); P(3,7,'rgba(255,255,255,0.92)',1,1); P(12,6,'rgba(255,255,255,0.92)',1,1); P(8,3,'rgba(255,255,255,0.72)',1,1); P(5,5,'rgba(255,255,255,0.62)',1,1);
+        break;
+      }
+      default: { // rock
+        P(3,5,'rgba(70,62,56,0.9)',5,1); P(2,6,'rgba(106,94,84,0.95)',7,4); P(3,10,'rgba(70,62,56,0.88)',5,1); P(3,6,'rgba(135,124,110,0.72)',1,1);
+        P(10,5,'rgba(70,62,56,0.9)',4,1); P(9,6,'rgba(106,94,84,0.95)',6,3); P(10,9,'rgba(70,62,56,0.88)',4,1); P(10,6,'rgba(135,124,110,0.68)',1,1);
+        P(5,10,'rgba(70,62,56,0.9)',6,1); P(5,11,'rgba(106,94,84,0.95)',6,3); P(5,14,'rgba(70,62,56,0.88)',5,1); P(6,11,'rgba(135,124,110,0.62)',1,1);
       }
     }
   },

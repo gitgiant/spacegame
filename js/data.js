@@ -230,17 +230,17 @@ G.WEAPONS = {
   },
   turret: {
     id:'turret', name:'Turret', type:'laser', slot:'turret',
-    damage:4, range:600, energyCost:0, fireRate:6, projSpeed:1100,
+    damage:4, range:1200, energyCost:0, fireRate:6, projSpeed:1100,
     color:'#44ffff', width:2, pierce:false, splash:0, turret:true, accuracy:0.15,
     price:2500, mass:6, rarity:'u', desc:'360° laser turret. Fires on SPACE toward target with limited rotation speed.',
-    stats:'DMG:4  RNG:600  360°LASER',
+    stats:'DMG:4  RNG:1200  360°LASER',
   },
   missile_turret: {
     id:'missile_turret', name:'Missile Turret', type:'missile', slot:'turret',
-    damage:110, range:2600, energyCost:0, fireRate:0.38, projSpeed:470,
+    damage:110, range:5200, energyCost:0, fireRate:0.38, projSpeed:470,
     color:'#ff8800', width:3, pierce:false, splash:110, tracking:true, turret:true,
     price:7000, mass:14, rarity:'r', desc:'360° missile turret. Fires dumb missiles; guided only with Optical Target Lock from a Targeting Pod.',
-    stats:'DMG:110  RNG:2600  360°GUIDED',
+    stats:'DMG:110  RNG:5200  360°GUIDED',
   },
   plasma_cannon: {
     id:'plasma_cannon', name:'Plasma Cannon', type:'laser', slot:'weapon',

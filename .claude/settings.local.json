@@ -102,7 +102,11 @@
       "Bash(awk 'NR>1302 && /_steerTo\\\\s*\\\\\\(|_thrust\\\\s*\\\\\\(/ {print NR\": \"$0}' js/npc.js)",
       "Bash(rtk find *)",
       "Bash(awk -F: '$1 > 3595 && $1 < 3700 {print; exit}')",
-      "Bash(awk *)"
+      "Bash(awk *)",
+      "Bash(rtk ps *)",
+      "Bash(curl -s http://localhost:8080)",
+      "Bash(lsof -ti:8080)",
+      "Bash(xargs kill -9)"
     ]
   }
 }

@@ -3913,12 +3913,43 @@ G.Game = class {
       this.ui.addMsg('Optical lock lost — dust interference', '#ff8800');
     }
 
+    // Crew command mode: WASD moves selected crew around the ship grid.
+    // Ship thrust/turn are suppressed so keys feel planet-surface-like.
+    const _crewCmd = this._crewView && this._selectedCrew && !this._selectedCrew.eva;
+    if(_crewCmd) {
+      const cr = this._selectedCrew;
+      let sdx = 0, sdy = 0;
+      if(this.input.pressed('KeyW') || this.input.pressed('ArrowUp'))    sdy -= 1;
+      if(this.input.pressed('KeyS') || this.input.pressed('ArrowDown'))  sdy += 1;
+      if(this.input.pressed('KeyA') || this.input.pressed('ArrowLeft'))  sdx -= 1;
+      if(this.input.pressed('KeyD') || this.input.pressed('ArrowRight')) sdx += 1;
+      if(sdx || sdy) {
+        const a = p.angle;
+        // Rotate screen direction into ship-local hex-pixel space
+        const ldx =  sdx * Math.cos(a) + sdy * Math.sin(a);
+        const ldy = -sdx * Math.sin(a) + sdy * Math.cos(a);
+        let bestDir = null, bestDot = -Infinity;
+        for(const [dq, dr] of G.HEX_DIRS) {
+          const hp = G.hexToPixel(dq, dr, 1);
+          const dot = hp.x * ldx + hp.y * ldy;
+          if(dot > bestDot) { bestDot = dot; bestDir = [dq, dr]; }
+        }
+        if(bestDir) p.orderCrew(cr, { type: 'move', q: cr.q + bestDir[0], r: cr.r + bestDir[1] });
+      }
+    }
+
     // Frozen player: suppress controls, decelerate
     if((p._frozenTimer||0) > 0) {
       p.vx *= 0.85; p.vy *= 0.85;
       p.x += p.vx*dt; p.y += p.vy*dt;
     } else {
-      p.update(dt, this.input);
+      // Suppress ship motion when commanding crew — only fire/boost pass through
+      const flightInp = _crewCmd
+        ? { thrust:false, reverse:false, turnL:false, turnR:false,
+            strafeL:false, strafeR:false, boost:false,
+            fire:this.input.fire, fireTap:this.input.fireTap }
+        : this.input;
+      p.update(dt, flightInp);
     }
 
     // Warn when the player tries to fly with nobody at the cockpit.
@@ -4038,7 +4069,7 @@ G.Game = class {
     // visible + selectable). Flight continues normally (keyboard still pilots).
     const _wasCrewView = this._crewView;
     this._crewView = this.camZoom >= this.CREW_VIEW_ZOOM;
-    if(this._crewView && !_wasCrewView) this.ui?.addMsg?.('CREW VIEW — click a crew member, then click an order target','#88ccff');
+    if(this._crewView && !_wasCrewView) this.ui?.addMsg?.('CREW VIEW — click crew to select, then WASD to move or click to order','#88ccff');
     if(!this._crewView && _wasCrewView) this._selectedCrew = null;
 
     // Interact prompts — land on ANY planet (spaceport or barren).
@@ -4505,7 +4536,12 @@ G.Game = class {
       const d = Math.hypot(w.x - wx, w.y - wy);
       if(d < pd) { pd = d; pick = cr; }
     }
-    if(pick) { this._selectedCrew = (this._selectedCrew === pick) ? null : pick; G.sound?.uiClick?.(); return true; }
+    if(pick) {
+      this._selectedCrew = (this._selectedCrew === pick) ? null : pick;
+      G.sound?.uiClick?.();
+      if(this._selectedCrew) this.ui?.addMsg?.(pick.name + ' — WASD to move, click module to order', '#ffff66');
+      return true;
+    }
     // 2) Issue an order to the selected crew.
     const cr = this._selectedCrew; if(!cr) return false;
     // Click point -> ship-local hex (inverse of ship transform).

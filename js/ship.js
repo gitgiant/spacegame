@@ -1513,7 +1513,7 @@ G.aiFireWeapons = function(w, aimAngle, target, now, projectiles, particles, opt
       color: def.color || fallbackCol, width: def.width || 2,
       sourceId: w.id, pierce: def.pierce || false,
       tracking: isMissile,
-      trackTarget: (isMissile && target) ? { x: target.x, y: target.y } : null,
+      trackTarget: (isMissile && target) ? target : null,
     });
     if(particles) particles.emit({ x: ox, y: oy, minSpd:20, maxSpd:60, life:0.15, r:2, color: def.color || fallbackCol });
     G.sound?.enemyWeapon(def.type || 'laser', playerDist, pan);

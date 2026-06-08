@@ -326,3 +326,12 @@ make start craft suggest different player starter paths
 make spaceports a few tiles / small  planet floating over stars
 
 to reduce overhead, have generic weapopns that give move sets.  all customization happens on top-> crafting + etcinc
+
+acceleration towards masses
+z
+
+make spaceport in space and have per-hex representation.  physicall dock ship and walk off
+
+landing on planets have aa port as well but will need rework when ships are gigantic (or dont allow big bois to land)
+
+have empitre be mega-roman empire-speak latin

@@ -274,10 +274,11 @@ html, body {
 #spaceport-overlay {
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,2,8,0.97);
+  background: rgba(0,0,0,0.75);
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 90;
 }
 #spaceport-overlay.hidden { display: none; }
 
@@ -522,19 +523,50 @@ html, body {
 #char-screen-overlay.hidden { display: none; }
 #char-screen-box {
   background: #050e1a; border: 1px solid var(--col-border);
-  padding: 28px 36px; text-align: center; min-width: 580px; max-width: min(680px, 94vw);
-  max-height: 90vh; overflow-y: auto;
+  padding: 22px 28px; text-align: center; min-width: 760px; max-width: min(940px, 97vw);
+  max-height: 93vh; overflow-y: auto;
 }
-.char-screen-avatar {
-  width: 180px; height: 225px; object-fit: cover;
-  mix-blend-mode: lighten; display: block;
+/* Two-column layout */
+#cs-main {
+  display: flex; gap: 22px; align-items: flex-start; text-align: left;
 }
+#cs-left {
+  flex-shrink: 0; width: 290px; display: flex; flex-direction: column; align-items: center;
+}
+#cs-identity {
+  display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 8px;
+}
+#cs-right {
+  flex: 1; min-width: 280px; max-height: 75vh; overflow-y: auto; padding-right: 4px;
+}
+/* Paper-doll container */
+#cs-doll-wrap {
+  position: relative; width: 290px; height: 320px; margin: 0 auto;
+}
+#char-screen-avatar {
+  position: absolute; left: 65px; top: 0;
+  width: 160px; height: 320px; object-fit: cover;
+  mix-blend-mode: screen; opacity: 0.38; z-index: 0;
+}
+#cs-doll-svg {
+  position: absolute; left: 65px; top: 0;
+  width: 160px; height: 320px; z-index: 1; pointer-events: none;
+}
+/* Equipment slot cells positioned over the doll */
+.cs-equip-slot {
+  position: absolute; width: 28px; height: 28px;
+  background: rgba(0,8,18,0.9); border: 1px solid #1a3a5a; border-radius: 2px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  z-index: 3; font-size: 4px; color: #2a4a6a; overflow: hidden;
+  transition: border-color 0.12s, box-shadow 0.12s;
+  cursor: default;
+}
+.cs-equip-slot:hover { box-shadow: 0 0 5px rgba(60,120,200,0.4); }
 .char-screen-field {
   font-size: 7px; color: var(--col-text);
-  margin-bottom: 8px; letter-spacing: 2px;
+  margin-bottom: 6px; letter-spacing: 2px;
 }
-.char-screen-name { font-size: 10px; color: var(--col-bright); margin-bottom: 16px; }
-.char-screen-column { text-align: center; display: flex; flex-direction: column; gap: 4px; }
+.char-screen-name { font-size: 10px; color: var(--col-bright); margin-bottom: 12px; }
 
 /* ── Skill Tree ─────────────────────────────────────────── */
 #skill-tree-overlay {
@@ -761,7 +793,8 @@ html, body {
 
 #controls-overlay,
 #debug-overlay,
-#camera-overlay {
+#camera-overlay,
+#sound-overlay {
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
   background: rgba(0,0,0,0.82);
@@ -770,7 +803,8 @@ html, body {
 }
 #controls-overlay.hidden,
 #debug-overlay.hidden,
-#camera-overlay.hidden { display: none; }
+#camera-overlay.hidden,
+#sound-overlay.hidden { display: none; }
 #controls-box {
   background: var(--col-panel);
   border: 2px solid var(--col-border);

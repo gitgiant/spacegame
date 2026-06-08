@@ -135,7 +135,7 @@
           <button class="tab" data-tab="craft">CRAFTING</button>
           <button class="tab" data-tab="inventory">INVENTORY</button>
           <button class="tab hidden" data-tab="cantina" id="cantina-tab">CANTINA</button>
-          <button id="launch-btn" class="btn btn-launch">LAUNCH [L]</button>
+          <button id="launch-btn" class="btn btn-launch hidden">LAUNCH [L]</button>
         </div>
       </div>
       <div id="sp-body"></div>
@@ -425,24 +425,77 @@
   <!-- Character sheet -->
   <div id="char-screen-overlay" class="hidden">
     <div id="char-screen-box">
-      <div class="panel-title" style="margin-bottom:18px;letter-spacing:3px">CHARACTER</div>
-      <div id="char-screen-name" class="char-screen-field char-screen-name"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;align-items:start;margin-bottom:16px">
-        <div id="char-screen-sex"  class="char-screen-field char-screen-column"></div>
-        <img id="char-screen-avatar" class="char-screen-avatar" src="" alt="">
-        <div id="char-screen-faction" class="char-screen-field char-screen-column"></div>
-      </div>
-      <div id="char-screen-class" class="char-screen-field"></div>
-      <div id="char-screen-level" style="margin-top:6px;width:100%;text-align:center"></div>
-      <button id="char-screen-skilltree-btn" class="btn" style="margin-top:8px;font-size:5px;letter-spacing:2px;padding:5px 12px">⬡ SKILL TREE</button>
-      <div id="char-screen-gear" style="margin-top:14px;width:100%"></div>
-      <div style="margin-top:16px;width:100%">
-        <div style="font-family:'Press Start 2P',monospace;font-size:6px;color:#556677;letter-spacing:2px;margin-bottom:8px">ABILITIES</div>
-        <div id="char-screen-abilities"></div>
-        <div style="font-size:5px;color:#334455;margin-top:6px">Drag abilities to slots 1–0 below</div>
-        <div id="char-screen-ability-slots"></div>
-      </div>
-      <button id="char-screen-close" class="btn" style="margin-top:20px;font-size:6px">CLOSE [C]</button>
+      <div class="panel-title" style="margin-bottom:12px;letter-spacing:3px">CHARACTER</div>
+      <div id="cs-main">
+
+        <!-- LEFT: identity + paper-doll + vital stats -->
+        <div id="cs-left">
+          <div id="char-screen-name" class="char-screen-field char-screen-name"></div>
+          <div id="cs-identity">
+            <span id="char-screen-sex"     class="char-screen-field"></span>
+            <span id="char-screen-faction" class="char-screen-field"></span>
+            <span id="char-screen-class"   class="char-screen-field"></span>
+          </div>
+          <div id="char-screen-level" style="margin-bottom:6px;text-align:center"></div>
+          <button id="char-screen-skilltree-btn" class="btn" style="font-size:5px;letter-spacing:2px;padding:4px 10px;margin-bottom:10px">⬡ SKILL TREE</button>
+
+          <!-- Paper doll: SVG humanoid silhouette + absolutely positioned equip slots -->
+          <div id="cs-doll-wrap">
+            <!-- avatar photo glowing behind the silhouette -->
+            <img id="char-screen-avatar" src="" alt="">
+            <!-- SVG humanoid body outline -->
+            <svg id="cs-doll-svg" viewBox="0 0 160 320" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="80" cy="26" r="20" fill="#0a1e38" stroke="#1a4a7a" stroke-width="1.5"/>
+              <rect x="73" y="45" width="14" height="13" fill="#0a1e38"/>
+              <polygon points="28,58 132,58 120,178 40,178" fill="#0a1e38" stroke="#1a4a7a" stroke-width="1.5"/>
+              <rect x="8"   y="60"  width="22" height="82" rx="4" fill="#0a1e38" stroke="#1a4a7a" stroke-width="1"/>
+              <rect x="130" y="60"  width="22" height="82" rx="4" fill="#0a1e38" stroke="#1a4a7a" stroke-width="1"/>
+              <rect x="10"  y="140" width="18" height="70" rx="3" fill="#0a1e38" stroke="#1a4a7a" stroke-width="1"/>
+              <rect x="132" y="140" width="18" height="70" rx="3" fill="#0a1e38" stroke="#1a4a7a" stroke-width="1"/>
+              <rect x="8"   y="208" width="20" height="30" rx="2" fill="#0a1e38" stroke="#1a4a7a" stroke-width="1"/>
+              <rect x="132" y="208" width="20" height="30" rx="2" fill="#0a1e38" stroke="#1a4a7a" stroke-width="1"/>
+              <rect x="38"  y="176" width="84" height="30" rx="2" fill="#0a1e38" stroke="#1a4a7a" stroke-width="1.5"/>
+              <rect x="40"  y="204" width="32" height="80" rx="3" fill="#0a1e38" stroke="#1a4a7a" stroke-width="1"/>
+              <rect x="88"  y="204" width="32" height="80" rx="3" fill="#0a1e38" stroke="#1a4a7a" stroke-width="1"/>
+              <rect x="36"  y="278" width="40" height="24" rx="3" fill="#0a1e38" stroke="#1a4a7a" stroke-width="1"/>
+              <rect x="84"  y="278" width="40" height="24" rx="3" fill="#0a1e38" stroke="#1a4a7a" stroke-width="1"/>
+            </svg>
+            <!-- Equipment slots — content + events set by _buildCharGear -->
+            <!-- center column (helm→boots) -->
+            <div class="cs-equip-slot" data-eslot="helm"      style="top:10px; left:126px"></div>
+            <div class="cs-equip-slot" data-eslot="necklace"  style="top:40px; left:126px"></div>
+            <div class="cs-equip-slot" data-eslot="chest"     style="top:100px;left:126px"></div>
+            <div class="cs-equip-slot" data-eslot="belt"      style="top:175px;left:126px"></div>
+            <div class="cs-equip-slot" data-eslot="leggings"  style="top:228px;left:126px"></div>
+            <div class="cs-equip-slot" data-eslot="boots"     style="top:276px;left:126px"></div>
+            <!-- left arm column -->
+            <div class="cs-equip-slot" data-eslot="shoulders" style="top:54px; left:64px"></div>
+            <div class="cs-equip-slot" data-eslot="bracers"   style="top:158px;left:64px"></div>
+            <div class="cs-equip-slot" data-eslot="lefthand"  style="top:207px;left:64px"></div>
+            <div class="cs-equip-slot" data-eslot="ring1"     style="top:242px;left:64px"></div>
+            <!-- right arm column -->
+            <div class="cs-equip-slot" data-eslot="backpack"  style="top:54px; left:214px"></div>
+            <div class="cs-equip-slot" data-eslot="righthand" style="top:207px;left:188px"></div>
+            <div class="cs-equip-slot" data-eslot="ring2"     style="top:242px;left:188px"></div>
+          </div>
+
+          <!-- Vital bars + attribute grid (filled by _buildCharGear) -->
+          <div id="char-screen-stats" style="margin-top:10px;width:100%"></div>
+        </div>
+
+        <!-- RIGHT: inventory + skills + abilities -->
+        <div id="cs-right">
+          <div id="char-screen-gear"></div>
+          <div style="margin-top:14px">
+            <div style="font-family:'Press Start 2P',monospace;font-size:6px;color:#556677;letter-spacing:2px;margin-bottom:8px">ABILITIES</div>
+            <div id="char-screen-abilities"></div>
+            <div style="font-size:5px;color:#334455;margin-top:6px">Drag abilities to slots 1–0 below</div>
+            <div id="char-screen-ability-slots"></div>
+          </div>
+        </div>
+
+      </div><!-- #cs-main -->
+      <button id="char-screen-close" class="btn" style="margin-top:16px;font-size:6px">CLOSE [C]</button>
     </div>
   </div>
 
