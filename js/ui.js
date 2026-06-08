@@ -1546,7 +1546,7 @@ G.UI = class {
     const slotCell = (s) => {
       const id = pc.equip[s], it = id && G.ITEMS[id], lbl = G.EQUIP_LABELS[s] || s;
       return `<div data-eslot="${s}" title="${it ? it.name + ' — click to remove' : lbl}"
-        style="aspect-ratio:1;background:rgba(0,10,20,0.9);border:1px solid ${it ? (it.color || '#33aa66') : '#1a4a6a'};border-radius:2px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:${it ? 'pointer' : 'default'};position:relative">
+        style="aspect-ratio:1;background:rgba(0,10,20,0.9);border:1px solid ${it ? (it.color || '#33aa66') : '#1a4a6a'};border-radius:2px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:${it ? 'pointer' : 'default'};position:relative;transition:border-color 0.1s,background 0.1s">
         ${it ? `<div style="font-size:15px;line-height:1">${it.icon || '▪'}</div>` : `<div style="font-size:4px;color:#445566">${lbl}</div>`}
       </div>`;
     };
@@ -1562,15 +1562,55 @@ G.UI = class {
         ? `<div style="display:flex;flex-wrap:wrap;gap:3px">${spare.map(o => { const it = G.ITEMS[o.id]; return `<div data-equip="${o.id}" title="${(it.desc || '').replace(/"/g,'')}" style="background:rgba(0,20,40,0.9);border:1px solid ${(it.color || '#4466aa')}66;padding:3px 5px;font-size:5px;cursor:pointer"><span style="color:${it.color || '#99aabb'}">${it.icon || '▪'} ${it.name}</span> <span style="color:#556677">×${o.n}</span></div>`; }).join('')}</div>`
         : `<div style="font-size:5px;color:#445566;text-align:left">No spare gear in cargo.</div>`}`;
     host.innerHTML = stats + doll + inv;
+    // Equipment slots — click to remove, drop to equip
     host.querySelectorAll('[data-eslot]').forEach(el => {
-      el.addEventListener('click', () => { const s = el.dataset.eslot; if(pc.equip[s] && G.charUnequip(pc, s)) this.showCharScreen(); });
+      const slot = el.dataset.eslot;
+      // Click to remove equipped item
+      el.addEventListener('click', () => { if(pc.equip[slot] && G.charUnequip(pc, slot)) this.showCharScreen(); });
+      // Drop target for inventory items
+      el.addEventListener('dragover', e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        el.style.background = 'rgba(0,60,120,0.6)';
+        el.style.borderColor = '#00aaff';
+      });
+      el.addEventListener('dragleave', () => {
+        const id = pc.equip[slot], it = id && G.ITEMS[id];
+        el.style.background = 'rgba(0,10,20,0.9)';
+        el.style.borderColor = it ? (it.color || '#33aa66') : '#1a4a6a';
+      });
+      el.addEventListener('drop', e => {
+        e.preventDefault();
+        const id = pc.equip[slot], it = id && G.ITEMS[id];
+        el.style.background = 'rgba(0,10,20,0.9)';
+        el.style.borderColor = it ? (it.color || '#33aa66') : '#1a4a6a';
+        try {
+          const payload = JSON.parse(e.dataTransfer.getData('text/plain'));
+          if(payload.src === 'inventory' && payload.itemId) {
+            if(G.charEquip(pc, slot, payload.itemId, cargo)) this.showCharScreen();
+          }
+        } catch { }
+      });
     });
+    // Inventory items — draggable + click to equip
     host.querySelectorAll('[data-equip]').forEach(el => {
+      el.draggable = true;
+      const itemId = el.dataset.equip;
+      // Drag start
+      el.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('text/plain', JSON.stringify({src:'inventory', itemId}));
+        e.dataTransfer.effectAllowed = 'copy';
+        el.style.opacity = '0.5';
+      });
+      el.addEventListener('dragend', () => {
+        el.style.opacity = '1';
+      });
+      // Click to equip
       el.addEventListener('click', () => {
-        const id = el.dataset.equip, it = G.ITEMS[id]; if(!it) return;
+        const it = G.ITEMS[itemId]; if(!it) return;
         let target = G.EQUIP_SLOTS.find(s => G.slotAccepts(s, it.equipSlot) && !pc.equip[s])
                   || G.EQUIP_SLOTS.find(s => G.slotAccepts(s, it.equipSlot));
-        if(target && G.charEquip(pc, target, id, cargo)) this.showCharScreen();
+        if(target && G.charEquip(pc, target, itemId, cargo)) this.showCharScreen();
       });
     });
   }
