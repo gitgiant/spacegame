@@ -4467,7 +4467,8 @@ G.Game = class {
       const l = Math.hypot(dx, dy);
       const sprint = (c._jetActive ? 2.1 : (inp.is('ShiftLeft') || inp.is('ShiftRight')) ? 1.9 : 1);
       vx = dx / l * base * sprint; vy = dy / l * base * sprint;
-      c._faceX = dx / l; c._faceY = dy / l;
+      if(dx) c._faceX = dx / l;             // keep last facing on pure-vertical move
+      c._faceY = dy / l;
       c.path = null;                       // WASD overrides any click-move path
     } else if(!airborne) return;           // idle on ground → let path-follow handle it
     // Integrate with collision: block entering non-walkable tiles; airborne skips
