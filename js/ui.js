@@ -1529,7 +1529,7 @@ G.UI = class {
     const host = document.getElementById('char-screen-gear'); if(!host) return;
     const g = G.game, pc = g?.playerCharacter?.(), cargo = g?.player?.cargo || {};
     if(!pc) { host.innerHTML = ''; return; }
-    G.charRecompute(pc);
+    G.charSyncEquip(pc, cargo);   // drop equips whose backing cargo copy is gone
     const bar = (label, cur, max, col) => {
       const pct = max ? Math.max(0, Math.min(100, Math.round(cur / max * 100))) : 0;
       return `<div style="margin-bottom:4px">
@@ -1553,14 +1553,17 @@ G.UI = class {
     const order = ['helm','necklace','shoulders','chest','bracers','belt','leggings','boots','ring1','ring2','backpack','lefthand','righthand'];
     const doll = `<div style="font-size:5px;color:#556677;margin-bottom:4px;letter-spacing:2px;text-align:left">EQUIPMENT</div>
       <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:3px">${order.map(slotCell).join('')}</div>`;
-    const gearIds = Object.keys(cargo).filter(id => cargo[id] > 0 && G.ITEMS[id]?.equipSlot);
-    const inv = `<div style="font-size:5px;color:#556677;margin:8px 0 4px;letter-spacing:2px;text-align:left">INVENTORY · GEAR (ship cargo)</div>
-      ${gearIds.length
-        ? `<div style="display:flex;flex-wrap:wrap;gap:3px">${gearIds.map(id => { const it = G.ITEMS[id]; return `<div data-equip="${id}" title="${(it.desc || '').replace(/"/g,'')}" style="background:rgba(0,20,40,0.9);border:1px solid ${(it.color || '#4466aa')}66;padding:3px 5px;font-size:5px;cursor:pointer"><span style="color:${it.color || '#99aabb'}">${it.icon || '▪'} ${it.name}</span> <span style="color:#556677">×${cargo[id]}</span></div>`; }).join('')}</div>`
+    // Spare (un-worn) gear in cargo. Worn copies stay in cargo (count vs space)
+    // so only the surplus beyond what's equipped is shown as equippable.
+    const spare = Object.keys(cargo).map(id => ({ id, n: cargo[id] - G.charEquippedCount(pc, id) }))
+      .filter(o => o.n > 0 && G.ITEMS[o.id]?.equipSlot);
+    const inv = `<div style="font-size:5px;color:#556677;margin:8px 0 4px;letter-spacing:2px;text-align:left">INVENTORY · GEAR (worn counts vs cargo)</div>
+      ${spare.length
+        ? `<div style="display:flex;flex-wrap:wrap;gap:3px">${spare.map(o => { const it = G.ITEMS[o.id]; return `<div data-equip="${o.id}" title="${(it.desc || '').replace(/"/g,'')}" style="background:rgba(0,20,40,0.9);border:1px solid ${(it.color || '#4466aa')}66;padding:3px 5px;font-size:5px;cursor:pointer"><span style="color:${it.color || '#99aabb'}">${it.icon || '▪'} ${it.name}</span> <span style="color:#556677">×${o.n}</span></div>`; }).join('')}</div>`
         : `<div style="font-size:5px;color:#445566;text-align:left">No spare gear in cargo.</div>`}`;
     host.innerHTML = stats + doll + inv;
     host.querySelectorAll('[data-eslot]').forEach(el => {
-      el.addEventListener('click', () => { const s = el.dataset.eslot; if(pc.equip[s] && G.charUnequip(pc, s, cargo)) this.showCharScreen(); });
+      el.addEventListener('click', () => { const s = el.dataset.eslot; if(pc.equip[s] && G.charUnequip(pc, s)) this.showCharScreen(); });
     });
     host.querySelectorAll('[data-equip]').forEach(el => {
       el.addEventListener('click', () => {

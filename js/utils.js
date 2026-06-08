@@ -975,27 +975,43 @@ G.charRecompute = function(c) {
   return c;
 };
 
-// Equip itemId into paper-doll `slot`, pulling 1 unit from `cargo` (the unified
-// inventory). Any item already in the slot returns to cargo. Returns true on ok.
+// How many paper-doll slots currently hold itemId.
+G.charEquippedCount = function(c, itemId) {
+  let n = 0; for(const s of G.EQUIP_SLOTS) if(c.equip?.[s] === itemId) n++; return n;
+};
+
+// Equip itemId into paper-doll `slot`. Worn gear STAYS in ship cargo (so it keeps
+// counting against cargo mass/space) — the slot just references it. Requires a
+// free (un-equipped) copy in `cargo`. Returns true on success.
 G.charEquip = function(c, slot, itemId, cargo) {
   const it = G.ITEMS[itemId];
   if(!it || !it.equipSlot || !G.slotAccepts(slot, it.equipSlot)) return false;
-  if(!cargo || (cargo[itemId] || 0) < 1) return false;
-  const cur = c.equip[slot];
-  cargo[itemId] -= 1; if(cargo[itemId] <= 0) delete cargo[itemId];
-  if(cur) cargo[cur] = (cargo[cur] || 0) + 1;
+  const owned = cargo ? (cargo[itemId] || 0) : 0;
+  const equippedElsewhere = G.charEquippedCount(c, itemId) - (c.equip[slot] === itemId ? 1 : 0);
+  if(owned - equippedElsewhere < 1) return false;     // no spare copy to wear
   c.equip[slot] = itemId;
   G.charRecompute(c);
   return true;
 };
 
-// Remove gear from `slot`, returning it to `cargo`. Returns true if something moved.
-G.charUnequip = function(c, slot, cargo) {
-  const cur = c.equip?.[slot]; if(!cur) return false;
-  if(cargo) cargo[cur] = (cargo[cur] || 0) + 1;
+// Clear a paper-doll slot (item remains in cargo). Returns true if something moved.
+G.charUnequip = function(c, slot) {
+  if(!c.equip?.[slot]) return false;
   c.equip[slot] = null;
   G.charRecompute(c);
   return true;
+};
+
+// Drop equips that no longer have backing copies in `cargo` (e.g. after selling).
+G.charSyncEquip = function(c, cargo) {
+  if(!c?.equip) return;
+  const seen = {};
+  for(const s of G.EQUIP_SLOTS) {
+    const id = c.equip[s]; if(!id) continue;
+    seen[id] = (seen[id] || 0) + 1;
+    if((cargo?.[id] || 0) < seen[id]) { c.equip[s] = null; seen[id]--; }
+  }
+  G.charRecompute(c);
 };
 
 // Pick a planet character disposition from body stats. Higher danger → more

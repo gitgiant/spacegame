@@ -2158,13 +2158,17 @@ G.Renderer = class {
       }
       const walking = !!(c.path && c.path.length) || (c === pl.selected && pl._charMoving);
       ctx.save(); ctx.translate(x, y);
-      const disp = c.ref.disposition ? G.DISPOSITIONS[c.ref.disposition] : null;
+      let ringCol = null;
+      if(c.ref.disposition) {
+        const st = game._npcStance(c);
+        ringCol = st === 'hostile' ? '#ff3333' : st === 'flee' ? '#ffcc44' : (G.DISPOSITIONS[c.ref.disposition]?.color);
+      }
       if(c === pl.selected) {
         ctx.beginPath(); ctx.arc(0,0,crad*1.7,0,Math.PI*2);
         ctx.strokeStyle = (c._dodgeT > 0) ? '#66ddff' : '#ffff66'; ctx.lineWidth=2; ctx.stroke();
-      } else if(disp) {
+      } else if(ringCol) {
         ctx.beginPath(); ctx.arc(0, crad*0.4, crad*1.3, 0, Math.PI*2);
-        ctx.strokeStyle = disp.color; ctx.globalAlpha = 0.7; ctx.lineWidth=1.5; ctx.stroke(); ctx.globalAlpha = 1;
+        ctx.strokeStyle = ringCol; ctx.globalAlpha = 0.7; ctx.lineWidth=1.5; ctx.stroke(); ctx.globalAlpha = 1;
       }
       if(c._jetActive) {   // jetpack exhaust flare under the feet
         ctx.fillStyle = '#ffaa33'; ctx.globalAlpha = 0.8;
@@ -4496,6 +4500,7 @@ G.Game = class {
     const pl = this._planet; if(!pl || !pl.npcs) return;
     const ter = pl.terrain, W = ter.W, H = ter.H;
     for(const n of pl.npcs) {
+      if(n._combatT > 0) continue;              // engaged — combat AI drives movement
       n._wanderT = (n._wanderT || 0) - dt;
       if(n._wanderT > 0 || (n.path && n.path.length)) continue;
       n._wanderT = 2 + Math.random() * 4;
@@ -4561,19 +4566,24 @@ G.Game = class {
     // NPC AI.
     for(const n of pl.npcs) {
       n._atkCd = Math.max(0, (n._atkCd || 0) - dt);
-      const disp = n.ref.disposition;
-      if(disp !== 'hostile' && disp !== 'cautious') continue;
+      n._combatT = Math.max(0, (n._combatT || 0) - dt);   // suppresses wander while >0
+      const stance = this._npcStance(n);                  // 'hostile' | 'flee' | 'idle'
+      if(stance === 'idle') continue;
       let tgt = null, td = Infinity, tdel = null;
       for(const c of live) { const d = this._planetDelta(pl, n.px, n.py, c.px, c.py); if(d.dist < td) { td = d.dist; tgt = c; tdel = d; } }
       if(!tgt) continue;
-      if(disp === 'cautious') {
-        if(td < 5) { n._fleeT = (n._fleeT || 0) - dt; if(n._fleeT <= 0) { n._fleeT = 1.3; const aw = this._fleeCell(pl, n, tdel); if(aw) { const p = this._planetPath({ q: n.q, r: n.r }, aw); if(p && p.length) n.path = p; } } }
+      if(stance === 'flee') {
+        if(td < 5) { n._combatT = 1.5; n._fleeT = (n._fleeT || 0) - dt; if(n._fleeT <= 0) { n._fleeT = 1.3; const aw = this._fleeCell(pl, n, tdel); if(aw) { const p = this._planetPath({ q: n.q, r: n.r }, aw); if(p && p.length) n.path = p; } } }
         continue;
       }
       const wpn = G.charGearOfKind(n.ref, 'pistol') || G.charGearOfKind(n.ref, 'sword');
       const range = wpn ? (wpn.range || (wpn.kind === 'pistol' ? 9 : 1.3)) : 1.2;
       if(td > 8) continue;                       // outside aggro radius
-      if(td > range * 0.9) {
+      n._combatT = 1.5;
+      // Ranged attackers need line-of-sight; if blocked, close the distance.
+      const ranged = wpn && wpn.kind === 'pistol';
+      const hasLOS = !ranged || this._planetLOS(pl, n, tgt);
+      if(td > range * 0.9 || (ranged && !hasLOS)) {
         n._chaseT = (n._chaseT || 0) - dt;
         if(n._chaseT <= 0 || !(n.path && n.path.length)) { n._chaseT = 0.6; const p = this._planetPath({ q: n.q, r: n.r }, { q: tgt.q, r: tgt.r }); if(p && p.length) n.path = p; }
       } else {
@@ -4582,7 +4592,7 @@ G.Game = class {
           n._atkCd = wpn ? 1 / (wpn.rof || 1.2) : 1.2;
           const l = tdel.dist || 1, ux = tdel.dx / l, uy = tdel.dy / l;
           n._faceX = ux; n._faceY = uy;
-          if(wpn && wpn.kind === 'pistol') this._spawnFootShot(pl, n, ux, uy, wpn.dmg || 10, 'enemy', wpn.color || '#ff5533');
+          if(ranged) this._spawnFootShot(pl, n, ux, uy, wpn.dmg || 10, 'enemy', wpn.color || '#ff5533');
           else { this._applyFootDamage(pl, tgt, (wpn?.dmg || 12), n); n._swingT = 0.18; }
         }
       }
@@ -4609,6 +4619,33 @@ G.Game = class {
       c._hurtT    = Math.max(0, (c._hurtT    || 0) - dt);
       if(ch.hp > 0 && ch.hp < ch.maxHp && c._noRegenT <= 0) ch.hp = Math.min(ch.maxHp, ch.hp + 4 * dt);
     }
+  }
+
+  // Behaviour stance toward the player. Hostiles always fight; faction units turn
+  // hostile/skittish when the player's standing with that faction is low.
+  _npcStance(n) {
+    const disp = n.ref.disposition;
+    if(disp === 'hostile') return 'hostile';
+    if(disp === 'cautious') return 'flee';
+    if(disp === 'faction') {
+      const rel = this.getRel(n.ref.faction) ?? 0;
+      if(rel <= -30) return 'hostile';
+      if(rel < 0)    return 'flee';
+    }
+    return 'idle';
+  }
+
+  // Line-of-sight between two surface units: clear only if every tile along the
+  // segment is walkable (impassable terrain — water, cliffs, mountains — blocks).
+  _planetLOS(pl, a, b) {
+    const ter = pl.terrain, del = this._planetDelta(pl, a.px, a.py, b.px, b.py);
+    const steps = Math.ceil(del.dist * 2);
+    for(let i = 1; i < steps; i++) {
+      const t = i / steps, h = G.pixelToHex(a.px + del.dx * t, a.py + del.dy * t, 1);
+      const w = G.wrapHex(ter.W, ter.H, h.q, h.r), tile = ter.tiles.get(G.hexKey(w.q, w.r));
+      if(!tile || !tile.walkable) return false;
+    }
+    return true;
   }
 
   // Pick a walkable cell ~3 tiles directly away from a threat (for fleeing).
