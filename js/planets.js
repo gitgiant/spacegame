@@ -876,7 +876,77 @@ G._mixShade = function(a, b, f) {
 G.TerrainTiles = {
   _motifCache: new Map(),
   _swatchCache: new Map(),
+  _tileCache: new Map(),
   MZ: 64,
+  TZ: 64,
+  // Full hex-filling animated tile (4 frames). Edge-to-edge biome art clipped to
+  // a pointy-top hex; the renderer draws the current frame to fill each cell.
+  tile(biome, frame) {
+    frame = (((frame | 0) % 4) + 4) % 4;
+    const key = biome + '|' + frame;
+    if(this._tileCache.has(key)) return this._tileCache.get(key);
+    const Z = this.TZ, cv = document.createElement('canvas'); cv.width = Z; cv.height = Z;
+    const c = cv.getContext('2d'); c.imageSmoothingEnabled = false;
+    this._drawTileFull(c, biome, Z, frame);
+    this._tileCache.set(key, cv); return cv;
+  },
+  _hexClip(c, Z) {
+    const R = Z / 2, cx = Z / 2, cy = Z / 2;
+    c.beginPath();
+    for(let i = 0; i < 6; i++) { const a = Math.PI/6 + i*Math.PI/3, x = cx + R*Math.cos(a), y = cy + R*Math.sin(a); i ? c.lineTo(x, y) : c.moveTo(x, y); }
+    c.closePath(); c.clip();
+  },
+  _tileEdge(c, Z) {
+    const R = Z / 2 - 0.5, cx = Z / 2, cy = Z / 2;
+    c.beginPath();
+    for(let i = 0; i < 6; i++) { const a = Math.PI/6 + i*Math.PI/3, x = cx + R*Math.cos(a), y = cy + R*Math.sin(a); i ? c.lineTo(x, y) : c.moveTo(x, y); }
+    c.closePath(); c.strokeStyle = 'rgba(0,0,0,0.18)'; c.lineWidth = 1.5; c.stroke();
+  },
+  _drawTileFull(c, biome, Z, frame) {
+    const pal = G.TERRAIN_COLORS[biome] || ['#888','#555'];
+    const sh = (hex, f) => G._shadeHex(hex, f);
+    const P = (x, y, col, w = 2, h = 2) => { c.fillStyle = col; c.fillRect(Math.round(x), Math.round(y), Math.ceil(w), Math.ceil(h)); };
+    c.save(); this._hexClip(c, Z);
+    const g = c.createLinearGradient(0, 0, 0, Z);
+    g.addColorStop(0, pal[0]); g.addColorStop(1, pal[1]);
+    c.fillStyle = g; c.fillRect(0, 0, Z, Z);
+    const rng = G.seededRng(biome + '_' + frame), ph = frame / 4 * Math.PI * 2;
+    const WATER = { deep_water:1, ocean:1, shallow_water:1, river:1, coast:1, liquid:1 };
+    if(WATER[biome]) {
+      const lo = sh(pal[0], 1.16), hi = sh(pal[0], 1.34), scroll = frame * 5;
+      for(let row = 4; row < Z; row += 7) {
+        const odd = ((row / 7) | 0) % 2, off = (scroll + (odd ? 4 : 0)) % 16;
+        for(let x = -16; x < Z; x += 16) P(x + off, row + Math.sin((x + scroll) * 0.2) * 1.5, odd ? hi : lo, 10, 2);
+      }
+      if(biome === 'liquid') { const gl = 0.45 + 0.4 * (0.5 + 0.5 * Math.sin(ph)); P(Z*0.32, Z*0.34, `rgba(255,238,170,${gl})`, Z*0.36, Z*0.30); }
+      c.restore(); this._tileEdge(c, Z); return;
+    }
+    const VEG = { grassland:['#2c7a20',16,1], valley:['#2f8a26',14,1], hills:['#39862a',12,2], forest:['#246b22',8,3], jungle:['#1e6b2a',10,3] };
+    if(VEG[biome]) {
+      const [col, n, type] = VEG[biome], sway = Math.sin(ph) * 2;
+      for(let i = 0; i < n; i++) {
+        const x = rng() * Z, y = Z * 0.25 + rng() * Z * 0.7, near = y > Z * 0.55 ? 1 : 0.5;
+        if(type >= 2) { P(x - 1, y, '#5a3a1a', 2, 6); P(x - 4 + sway*near, y - 8, sh(col, 0.78), 8, 5); P(x - 3 + sway*near, y - 11, sh(col, 1.12), 6, 4); }
+        else { P(x + sway*near, y - 6, col, 1.5, 6); P(x + sway*near, y - 6, sh(col, 1.25), 1, 2); }
+      }
+      c.restore(); this._tileEdge(c, Z); return;
+    }
+    const spec = {
+      dirt:['#8a6a3a','#5a3f22',18], rocks:['#9a948a','#4a443a',16], desert:['#e0c074','#b8923f',16],
+      mountain:['#b0a89a','#5c5448',20], ridge:['#b3a585','#7a6e58',18], tundra:['#dfeaf2','#7a8c82',16],
+      glacier:['#dff0fb','#9cc4e0',18], spaceport:['#cfd6e0','#5a6472',14], settlement:['#d0a070','#8a5a3a',14],
+      building:['#7a8290','#3a4050',12],
+    }[biome] || [sh(pal[0], 1.2), sh(pal[1], 0.85), 14];
+    const [c1, c2, n] = spec;
+    for(let i = 0; i < n; i++) { const x = rng() * Z, y = rng() * Z, s = 2 + rng() * 3; P(x, y, rng() < 0.5 ? c1 : c2, s, s); }
+    if(biome === 'mountain' || biome === 'ridge') { P(Z*0.5 - 6, Z*0.5, sh(pal[1], 0.7), 12, 8); P(Z*0.5, Z*0.32, biome === 'mountain' ? '#f4faff' : sh(pal[0], 1.1), 5, 4); }
+    if(biome === 'glacier' || biome === 'tundra' || biome === 'spaceport') {
+      for(let i = 0; i < 4; i++) { const x = rng() * Z, y = rng() * Z, tw = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(ph + i)); P(x, y, `rgba(255,255,255,${tw})`, 2, 2); }
+    }
+    if(biome === 'spaceport') { const ln = 'rgba(230,236,246,0.85)'; P(Z*0.32, Z*0.3, ln, 3, Z*0.4); P(Z*0.62, Z*0.3, ln, 3, Z*0.4); P(Z*0.32, Z*0.46, ln, Z*0.33, 3); }
+    if(biome === 'settlement' || biome === 'building') { P(Z*0.3, Z*0.34, sh(c2, 0.8), Z*0.22, Z*0.3); P(Z*0.52, Z*0.42, sh(c2, 0.9), Z*0.18, Z*0.22); P(Z*0.34, Z*0.3, '#9a4838', Z*0.18, 4); }
+    c.restore(); this._tileEdge(c, Z);
+  },
   // Transparent icon (no hex fill) centred in an MZ box — drawn over the tile.
   motif(biome) {
     if(this._motifCache.has(biome)) return this._motifCache.get(biome);

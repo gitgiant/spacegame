@@ -2055,49 +2055,51 @@ G.Renderer = class {
     const LIFT = Math.max(2, Math.round(S * 0.18)); // screen-px height per tier
     const apo = R * Math.cos(Math.PI/6);            // hex apothem (centre→edge)
     const levelOf = t => (t && !WATER.has(t.biome)) ? (t.level||0) : 0;
+    const animFrame = (Date.now() / 230 | 0) % 4;   // 4-frame terrain loop (~4.3 fps)
     const hexPath = (x, y) => { ctx.beginPath(); for(let i=0;i<6;i++){ const a=Math.PI/6+i*Math.PI/3; const hx=x+R*Math.cos(a), hy=y+R*Math.sin(a); i?ctx.lineTo(hx,hy):ctx.moveTo(hx,hy); } ctx.closePath(); };
     // Visible (q,r) window from camera + screen extent (+margin for lift).
     const halfW = G.CANVAS_W/(2*S), halfH = G.CANVAS_H/(2*S);
     const rMin = Math.floor((cam.y - halfH)/1.5) - 1, rMax = Math.ceil((cam.y + halfH)/1.5) + 3;
     const qSpan = r => [Math.floor((cam.x - halfW)/SQ3 - r/2) - 1, Math.ceil((cam.x + halfW)/SQ3 - r/2) + 1];
-    // Single back-to-front pass: higher tiles are lifted up the screen for 2.5D
-    // perspective; each draws its downhill side-wall columns (cliffs/ramps) first,
-    // then its lifted top face + motif. Walls toward back/side edges are hidden by
-    // the tile's own face; only exposed downhill faces remain visible.
+    // Draw a single tile: downhill side-wall columns (cliffs/ramps) then the
+    // lifted top face. Extracted so units can be re-capped (occluded) by the
+    // tiles in front of them after the main pass.
+    const drawTile = (q, r) => {
+      const t = G.wrapTile(ter, q, r); if(!t) return;
+      const L = levelOf(t);
+      const x = ox + SQ3*(q + r/2)*S, y = oy + 1.5*r*S - L*LIFT;
+      for(const [dq, dr] of G.HEX_DIRS) {
+        const dpx = SQ3*(dq + dr/2), dpy = 1.5*dr;
+        if(dpy <= 0) continue;                       // only front (downhill-on-screen) edges
+        const diff = L - levelOf(G.wrapTile(ter, q+dq, r+dr));
+        if(diff <= 0) continue;
+        const dl = Math.hypot(dpx, dpy), ux = dpx/dl, uy = dpy/dl, prx = -uy, pry = ux;
+        const emx = x + ux*apo, emy = y + uy*apo, half = R*0.52;
+        const a1x = emx+prx*half, a1y = emy+pry*half, a2x = emx-prx*half, a2y = emy-pry*half;
+        const drop = diff*LIFT;
+        const cliffCol = G.CLIFF_COLORS[t.biome] || '#555555';
+        ctx.fillStyle = G._shadeHex(cliffCol, Math.max(0.32, 0.52 - diff*0.05));
+        ctx.beginPath(); ctx.moveTo(a1x,a1y); ctx.lineTo(a2x,a2y);
+        ctx.lineTo(a2x, a2y+drop); ctx.lineTo(a1x, a1y+drop); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath(); ctx.moveTo(a1x, a1y+drop*0.5); ctx.lineTo(a2x, a2y+drop*0.5);
+        ctx.lineTo(a2x, a2y+drop); ctx.lineTo(a1x, a1y+drop); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = Math.max(1, PX*0.4);
+        ctx.beginPath(); ctx.moveTo(a1x,a1y); ctx.lineTo(a2x,a2y); ctx.stroke();
+      }
+      const TD = Math.ceil(R * 2);
+      ctx.drawImage(G.TerrainTiles.tile(t.biome, animFrame), (x - R) | 0, (y - R) | 0, TD, TD);
+      if(L) { hexPath(x, y); ctx.fillStyle = L > 0 ? `rgba(255,255,255,${Math.min(0.16, L*0.035)})` : `rgba(0,0,40,${Math.min(0.28, -L*0.06)})`; ctx.fill(); }
+    };
+    pl._drawTile = drawTile; pl._terLayout = { ox, oy, S, SQ3, LIFT };
+    // Single back-to-front pass.
     for(let r = rMin; r <= rMax; r++) {
       const [qMin, qMax] = qSpan(r);
       for(let q = qMin; q <= qMax; q++) {
         const t = G.wrapTile(ter, q, r); if(!t) continue;
+        drawTile(q, r);
         const L = levelOf(t);
         const x = ox + SQ3*(q + r/2)*S, y = oy + 1.5*r*S - L*LIFT;
-        const pal = G.TERRAIN_COLORS[t.biome] || ['#888','#555'];
-        // Side-wall columns toward lower, downward-facing neighbours.
-        for(const [dq, dr] of G.HEX_DIRS) {
-          const dpx = SQ3*(dq + dr/2), dpy = 1.5*dr;
-          if(dpy <= 0) continue;                       // only front (downhill-on-screen) edges
-          const diff = L - levelOf(G.wrapTile(ter, q+dq, r+dr));
-          if(diff <= 0) continue;
-          const dl = Math.hypot(dpx, dpy), ux = dpx/dl, uy = dpy/dl, prx = -uy, pry = ux;
-          const emx = x + ux*apo, emy = y + uy*apo, half = R*0.52;
-          const a1x = emx+prx*half, a1y = emy+pry*half, a2x = emx-prx*half, a2y = emy-pry*half;
-          const drop = diff*LIFT;
-          const cliffCol = G.CLIFF_COLORS[t.biome] || '#555555';
-          ctx.fillStyle = G._shadeHex(cliffCol, Math.max(0.32, 0.52 - diff*0.05));
-          ctx.beginPath(); ctx.moveTo(a1x,a1y); ctx.lineTo(a2x,a2y);
-          ctx.lineTo(a2x, a2y+drop); ctx.lineTo(a1x, a1y+drop); ctx.closePath(); ctx.fill();
-          // darker lower band + lit top lip = pixel-art relief
-          ctx.fillStyle = 'rgba(0,0,0,0.3)';
-          ctx.beginPath(); ctx.moveTo(a1x, a1y+drop*0.5); ctx.lineTo(a2x, a2y+drop*0.5);
-          ctx.lineTo(a2x, a2y+drop); ctx.lineTo(a1x, a1y+drop); ctx.closePath(); ctx.fill();
-          ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = Math.max(1, PX*0.4);
-          ctx.beginPath(); ctx.moveTo(a1x,a1y); ctx.lineTo(a2x,a2y); ctx.stroke();
-        }
-        // Lifted hex top face + motif.
-        const f = WATER.has(t.biome) ? 1.0 : (0.86 + L*0.06);
-        hexPath(x, y);
-        ctx.fillStyle = G._mixShade(pal[0], pal[1], f);
-        ctx.fill(); ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 1; ctx.stroke();
-        ctx.drawImage(G.TerrainTiles.motif(t.biome), (x - motifSz/2)|0, (y - motifSz/2)|0, Math.ceil(motifSz), Math.ceil(motifSz));
         // Mineable ore deposit: a small cluster of mineral crystals on the tile.
         if(t.ore && t.oreHp > 0) {
           const mat = G.ASTEROID_MAT[t.ore] || G.ASTEROID_MAT.rock;
@@ -2244,6 +2246,31 @@ G.Renderer = class {
         ctx.fillStyle = frac > 0.5 ? '#44dd66' : frac > 0.25 ? '#ddcc44' : '#dd4444';
         ctx.fillRect(bx2, by2, bw * frac, 2);
       }
+    }
+    // Occlusion re-cap: redraw the taller tiles directly in front of each unit so
+    // they hide units standing behind/below them (proper 2.5D depth). Track when
+    // the selected character ends up hidden to pop a reveal window.
+    const occ = new Set(); let selHidden = false;
+    for(const c of units) {
+      const uL = levelOf(G.wrapTile(ter, c.q, c.r));
+      for(const [dq, dr] of G.HEX_DIRS) {
+        if(1.5*dr <= 0) continue;                     // tiles toward the camera only
+        const nt = G.wrapTile(ter, c.q+dq, c.r+dr);
+        if(nt && levelOf(nt) - uL >= 1) { occ.add((c.q+dq)+','+(c.r+dr)); if(c === pl.selected) selHidden = true; }
+      }
+    }
+    for(const k of occ) { const [q, r] = k.split(',').map(Number); drawTile(q, r); }
+    // Reveal window: a ghost silhouette of the selected character while hidden.
+    if(selHidden && pl.selected) {
+      const c = pl.selected, cLift = levelOf(G.wrapTile(ter, c.q, c.r)) * LIFT;
+      const gx = ox + c.px*S, gy = oy + c.py*S - cLift - (c._z||0)*S;
+      ctx.save();
+      ctx.globalAlpha = 0.85; ctx.setLineDash([3, 3]); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(gx, gy - crad*0.6, crad*1.2, 0, Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
+      ctx.globalAlpha = 0.55; ctx.fillStyle = '#cfe6ff';
+      ctx.beginPath(); ctx.arc(gx, gy - crad*0.95, crad*0.42, 0, Math.PI*2); ctx.fill();
+      ctx.fillRect(gx - crad*0.34, gy - crad*0.6, crad*0.68, crad*0.85);
+      ctx.restore(); ctx.globalAlpha = 1;
     }
     // Foot projectiles.
     for(const s of pl.shots) {
@@ -2915,17 +2942,18 @@ G.Game = class {
       // Find nearest targetable ship within a generous click radius
       // Also check if click hits any module hex of the ship
       const CLICK_RADIUS = 48 / zoom; // world-space radius scales with zoom
-      let best = null, bestD = CLICK_RADIUS;
+      let best = null, bestD = CLICK_RADIUS, bestModule = null;
       for(const ship of this.space.allTargets().filter(s=>!s._inDust)) {
         let minD = Math.hypot(ship.x - wx, ship.y - wy);
         // Check if click is near any module hex
-        for(const inst of Object.values(ship.modules||{})) {
+        for(const [idx, inst] of Object.entries(ship.modules||{})) {
           if(inst.q == null) continue;
           const hp = G.hexToPixel(inst.q, inst.r, G.HEX_R);
           const ca = Math.cos(ship.angle), sa = Math.sin(ship.angle);
           const mx = ship.x + (hp.x * ca - hp.y * sa);
           const my = ship.y + (hp.x * sa + hp.y * ca);
           const d = Math.hypot(mx - wx, my - wy);
+          if(d < CLICK_RADIUS && d < minD) { minD = d; bestModule = { ship, inst, idx }; }
           minD = Math.min(minD, d);
         }
         if(minD < bestD) { bestD = minD; best = ship; }
@@ -2959,7 +2987,10 @@ G.Game = class {
           if(d < CLICK_RADIUS) { best = proj; break; }
         }
       }
-      if(best) {
+      if(bestModule) {
+        this.target = bestModule;
+        G.sound?.targetLock();
+      } else if(best) {
         this.target = best;
         G.sound?.targetLock();
       } else {
