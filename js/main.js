@@ -447,11 +447,12 @@ G.Renderer = class {
   }
   // Animated 2-D astronaut sprite, centred at (0,0) in the current transform.
   // rad = body radius in px; walking toggles the walk cycle; helmeted for EVA.
-  _drawCrewSprite(rad, role, walking, t, phase, helmet) {
+  _drawCrewSprite(rad, role, walking, t, phase, helmet, face = 1) {
     const ctx = this.ctx, col = this._crewColor(role);
     const swing = walking ? Math.sin(t*11 + phase) : 0;
     const bob = (walking ? Math.abs(Math.sin(t*11 + phase)) * 0.16 : Math.sin(t*2.5 + phase) * 0.06) * rad;
     ctx.save(); ctx.translate(0, -bob);
+    if(face < 0) ctx.scale(-1, 1);   // mirror left/right to face the steer / aim dir
     // drop shadow
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.beginPath(); ctx.ellipse(0, rad*1.05 + bob, rad*0.7, rad*0.26, 0, 0, Math.PI*2); ctx.fill();
@@ -2181,7 +2182,7 @@ G.Renderer = class {
         ctx.strokeStyle = '#ffffff'; ctx.globalAlpha = Math.min(1, c._swingT * 4); ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(0, 0, crad * 1.6, a - 0.9, a + 0.9); ctx.stroke(); ctx.globalAlpha = 1;
       }
-      this._drawCrewSprite(crad, c.ref.role, walking, tnow, this._crewPhase(c), false);
+      this._drawCrewSprite(crad, c.ref.role, walking, tnow, this._crewPhase(c), false, (c._faceX < -0.01) ? -1 : 1);
       // Hit flash.
       if(c._hurtT > 0) { ctx.globalAlpha = Math.min(0.7, c._hurtT * 3); ctx.fillStyle = '#ff3333'; ctx.beginPath(); ctx.arc(0, 0, crad, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1; }
       ctx.restore();
@@ -2284,6 +2285,13 @@ G.Renderer = class {
     const rh = Math.min(dh, G.CANVAS_H/(pl.S*1.5)/ter.H*dh);
     ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 1;
     ctx.strokeRect(ctr.x - rw/2, ctr.y - rh/2, rw, rh);
+    // Zoom level indicator
+    const zoom = 1.0 + (game._planetZoom || 0);
+    const zoomPct = Math.round(zoom * 100);
+    ctx.font = '5px "Press Start 2P",monospace';
+    ctx.fillStyle = '#88ccff';
+    ctx.textAlign = 'left';
+    ctx.fillText(`ZOOM ${zoomPct}%`, dx, dy + dh + 12);
     ctx.restore();
   }
 
@@ -4714,6 +4722,7 @@ G.Game = class {
         if(d < bestD) { bestD = d; tx = cxp; ty = cyp; }
       }
       const dx = tx - c.px, dy = ty - c.py, d = Math.hypot(dx, dy), step = spd * dt;
+      if(Math.abs(dx) > 0.001) c._faceX = dx < 0 ? -1 : 1;   // face along travel
       if(d <= step) { c.px = tx; c.py = ty; c.q = n.q; c.r = n.r; c.path.shift(); }
       else { c.px += dx / d * step; c.py += dy / d * step; }
     }
