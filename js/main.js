@@ -4719,12 +4719,14 @@ G.Game = class {
       unit.path = null; unit._z = 0; unit._vz = 0; unit._noRegenT = 2;
       this.ui.addMsg(ch.name + ' was downed — recovered at the ship', '#ff5555');
     } else {
+      const sys = G.SYSTEMS.find(s => s.id === this.currentSysId);
       // Faction rep loss for killing faction units in their system
-      if(ch.disposition === 'faction') {
-        const sys = G.SYSTEMS.find(s => s.id === this.currentSysId);
-        if(sys && ch.faction === sys.faction) {
-          this.setRel(ch.faction, this.getRel(ch.faction) - 5, 'killed faction unit');
-        }
+      if(ch.disposition === 'faction' && sys && ch.faction === sys.faction) {
+        this.setRel(ch.faction, this.getRel(ch.faction) - 5, 'killed faction unit');
+      }
+      // Faction rep gain for killing enemy units in faction-owned systems
+      if(ch.disposition === 'hostile' && sys && sys.faction !== 'neutral') {
+        this.setRel(sys.faction, this.getRel(sys.faction) + 3, 'killed enemy in system');
       }
       const idx = pl.npcs.indexOf(unit); if(idx >= 0) pl.npcs.splice(idx, 1);
       const dropId = ch.equip?.righthand || (Math.random() < 0.3 ? 'food' : null);
