@@ -4700,6 +4700,13 @@ G.Game = class {
     ch.hp -= dealt; unit._hurtT = 0.22; unit._noRegenT = 4;
     // Provoke: a non-hostile NPC struck by the player turns hostile.
     if(ch.disposition && ch.disposition !== 'hostile' && src && pl.crew.includes(src)) ch.disposition = 'hostile';
+    // Faction rep loss for attacking faction units in their system
+    if(ch.disposition === 'faction' && src && pl.crew.includes(src)) {
+      const sys = G.SYSTEMS.find(s => s.id === this.currentSysId);
+      if(sys && ch.faction === sys.faction) {
+        this.setRel(ch.faction, this.getRel(ch.faction) - 2, 'attacked faction unit');
+      }
+    }
     if(ch.hp <= 0) this._footDeath(pl, unit);
   }
 
@@ -4712,6 +4719,13 @@ G.Game = class {
       unit.path = null; unit._z = 0; unit._vz = 0; unit._noRegenT = 2;
       this.ui.addMsg(ch.name + ' was downed — recovered at the ship', '#ff5555');
     } else {
+      // Faction rep loss for killing faction units in their system
+      if(ch.disposition === 'faction') {
+        const sys = G.SYSTEMS.find(s => s.id === this.currentSysId);
+        if(sys && ch.faction === sys.faction) {
+          this.setRel(ch.faction, this.getRel(ch.faction) - 5, 'killed faction unit');
+        }
+      }
       const idx = pl.npcs.indexOf(unit); if(idx >= 0) pl.npcs.splice(idx, 1);
       const dropId = ch.equip?.righthand || (Math.random() < 0.3 ? 'food' : null);
       if(dropId) pl.loot.push({ x: unit.px, y: unit.py, item: dropId, qty: 1, life: 40 });
