@@ -547,7 +547,13 @@ G.UI = class {
         e.preventDefault();
         const g = G.game;
         if(!g || g.state!=='space' || !g.player || g.player.disabled) return;
-        g._useAbility(slot.dataset.aid, g.player);
+        const selectedChar = g._selectedCrew;
+        if(selectedChar && slot.dataset.isSkill) {
+          const sk = G.CHAR_SKILLS[slot.dataset.aid];
+          if(sk) g._castSkill(selectedChar, sk, selectedChar._faceX || 0, selectedChar._faceY || 1);
+        } else {
+          g._useAbility(slot.dataset.aid, g.player);
+        }
       });
       abar.addEventListener('contextmenu', e=>e.preventDefault());
     }
@@ -574,30 +580,56 @@ G.UI = class {
   updateAbilityBar(player) {
     const bar = document.getElementById('ability-bar');
     if(!bar) return;
-    const abilities = player?.abilities || [];
-    const cds = player?.abilityCooldowns || {};
     const LABELS = ['1','2','3','4','5','6','7','8','9','0'];
     let html = '';
-    const blocked = player?._abilityBlocked || {};
-    for(let i=0;i<10;i++) {
-      const aid = abilities[i];
-      const def = aid ? G.ABILITIES?.[aid] : null;
-      if(!def) continue;
-      const cd = cds[aid] || 0;
-      // Greyed out when the granting module is destroyed; hover shows the warning.
-      const blk = blocked[aid];
-      const style = blk
-        ? `border-color:#33333388;box-shadow:none;opacity:0.4;filter:grayscale(1)`
-        : `border-color:${def.color}88;box-shadow:0 0 6px ${def.color}33`;
-      const title = blk ? `${blk} destroyed — ${def.name} unavailable` : def.name;
-      html += `<div class="ability-slot${blk?' ability-blocked':''}" data-aid="${aid}" title="${title}" style="${style}">
-        <div class="ability-slot-num">${LABELS[i]}</div>
-        <div class="ability-slot-icon-wrap">
-          <div class="ability-slot-icon" style="color:${blk?'#777':def.color}">${def.icon}</div>
-          ${blk?`<div class="ability-slot-cd" style="color:#ff6644">✖</div>`:(cd>0?`<div class="ability-slot-cd">${Math.ceil(cd)}s</div>`:'')}
-        </div>
-        <div class="ability-slot-name" style="color:${blk?'#777':def.color+'dd'}">${def.name}</div>
-      </div>`;
+
+    const selectedChar = G.game?._selectedCrew;
+    if(selectedChar && selectedChar.ref) {
+      // Show character skills
+      const ch = selectedChar.ref;
+      const cds = ch.skillCd || {};
+      const hotbar = ch.hotbar || [];
+      for(let i = 0; i < 4; i++) {
+        const skillId = hotbar[i];
+        const def = skillId ? G.CHAR_SKILLS?.[skillId] : null;
+        if(!def) continue;
+        const cd = cds[skillId] || 0;
+        const style = `border-color:${def.color}88;box-shadow:0 0 6px ${def.color}33`;
+        const title = `${def.name} — ${def.mana} mana`;
+        html += `<div class="ability-slot" data-aid="${skillId}" data-is-skill="true" title="${title}" style="${style}">
+          <div class="ability-slot-num">${LABELS[i]}</div>
+          <div class="ability-slot-icon-wrap">
+            <div class="ability-slot-icon" style="color:${def.color}">${def.icon}</div>
+            ${cd>0?`<div class="ability-slot-cd">${Math.ceil(cd)}s</div>`:''}
+          </div>
+          <div class="ability-slot-name" style="color:${def.color+'dd'}">${def.name}</div>
+        </div>`;
+      }
+    } else {
+      // Show ship abilities
+      const abilities = player?.abilities || [];
+      const cds = player?.abilityCooldowns || {};
+      const blocked = player?._abilityBlocked || {};
+      for(let i=0;i<10;i++) {
+        const aid = abilities[i];
+        const def = aid ? G.ABILITIES?.[aid] : null;
+        if(!def) continue;
+        const cd = cds[aid] || 0;
+        // Greyed out when the granting module is destroyed; hover shows the warning.
+        const blk = blocked[aid];
+        const style = blk
+          ? `border-color:#33333388;box-shadow:none;opacity:0.4;filter:grayscale(1)`
+          : `border-color:${def.color}88;box-shadow:0 0 6px ${def.color}33`;
+        const title = blk ? `${blk} destroyed — ${def.name} unavailable` : def.name;
+        html += `<div class="ability-slot${blk?' ability-blocked':''}" data-aid="${aid}" title="${title}" style="${style}">
+          <div class="ability-slot-num">${LABELS[i]}</div>
+          <div class="ability-slot-icon-wrap">
+            <div class="ability-slot-icon" style="color:${blk?'#777':def.color}">${def.icon}</div>
+            ${blk?`<div class="ability-slot-cd" style="color:#ff6644">✖</div>`:(cd>0?`<div class="ability-slot-cd">${Math.ceil(cd)}s</div>`:'')}
+          </div>
+          <div class="ability-slot-name" style="color:${blk?'#777':def.color+'dd'}">${def.name}</div>
+        </div>`;
+      }
     }
     bar.innerHTML = html;
   }
