@@ -100,7 +100,9 @@
       "Bash(sed -n '306,340p' js/enemies.js)",
       "Bash(sed -n '1177,1200p' js/npc.js)",
       "Bash(awk 'NR>1302 && /_steerTo\\\\s*\\\\\\(|_thrust\\\\s*\\\\\\(/ {print NR\": \"$0}' js/npc.js)",
-      "Bash(rtk find *)"
+      "Bash(rtk find *)",
+      "Bash(awk -F: '$1 > 3595 && $1 < 3700 {print; exit}')",
+      "Bash(awk *)"
     ]
   }
 }

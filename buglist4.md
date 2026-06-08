@@ -319,3 +319,10 @@ right now its civilization, but space above is RTS.  need to make RTS.
 planet day/night simulation/ weather/ events/ enemies/
 
 neutral/hostile npc/creatures
+fishing - staring class sushi chef - dave the diver gameplay path
+
+make start craft suggest different player starter paths
+
+make spaceports a few tiles / small  planet floating over stars
+
+to reduce overhead, have generic weapopns that give move sets.  all customization happens on top-> crafting + etcinc

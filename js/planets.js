@@ -583,7 +583,7 @@ G._earthElev = (lon, lat) => {
 };
 
 // Biome from the three layers. elev/temp/moist are all ~0..1.
-function _classifyBiome(elev, temp, moist, cfg) {
+function _classifyBiome(elev, temp, moist, cfg, q, r, W, H, rng) {
   const sea = cfg.sea;
   if(cfg.liquid === 'cloud') return elev > 0.66 ? 'ridge' : (elev > 0.5 ? 'rocks' : 'liquid'); // gas giant bands
   if(elev < sea - 0.16) return cfg.liquid === 'lava' ? 'liquid' : 'deep_water';
@@ -593,8 +593,13 @@ function _classifyBiome(elev, temp, moist, cfg) {
   // ── land ──
   // Only the very highest peaks become impassable mountain; a wide walkable
   // 'ridge' highland band sits below, so mountains are far less common.
-  if(elev > cfg.mtn + 0.22) return temp < 0.32 ? 'glacier' : 'mountain';   // snow-capped peaks
-  if(elev > cfg.mtn - 0.04) return temp < 0.30 ? 'glacier' : 'ridge';
+  const distToPole = Math.min(r, H - r);
+  const atPole = distToPole < H * 0.15;  // Within 15% of pole
+  if(elev > cfg.mtn + 0.22) {
+    if(atPole) return 'glacier';  // Always glacier at poles
+    return temp < 0.32 ? (rng() < 0.1 ? 'glacier' : 'ridge') : (rng() < 0.1 ? 'mountain' : 'ridge');  // 10% chance
+  }
+  if(elev > cfg.mtn - 0.04) return (atPole || temp < 0.30) ? 'glacier' : 'ridge';
   if(cfg.liquid === 'lava') return moist < cfg.arid ? 'rocks' : 'dirt';
   if(temp < 0.22) return 'glacier';
   if(temp < 0.34) return 'tundra';
@@ -732,7 +737,7 @@ G.genPlanetTerrain = function(body) {
       const temp = G.clamp(cfg.baseTemp + warm * cfg.warmth - above * cfg.lapse + (moistN(nx + 13, ny + 7) - 0.5) * 0.12, 0, 1);
       let moist = moistN(nx - 9, ny - 9);
       moist = G.clamp(moist * 0.9 + tband * 0.12, 0, 1);       // mild equatorial wet bias
-      const biome = _classifyBiome(elev, temp, moist, cfg);
+      const biome = _classifyBiome(elev, temp, moist, cfg, q, r, W, H, rng);
       // Discrete elevation tier -5..+5, anchored at sea level (water = negative).
       const level = G.clamp(Math.round((elev - cfg.sea) * 10), -5, 5);
       tiles.set(G.hexKey(q, r), { q, r, elev, level, moist, temp, biome, walkable: !G.TERRAIN_IMPASSABLE.has(biome) && level < 5 });
