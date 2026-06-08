@@ -2493,6 +2493,7 @@ G.Renderer = class {
     // Typed tile fills (sun / near-sun / asteroid / dust / planet / station)
     const tiles = space.hexTiles ? [...space.hexTiles.values()] : [];
     for(const t of tiles) {
+      if(!space.revealedHexes?.has(G.hexKey(t.q, t.r))) continue;
       const fc = t.type==='sun'?'rgba(255,200,60,0.08)'
         : t.type==='near_sun'?'rgba(255,80,30,0.14)'
         : t.type==='asteroid'?(t.density==='dense'?'rgba(130,95,55,0.18)':'rgba(120,90,50,0.10)')
@@ -2526,6 +2527,7 @@ G.Renderer = class {
       asteroidHexes.add(G.hexKey(h.q, h.r));
     }
     for(const key of asteroidHexes) {
+      if(!space.revealedHexes?.has(key)) continue;
       const {q, r} = G.hexFromKey(key);
       const {x, y} = hexXY(q, r);
       if(x < -S || x > G.CANVAS_W+S || y < -S || y > G.CANVAS_H+S) continue;
@@ -2553,6 +2555,7 @@ G.Renderer = class {
     );
 
     for(const [b, h] of bodyMap) {
+      if(!space.revealedHexes?.has(G.hexKey(h.q, h.r))) continue;
       const {x, y} = hexXY(h.q, h.r);
       ctx.save();
       if(b.type === 'star') {
@@ -4024,6 +4027,15 @@ G.Game = class {
     if(!p.disabled) { this._playerDisabledMsgShown = false; p._disabledSoundPlayed = false; p._postDisableDmg = 0; }
     if(p.disabled && (p._postDisableDmg||0) >= p.disabledHp) { this.ui.closeDisabledShipPopup(); this._playerDied(); }
     if(this.target&&(this.target.dead||this.target.boarded)) this.target=null;
+
+    // Reveal hexes around player
+    const playerHex = G.worldToHex(p.x, p.y);
+    for(let dq=-1; dq<=1; dq++) {
+      for(let dr=-1; dr<=1; dr++) {
+        const key = G.hexKey(playerHex.q+dq, playerHex.r+dr);
+        this.space.revealedHexes.add(key);
+      }
+    }
 
     this._updateCrewPositions(dt, p);
   }

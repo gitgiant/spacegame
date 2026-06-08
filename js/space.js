@@ -79,6 +79,7 @@ G.Space = class {
 
   loadSystem(sysId) {
     this.sysId = sysId;
+    this.revealedHexes.clear();
     const sys  = G.SYSTEMS.find(s=>s.id===sysId);
     if(!sys) return;
 
