@@ -2178,9 +2178,13 @@ G.Renderer = class {
       }
       // Melee swing arc.
       if(c._swingT > 0) {
-        const a = Math.atan2(c._faceY || 1, c._faceX || 0);
-        ctx.strokeStyle = '#ffffff'; ctx.globalAlpha = Math.min(1, c._swingT * 4); ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(0, 0, crad * 1.6, a - 0.9, a + 0.9); ctx.stroke(); ctx.globalAlpha = 1;
+        const baseAngle = Math.atan2(c._faceY || 1, c._faceX || 0);
+        const progress = 1 - (c._swingT / 0.18);  // 0 (start) to 1 (end)
+        const swingStart = baseAngle - 1.2;
+        const swingEnd = baseAngle + 0.5;
+        const currentAngle = swingStart + (swingEnd - swingStart) * progress;
+        ctx.strokeStyle = '#ffff88'; ctx.globalAlpha = Math.min(1, c._swingT * 5); ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(0, 0, crad * 1.6, currentAngle - 0.6, currentAngle + 0.6); ctx.stroke(); ctx.globalAlpha = 1;
       }
       this._drawCrewSprite(crad, c.ref.role, walking, tnow, this._crewPhase(c), false, (c._faceX < -0.01) ? -1 : 1);
       // Hit flash.
@@ -4670,6 +4674,10 @@ G.Game = class {
       G.sound?.weapon?.('laser');
     } else {
       const range = wpn.range || 1.3;
+      const baseAngle = Math.atan2(aimy, aimx);
+      c._swingBaseAngle = baseAngle;
+      c._swingRange = range;
+      // Damage all NPCs in swing range
       for(const n of pl.npcs) { if(n.ref.hp <= 0) continue; const d = this._planetDelta(pl, c.px, c.py, n.px, n.py); if(d.dist <= range + 0.5) { const l = d.dist || 1; if((d.dx / l) * aimx + (d.dy / l) * aimy > 0 || d.dist < 0.8) this._applyFootDamage(pl, n, wpn.dmg || 18, c); } }
       c._swingT = 0.18; G.sound?.weapon?.('cannon');
     }

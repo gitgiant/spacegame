@@ -14,6 +14,48 @@ G.FACTIONS = {
 
 G.FACTIONS.independent = { id:'independent', name:'Independent', color:'#aaaaaa', bgCol:'#0a0a0a', rel:0 };
 
+// ── Faction music tracks ─────────────────────────────────────────────────────
+// Procedural songs for the adaptive engine (sound.js). Each track keeps the
+// vertical-layer intensity system but supplies its own chord progressions per
+// mode (explore/combat/boss), tempo, and timbre tint — so faction space sounds
+// distinct while still rising into combat. Chord = [rootSemitoneOffsetFromA,
+// quality]; `tint` overrides oscillator types + a per-track tone (lowpass Hz).
+G.MUSIC_TRACKS = [
+  { id:'independent', name:'Drifters’ Expanse', faction:'independent', tempo:90,
+    tint:{ pad:'triangle', lead:'triangle', bass:'sine', arp:'triangle', tone:14000, detune:0.003 },
+    progs:{ explore:[[0,'min'],[-4,'maj'],[3,'maj'],[-2,'maj']],
+            combat:[[0,'min'],[-2,'maj'],[-4,'maj'],[-5,'maj']],
+            boss:[[0,'min'],[1,'maj'],[5,'min'],[-5,'maj']] } },
+  { id:'earth', name:'Sol Authority', faction:'earth', tempo:96,
+    tint:{ pad:'triangle', lead:'square', bass:'sawtooth', arp:'triangle', tone:13000, detune:0.004 },
+    progs:{ explore:[[0,'maj'],[-5,'maj'],[-7,'maj'],[-2,'maj']],
+            combat:[[0,'maj'],[-2,'maj'],[-5,'maj'],[-7,'maj']],
+            boss:[[0,'maj'],[3,'min'],[-2,'maj'],[-5,'maj']] } },
+  { id:'rebellion', name:'Ashes & Iron', faction:'rebellion', tempo:104,
+    tint:{ pad:'sawtooth', lead:'sawtooth', bass:'sawtooth', arp:'square', tone:11000, detune:0.006 },
+    progs:{ explore:[[0,'min'],[-2,'maj'],[3,'min'],[-4,'maj']],
+            combat:[[0,'min'],[-5,'maj'],[-7,'maj'],[-2,'maj']],
+            boss:[[0,'min'],[-7,'maj'],[3,'min'],[-5,'maj']] } },
+  { id:'pirate', name:'Black Flag Run', faction:'pirate', tempo:88,
+    tint:{ pad:'sawtooth', lead:'square', bass:'sawtooth', arp:'sawtooth', tone:9000, detune:0.007 },
+    progs:{ explore:[[0,'min'],[1,'maj'],[-4,'maj'],[-2,'maj']],
+            combat:[[0,'min'],[1,'maj'],[5,'min'],[-5,'maj']],
+            boss:[[0,'min'],[1,'maj'],[6,'dim'],[-5,'maj']] } },
+  { id:'alien', name:'Shard Resonance', faction:'alien', tempo:76,
+    tint:{ pad:'sine', lead:'sine', bass:'triangle', arp:'sine', tone:6500, detune:0.010 },
+    progs:{ explore:[[0,'dim'],[2,'dim'],[6,'dim'],[4,'dim']],
+            combat:[[0,'dim'],[6,'dim'],[2,'maj'],[8,'dim']],
+            boss:[[0,'dim'],[6,'dim'],[1,'dim'],[7,'dim']] } },
+  { id:'contested', name:'No Man’s Sky', faction:'contested', tempo:100,
+    tint:{ pad:'triangle', lead:'sawtooth', bass:'sawtooth', arp:'square', tone:10000, detune:0.005 },
+    progs:{ explore:[[0,'min'],[-3,'min'],[-5,'maj'],[2,'dim']],
+            combat:[[0,'min'],[1,'maj'],[-4,'maj'],[-5,'maj']],
+            boss:[[0,'min'],[-2,'maj'],[1,'maj'],[6,'dim']] } },
+];
+// faction id -> track id (several factions map onto a shared track).
+G.MUSIC_FACTION_MAP = { earth:'earth', rebellion:'rebellion', pirate:'pirate',
+  alien:'alien', contested:'contested', neutral:'independent', independent:'independent' };
+
 // ── Character Classes ──────────────────────────────────────
 G.CLASSES = {
   hacker:       { id:'hacker',       name:'HACKER',       color:'#00ff88', icon:'⌨', desc:'Electronic warfare & infiltration',  startAbility:'chaff' },
