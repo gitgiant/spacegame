@@ -598,6 +598,7 @@ G.Renderer = class {
     for(const cr of (player.crew||[])) {
       if(!cr.eva) continue;
       ctx.save(); ctx.translate(cr.ex||0, cr.ey||0);
+      ctx.rotate(cr._evaAngle || 0);
       if(cr === G.game?._selectedCrew) { ctx.beginPath(); ctx.arc(0,0,rad*1.8,0,Math.PI*2); ctx.strokeStyle='#ffff66'; ctx.lineWidth=2/z; ctx.stroke(); }
       this._drawCrewSprite(rad, cr.role, true, t, this._crewPhase(cr), true);
       ctx.restore();
