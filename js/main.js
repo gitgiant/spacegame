@@ -2681,7 +2681,7 @@ G.Game = class {
     // views cross at an identical scale → no zoom jump when toggling.
     this.spacecam_minZoom = G.HEX_PX * this.hexmapcam_maxZoom / G.HEX_WORLD;
     this.planetcam_minZoom = 0.4;
-    this.planetcam_maxZoom = 3.0;
+    this.planetcam_maxZoom = 1.0;
     this.planetcam_sensitivity = 0.0008;
     this._planetZoom = 0;
     this._interactPromptTarget = null;

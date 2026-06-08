@@ -4129,8 +4129,8 @@ G.UI = class {
 
     html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:6px">';
     html += '<span style="color:#aabbcc;min-width:100px">MAX ZOOM</span>';
-    html += '<input type="range" id="cam-planet-maxzoom" min="1.0" max="6.0" step="0.1" value="'+(game?.planetcam_maxZoom||3.0)+'" style="flex:1;accent-color:#00ddff">';
-    html += '<span id="cam-planet-maxzoom-val" style="color:#00ddff;min-width:40px">'+((game?.planetcam_maxZoom||3.0).toFixed(2))+'</span>';
+    html += '<input type="range" id="cam-planet-maxzoom" min="1.0" max="6.0" step="0.1" value="'+(game?.planetcam_maxZoom||1.0)+'" style="flex:1;accent-color:#00ddff">';
+    html += '<span id="cam-planet-maxzoom-val" style="color:#00ddff;min-width:40px">'+((game?.planetcam_maxZoom||1.0).toFixed(2))+'</span>';
     html += '</div>';
 
     html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:6px">';

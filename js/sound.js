@@ -65,6 +65,13 @@ G.SoundEngine = class {
     this._mMuffled         = false;
     this._mLastTick        = 0;
 
+    // Faction music track state (see G.MUSIC_TRACKS)
+    this._mTrackIdx  = 0;       // index into G.MUSIC_TRACKS
+    this._mAutoTrack = true;    // follow the current system faction automatically
+    this._mTint      = null;    // per-track timbre overrides
+    this._lastFaction = 'independent';
+    this._musicTone  = null;    // per-track tone (lowpass) node
+
     // Resume AudioContext on any user interaction (iOS requires creation + resume inside gesture)
     const tryResume = () => {
       if (!this._ac) this._ctx();
@@ -198,9 +205,16 @@ G.SoundEngine = class {
     this._musicFilter.Q.value = 0.4;
     this._musicFilter.connect(this._musicMuffle);
 
+    // Per-track tone shaping (each faction track sets its own cutoff).
+    this._musicTone = ac.createBiquadFilter();
+    this._musicTone.type = 'lowpass';
+    this._musicTone.frequency.value = 14000;
+    this._musicTone.Q.value = 0.4;
+    this._musicTone.connect(this._musicFilter);
+
     this._musicBus = ac.createGain();
     this._musicBus.gain.value = 1;
-    this._musicBus.connect(this._musicFilter);
+    this._musicBus.connect(this._musicTone);
 
     // Per-stem vertical-mix gains, all start silent
     this._mLayers = {};
@@ -1636,13 +1650,14 @@ G.SoundEngine = class {
   // ── Music voices ─────────────────────────────────────────
   _padVoice(freq, t, dur) {
     const ac = this._ac;
+    const tint = this._mTint || {};
     const osc = ac.createOscillator();
-    osc.type = 'triangle';
+    osc.type = tint.pad || 'triangle';
     osc.frequency.value = freq;
     // Slow detuned partial for warmth
     const osc2 = ac.createOscillator();
     osc2.type = 'sine';
-    osc2.frequency.value = freq * 1.003;
+    osc2.frequency.value = freq * (1 + (tint.detune ?? 0.003));
     const vib = ac.createOscillator();
     vib.frequency.value = 0.25 + Math.random() * 0.3;
     const vibG = ac.createGain(); vibG.gain.value = freq * 0.004;
@@ -1661,7 +1676,7 @@ G.SoundEngine = class {
   _bassVoice(freq, t, dur, style) {
     const ac = this._ac;
     const osc = ac.createOscillator();
-    osc.type = style === 'soft' ? 'sine' : 'sawtooth';
+    osc.type = style === 'soft' ? 'sine' : (this._mTint?.bass || 'sawtooth');
     osc.frequency.value = freq;
     const flt = ac.createBiquadFilter();
     flt.type = 'lowpass';
@@ -1678,7 +1693,7 @@ G.SoundEngine = class {
   _arpVoice(freq, t, dur) {
     const ac = this._ac;
     const osc = ac.createOscillator();
-    osc.type = 'triangle';
+    osc.type = this._mTint?.arp || 'triangle';
     osc.frequency.value = freq;
     const g = ac.createGain();
     g.gain.setValueAtTime(0.0001, t);
@@ -1691,7 +1706,7 @@ G.SoundEngine = class {
   _leadVoice(freq, t, dur) {
     const ac = this._ac;
     const osc = ac.createOscillator();
-    osc.type = 'sawtooth';
+    osc.type = this._mTint?.lead || 'sawtooth';
     osc.frequency.setValueAtTime(freq, t);
     const flt = ac.createBiquadFilter();
     flt.type = 'lowpass'; flt.frequency.value = 2400; flt.Q.value = 2;
