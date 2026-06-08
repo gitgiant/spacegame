@@ -1520,7 +1520,12 @@ G.UI = class {
 
     this._buildCharGear();
 
-    document.getElementById('char-screen-overlay').classList.remove('hidden');
+    const overlay = document.getElementById('char-screen-overlay');
+    overlay.classList.remove('hidden');
+    // Only close via the close button, not background clicks
+    overlay.onclick = e => {
+      if(e.target === overlay) e.stopPropagation();
+    };
     document.getElementById('char-screen-close').onclick = () => this.hideCharScreen();
   }
 
