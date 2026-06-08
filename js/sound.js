@@ -96,6 +96,7 @@ G.SoundEngine = class {
       this._uiOut.connect(this._ac.destination);
       this._buildSfxReverbGraph();
       this._buildMusicGraph();
+      this._applyTrack(this._mTrackIdx);
       this._startEngine();
       if (this.musicEnabled) this._musicStart();
       this._loadSoundFiles();
@@ -1494,18 +1495,71 @@ G.SoundEngine = class {
     return t * t * (3 - 2 * t);
   }
 
-  // Chord progressions per mode (root semitone offset from A, chord quality).
-  // Horizontal rescoring swaps the active set on measure boundaries.
+  // Active faction track, or null.
+  _curTrack() { return (G.MUSIC_TRACKS || [])[this._mTrackIdx] || null; }
+
+  // Chord progressions per mode for the active track (root semitone offset from
+  // A, chord quality). Horizontal rescoring swaps the active set on bar lines.
   get _mProgs() {
-    return {
-      // i – VI – III – VII : spacious, calm
+    return this._curTrack()?.progs || {
       explore: [[0, 'min'], [-4, 'maj'], [3, 'maj'], [-2, 'maj']],
-      // i – VII – VI – V(maj) : driving harmonic-minor tension
       combat:  [[0, 'min'], [-2, 'maj'], [-4, 'maj'], [-5, 'maj']],
-      // i – ♭II – iv – V : dark, Neapolitan menace
       boss:    [[0, 'min'], [1, 'maj'], [5, 'min'], [-5, 'maj']],
     };
   }
+
+  // ── Faction track switching ──────────────────────────────
+  // Apply a track's tempo + timbre. Cheap; safe to call any time (pad refreshes
+  // with the new harmony on the next bar).
+  _applyTrack(idx) {
+    const tracks = G.MUSIC_TRACKS || []; if (!tracks.length) return;
+    this._mTrackIdx = ((idx % tracks.length) + tracks.length) % tracks.length;
+    const tr = tracks[this._mTrackIdx];
+    this._mTempo   = tr.tempo || 90;
+    this._mBeatDur = 60 / this._mTempo;
+    this._mTint    = tr.tint || null;
+    if (this._musicTone && this._ac)
+      this._musicTone.frequency.setTargetAtTime(tr.tint?.tone || 14000, this._ac.currentTime, 0.6);
+  }
+
+  // Manual picker: lock to a track by index (disables auto-follow).
+  setMusicTrack(idx, manual = true) {
+    if (manual) this._mAutoTrack = false;
+    this._ctx();
+    this._applyTrack(idx);
+    if (this.musicEnabled) this._musicStart();
+    this._notifyMusicUI();
+  }
+  musicNext() { this.setMusicTrack(this._mTrackIdx + 1); }
+  musicPrev() { this.setMusicTrack(this._mTrackIdx - 1); }
+
+  musicPlay() { this._ctx(); this.setMusicEnabled(true);  this._notifyMusicUI(); }
+  musicStop() { this.setMusicEnabled(false); this._notifyMusicUI(); }
+
+  // Auto-follow toggle; when re-enabled, snap to the last known faction.
+  musicSetAuto(on) {
+    this._mAutoTrack = !!on;
+    if (on) this.musicFaction(this._lastFaction);
+    this._notifyMusicUI();
+  }
+
+  // Game calls this when the local system's faction changes. Only switches while
+  // auto-follow is on; manual picks stay put.
+  musicFaction(faction) {
+    this._lastFaction = faction || 'independent';
+    if (!this._mAutoTrack) return;
+    const tid = (G.MUSIC_FACTION_MAP || {})[this._lastFaction] || 'independent';
+    const idx = (G.MUSIC_TRACKS || []).findIndex(t => t.id === tid);
+    if (idx >= 0 && idx !== this._mTrackIdx) { this._applyTrack(idx); this._notifyMusicUI(); }
+  }
+
+  // Snapshot for the options music picker.
+  currentTrack() {
+    const tr = this._curTrack(), tracks = G.MUSIC_TRACKS || [];
+    return { name: tr?.name || '—', id: tr?.id, idx: this._mTrackIdx, count: tracks.length,
+             playing: !!(this.musicEnabled && this._mTimer), auto: this._mAutoTrack };
+  }
+  _notifyMusicUI() { try { G.ui?.refreshMusicPicker?.(); } catch (e) {} }
   _mChordTones(type) {
     return type === 'min' ? [0, 3, 7]
          : type === 'maj' ? [0, 4, 7]

@@ -2040,7 +2040,7 @@ G.Renderer = class {
   // The surface is a torus: a finite WxH hex block repeated forever, so there
   // is no map edge — the camera scrolls and the field simply repeats. Tiles in
   // view are drawn each frame: pointy-top fills + motif + pixel-art relief.
-  renderPlanet(game) {
+  renderPlanet(game, dt) {
     const ctx = this.ctx, pl = game._planet; if(!pl) return;
     ctx.fillStyle = '#05080f'; ctx.fillRect(0, 0, G.CANVAS_W, G.CANVAS_H);
     const ter = pl.terrain, baseS = pl.S, zoom = 1.0 + (game._planetZoom || 0), S = baseS * zoom;
@@ -2217,11 +2217,11 @@ G.Renderer = class {
     }
     this._drawPlanetMinimap(game, pl);
     this._drawPlanetHUD(game, pl);
-    this._drawPlanetTooltip(game, pl, ox, oy, S, LIFT, levelOf);
+    this._drawPlanetTooltip(game, pl, ox, oy, S, LIFT, levelOf, dt);
   }
 
   // Tooltip for the terrain hex under the cursor: biome, elevation tier, footing.
-  _drawPlanetTooltip(game, pl, ox, oy, S, LIFT, levelOf) {
+  _drawPlanetTooltip(game, pl, ox, oy, S, LIFT, levelOf, dt) {
     const mx = game.input?.mouseX || 0, my = game.input?.mouseY || 0;
     // Skip when hovering the minimap (top-right), buttons (bottom) or title strip.
     if(my < 56 || my > G.CANVAS_H - 64) return;
@@ -2234,7 +2234,12 @@ G.Renderer = class {
       const lift = levelOf(t) * LIFT;
       if(lift) { const cw2 = G.pixelToHex((mx - ox) / S, (my - oy + lift) / S, 1); const t2 = G.wrapTile(ter, cw2.q, cw2.r); if(t2) t = t2; }
     }
-    if(!t) return;
+    if(!t) { pl._tooltipHoverTime = 0; return; }
+    // Track hover time for tooltip delay
+    const tkey = G.hexKey(t.q, t.r);
+    if(pl._lastHoveredTile !== tkey) { pl._lastHoveredTile = tkey; pl._tooltipHoverTime = 0; }
+    pl._tooltipHoverTime = (pl._tooltipHoverTime || 0) + dt;
+    if(pl._tooltipHoverTime < 0.5) return;  // Don't show tooltip until hovered 0.5s
     const lvl = t.level || 0;
     const oreName = (t.ore && t.oreHp > 0) ? (G.ITEMS[G.ASTEROID_MAT[t.ore]?.drop || t.ore]?.name || t.ore) : null;
     const lines = [
@@ -5385,7 +5390,7 @@ G.Game.prototype._loop = function(ts) {
       this.updatePlanetCrew(dt);
       this.updatePlanetMining(dt);
       this.updatePlanetCamera(dt);
-      this.renderer.renderPlanet(this);
+      this.renderer.renderPlanet(this, dt);
     } else {
       if(this.input.pressed('KeyL')) this.launch();
       this.player?._regenPassive?.(dt, 0.5);
@@ -5442,6 +5447,13 @@ G.Game.prototype._updateMusic = function(dt) {
   const muffle = this.state==='menu' || this.state==='landed' || this.state==='dead'
               || this.state==='landing' || optsOpen;
   snd.musicMuffle(muffle);
+
+  // Follow the local system's faction (auto-track; manual picks ignore this).
+  if(this.currentSysId !== this._musicSysId) {
+    this._musicSysId = this.currentSysId;
+    const sys = G.SYSTEMS.find(s => s.id === this.currentSysId);
+    snd.musicFaction(sys?.faction || 'independent');
+  }
 
   // Intensity from live combat. Exploration = 0 → quiet atmospheric bed.
   let intensity = 0;
