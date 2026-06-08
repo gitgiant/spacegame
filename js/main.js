@@ -4186,19 +4186,21 @@ G.Game = class {
       }
     }
 
-    // Camera: follow selected crew (when not piloting), follow ship otherwise,
+    // Camera: follow selected crew (EVA or interior), follow ship otherwise,
     // allow drag-pan when no character selected.
     const _crewFollowCam = (() => {
-      const sc = this._selectedCrew || (_noPilotAuto ? _autoChar : null);
-      if(!sc || sc.eva) return null;
-      if(p._slotAt(sc.q, sc.r) === 'cockpit') return null;
+      const sc = this._selectedCrew;
+      if(!sc) return null;
+      if(!sc.eva && p._slotAt(sc.q, sc.r) === 'cockpit') return null; // don't follow pilot
       return sc;
     })();
     if(_crewFollowCam) {
       // Lerp cam offset to zero when following a character
       this._spaceDragOffX = G.lerp(this._spaceDragOffX || 0, 0, Math.min(dt * 4, 1));
       this._spaceDragOffY = G.lerp(this._spaceDragOffY || 0, 0, Math.min(dt * 4, 1));
-      const wpos = p._crewWorld(_crewFollowCam);
+      const wpos = _crewFollowCam.eva
+        ? { x: _crewFollowCam.ex || 0, y: _crewFollowCam.ey || 0 }
+        : p._crewWorld(_crewFollowCam);
       this.camX = G.lerp(this.camX, wpos.x - G.CANVAS_W/2 + (this._spaceDragOffX || 0), Math.min(dt * 6, 1));
       this.camY = G.lerp(this.camY, wpos.y - G.CANVAS_H/2 + (this._spaceDragOffY || 0), Math.min(dt * 6, 1));
     } else {
