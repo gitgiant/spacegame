@@ -2322,13 +2322,14 @@ G.Renderer = class {
     ctx.textAlign = 'left';
     ctx.fillStyle = '#557'; ctx.font = '6px "Press Start 2P",monospace';
     const hint = pl.selected
-      ? 'WASD move • Shift sprint • SPACE jump/jetpack • F attack • C character • stand on ⛏ ore to mine • click tile to path'
+      ? 'WASD move • Shift sprint • SPACE jump/jetpack • L-click main / R-click secondary (aim at cursor) • C character • stand on ⛏ ore to mine'
       : 'Click a crew member to control • WASD/arrows pan camera • C character';
     ctx.fillText(hint, 12, G.CANVAS_H - 16);
     // Selected character vitals (bottom-left, above the hint).
     if(pl.selected?.ref) {
       const ch = pl.selected.ref;
-      const wpn = G.charGearOfKind(ch, 'pistol') || G.charGearOfKind(ch, 'sword');
+      const main = G.ITEMS[ch.equip?.righthand], sec = G.ITEMS[ch.equip?.lefthand];
+      const wlabel = 'L:' + (main?.icon || '∅') + '  R:' + (sec?.icon || '∅');
       const bar = (lbl, cur, max, col, yy) => {
         const w = 120, x0 = 12, frac = max ? Math.max(0, Math.min(1, cur/max)) : 0;
         ctx.fillStyle = '#8899aa'; ctx.font = '6px "Press Start 2P",monospace'; ctx.fillText(lbl, x0, yy - 3);
@@ -2338,7 +2339,7 @@ G.Renderer = class {
       };
       const baseY = G.CANVAS_H - 32;
       ctx.fillStyle = '#cfe6ff'; ctx.font = '7px "Press Start 2P",monospace';
-      ctx.fillText(ch.name + (wpn ? '  ' + (wpn.icon || '') : '  (unarmed)'), 12, baseY - 40);
+      ctx.fillText(ch.name + '   ' + wlabel, 12, baseY - 40);
       bar('HP', ch.hp, ch.maxHp, '#dd4455', baseY - 24);
       bar('EN', ch.energy, ch.maxEnergy, '#ddcc44', baseY - 12);
     }
@@ -2734,13 +2735,8 @@ G.Game = class {
     // Click on game canvas → target the ship under the cursor
     this.canvas.addEventListener('click', e => {
       if(this.state === 'menu') { this.start(); return; }
-      // Planet surface: buttons + crew orders (when the spaceport menu isn't open).
-      if(this.state === 'landed' && this._planet && this.ui.els['spaceport-overlay']?.classList.contains('hidden')) {
-        const rect = this.canvas.getBoundingClientRect();
-        const ratio = G.CANVAS_W / rect.width;
-        const sx = (e.clientX - rect.left) * ratio, sy = (e.clientY - rect.top) * ratio;
-        if(this._handlePlanetClick(sx, sy)) return;
-      }
+      // Planet surface mouse (buttons / select / fire) is polled in _planetMouse().
+      if(this.state === 'landed' && this._planet) return;
       // Hex map: pick the nearest object in screen space (ships use the scaled
       // world transform, bodies sit on their schematic hex cells).
       if(this.state === 'hexmap') {
@@ -2927,12 +2923,7 @@ G.Game = class {
       if(this.state === 'landed') {
         e.preventDefault();
         const nz = (this._planetZoom || 0) - e.deltaY * this.planetcam_sensitivity;
-        // Zooming out past planet's minZoom → return to space.
-        if(1.0 + nz < this.planetcam_minZoom) {
-          this._exitPlanet();
-        } else {
-          this._planetZoom = G.clamp(nz, this.planetcam_minZoom - 1.0, this.planetcam_maxZoom - 1.0);
-        }
+        this._planetZoom = G.clamp(nz, this.planetcam_minZoom - 1.0, this.planetcam_maxZoom - 1.0);
         return;
       }
       if(this.state !== 'space') return;
@@ -4368,6 +4359,7 @@ G.Game = class {
     const su = G.hexToPixel(ship.q, ship.r, 1);
     this._planet = { body, terrain, ship, crew, npcs, shots: [], loot: [], selected: null,
                      buttons: [], layout: null, S: 46, cam: { x: su.x, y: su.y }, panX: 0, panY: 0 };
+    this._planet.selected = crew.find(c => c.ref?.isPlayer) || crew[0] || null;   // control + fire right away
     const dispCounts = npcs.reduce((m, n) => (m[n.ref.disposition] = (m[n.ref.disposition] || 0) + 1, m), {});
     const hostiles = dispCounts.hostile || 0;
     this.ui.addMsg('Landed on ' + body.name + (body.hasSpaceport ? '' : ' — barren surface') +
@@ -4557,12 +4549,7 @@ G.Game = class {
   updatePlanetCombat(dt) {
     const pl = this._planet; if(!pl) return;
     const live = pl.crew.filter(c => c.ref.hp > 0);
-    // Player attack: hold F (or Enter) to fire/strike with the selected character.
-    const sel = pl.selected;
-    if(sel && sel.ref && sel.ref.hp > 0) {
-      sel._atkCd = Math.max(0, (sel._atkCd || 0) - dt);
-      if((this.input.is('KeyF') || this.input.is('Enter')) && sel._atkCd <= 0) this._planetPlayerAttack(sel);
-    }
+    // Player attack input (left/right mouse) is handled in _planetMouse().
     // NPC AI.
     for(const n of pl.npcs) {
       n._atkCd = Math.max(0, (n._atkCd || 0) - dt);
@@ -4657,21 +4644,32 @@ G.Game = class {
     return (t && t.walkable) ? w : null;
   }
 
-  _planetPlayerAttack(c) {
+  // Fire the weapon in `hand` ('righthand' = main / left-click, 'lefthand' =
+  // secondary / right-click), aimed at the mouse cursor. Pistol → ranged bolt,
+  // sword → melee arc, shield/empty → no-op. Per-hand cooldown gates auto-fire.
+  _planetPlayerAttack(c, hand) {
     const pl = this._planet, ch = c.ref;
-    const wpn = G.charGearOfKind(ch, 'pistol') || G.charGearOfKind(ch, 'sword');
-    if(!wpn) { this.ui.addMsg('No weapon equipped — press C to gear up', '#ff8844'); c._atkCd = 0.5; return; }
-    c._atkCd = 1 / (wpn.rof || 1.5);
-    let aimx = c._faceX || 0, aimy = c._faceY || 1, tgt = null, td = Infinity, tdel = null;
-    for(const n of pl.npcs) { if(n.ref.hp <= 0) continue; const d = this._planetDelta(pl, c.px, c.py, n.px, n.py); if(d.dist < td) { td = d.dist; tgt = n; tdel = d; } }
-    if(tgt && tdel && td < (wpn.kind === 'pistol' ? (wpn.range || 9) : 6)) { const l = tdel.dist || 1; aimx = tdel.dx / l; aimy = tdel.dy / l; c._faceX = aimx; c._faceY = aimy; }
+    const cdKey = hand === 'lefthand' ? '_atkCdL' : '_atkCdR';
+    if((c[cdKey] || 0) > 0) return;
+    const wid = ch.equip?.[hand], wpn = wid && G.ITEMS[wid];
+    if(!wpn || (wpn.kind !== 'pistol' && wpn.kind !== 'sword')) return;   // nothing fireable
+    c[cdKey] = 1 / (wpn.rof || 1.5);
+    // Aim toward the cursor in world (unit-hex) space, torus-wrapped.
+    let aimx = c._faceX || 0, aimy = c._faceY || 1;
+    const lay = pl.layout;
+    if(lay) {
+      const wmx = (this.input.mouseX - lay.ox) / lay.S, wmy = (this.input.mouseY - lay.oy) / lay.S;
+      const d = this._planetDelta(pl, c.px, c.py, wmx, wmy), l = d.dist || 1;
+      aimx = d.dx / l; aimy = d.dy / l;
+    }
+    c._faceX = aimx; c._faceY = aimy;
     if(wpn.kind === 'pistol') {
       this._spawnFootShot(pl, c, aimx, aimy, wpn.dmg || 12, 'player', wpn.color || '#ffcc44');
       ch.energy = Math.max(0, ch.energy - 2);
       G.sound?.uiClick?.();
     } else {
-      const range = wpn.range || 1.3; let any = false;
-      for(const n of pl.npcs) { if(n.ref.hp <= 0) continue; const d = this._planetDelta(pl, c.px, c.py, n.px, n.py); if(d.dist <= range + 0.5) { const l = d.dist || 1; if((d.dx / l) * aimx + (d.dy / l) * aimy > 0 || d.dist < 0.8) { this._applyFootDamage(pl, n, wpn.dmg || 18, c); any = true; } } }
+      const range = wpn.range || 1.3;
+      for(const n of pl.npcs) { if(n.ref.hp <= 0) continue; const d = this._planetDelta(pl, c.px, c.py, n.px, n.py); if(d.dist <= range + 0.5) { const l = d.dist || 1; if((d.dx / l) * aimx + (d.dy / l) * aimy > 0 || d.dist < 0.8) this._applyFootDamage(pl, n, wpn.dmg || 18, c); } }
       c._swingT = 0.18; G.sound?.uiClick?.();
     }
   }
@@ -4730,31 +4728,38 @@ G.Game = class {
   }
 
   // Click on the planet surface: buttons, then crew select / order.
+  // Consume a left-click on UI: bottom buttons, or selecting a crew member under
+  // the cursor. Returns true if handled (so the click does NOT fire a weapon).
+  // Movement is WASD now; left/right click fire the equipped weapons instead.
   _handlePlanetClick(sx, sy) {
     const pl = this._planet; if(!pl) return false;
     for(const b of pl.buttons) if(sx >= b.x && sx <= b.x + b.w && sy >= b.y && sy <= b.y + b.h) { b.action(); G.sound?.uiClick?.(); return true; }
     const lay = pl.layout; if(!lay) return false;
-    const ter = pl.terrain, W = ter.W, H = ter.H;
     let pick = null, pd = 18;
     for(const c of pl.crew) { const x = lay.ox + c.px * lay.S, y = lay.oy + c.py * lay.S; const d = Math.hypot(x - sx, y - sy); if(d < pd) { pd = d; pick = c; } }
-    if(pick) { pl.selected = (pl.selected === pick) ? null : pick; pl.panX = 0; pl.panY = 0; G.sound?.uiClick?.(); return true; }
-    const c = pl.selected; if(!c) return false;
-    const cw = G.pixelToHex((sx - lay.ox) / lay.S, (sy - lay.oy) / lay.S, 1);
-    const cell = G.wrapHex(W, H, cw.q, cw.r);
-    if(cell.q === pl.ship.q && cell.r === pl.ship.r) {
-      const path = this._planetPath({ q: c.q, r: c.r }, pl.ship);
-      if(path) { c.path = path; this.ui.addMsg(c.ref.name + ' → board ship', '#88ccff'); }
-      return true;
+    if(pick && pick !== pl.selected) { pl.selected = pick; pl.panX = 0; pl.panY = 0; G.sound?.uiClick?.(); return true; }
+    return false;   // empty ground → let the weapon fire
+  }
+
+  // Poll planet-surface mouse each frame: buttons / crew-select on first press,
+  // then left = fire main (right hand), right = fire secondary (left hand).
+  _planetMouse(dt) {
+    const pl = this._planet; if(!pl) return;
+    if(!this.ui.els['spaceport-overlay']?.classList.contains('hidden')) return;   // spaceport open
+    if(!document.getElementById('char-screen-overlay')?.classList.contains('hidden')) return;  // char screen open
+    const sel = pl.selected;
+    if(sel?.ref && sel.ref.hp > 0) {
+      sel._atkCdR = Math.max(0, (sel._atkCdR || 0) - dt);
+      sel._atkCdL = Math.max(0, (sel._atkCdL || 0) - dt);
     }
-    const t = ter.tiles.get(G.hexKey(cell.q, cell.r));
-    if(t && t.walkable) {
-      const path = this._planetPath({ q: c.q, r: c.r }, cell);
-      if(path) { c.path = path; this.ui.addMsg(c.ref.name + ' → move', '#88ccff'); }
-      else this.ui.addMsg('No route there', '#ff8844');
-    } else if(t) {
-      this.ui.addMsg((G.TERRAIN_LABEL[t.biome] || t.biome) + ' — impassable', '#ff8844');
+    // First press may hit a button or select a crew member — that consumes it.
+    if(this.input.mouseJustDown && this._handlePlanetClick(this.input.mouseX, this.input.mouseY)) { this._planetFireBlock = true; }
+    if(!this.input.mouseDown) this._planetFireBlock = false;
+    if(sel?.ref && sel.ref.hp > 0) {
+      if(this.input.mouseDown && !this._planetFireBlock) this._planetPlayerAttack(sel, 'righthand');
+      if(this.input.rightDown) this._planetPlayerAttack(sel, 'lefthand');
+      if(this.input.is('KeyF')) this._planetPlayerAttack(sel, 'righthand');
     }
-    return true;
   }
 
   _useAbility(abilityId, ship) {
@@ -5366,6 +5371,7 @@ G.Game.prototype._loop = function(ts) {
       this.updatePlanetCrewControl(dt);
       this.updatePlanetNpcs(dt);
       this.updatePlanetCombat(dt);
+      this._planetMouse(dt);
       this.updatePlanetCrew(dt);
       this.updatePlanetMining(dt);
       this.updatePlanetCamera(dt);

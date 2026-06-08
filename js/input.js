@@ -8,6 +8,8 @@ G.Input = class {
     this.mouseDown = false;
     this.mouseJustDown = false;
     this.mouseJustUp = false;
+    this.rightDown = false;
+    this.rightJustDown = false;
     this._prev = {};
     this.justPressed = {};
     this.justReleased = {};
@@ -176,9 +178,15 @@ G.Input = class {
     });
     window.addEventListener('mousedown', e => {
       if(e.button===0){ this.mouseDown=true; this.mouseJustDown=true; }
+      if(e.button===2){ this.rightDown=true; this.rightJustDown=true; }
     });
     window.addEventListener('mouseup', e => {
       if(e.button===0){ this.mouseDown=false; this.mouseJustUp=true; }
+      if(e.button===2){ this.rightDown=false; }
+    });
+    // Suppress the browser context menu over the canvas so right-click can fire.
+    window.addEventListener('contextmenu', e => {
+      if(e.target && e.target.id === 'gameCanvas') e.preventDefault();
     });
     window.addEventListener('gamepadconnected', e => {
       if(this.gamepadIndex == null) this.gamepadIndex = e.gamepad.index;
@@ -275,6 +283,7 @@ G.Input = class {
     this.justReleased = {};
     this.mouseJustDown = false;
     this.mouseJustUp  = false;
+    this.rightJustDown = false;
   }
 
   _checkKeys(action) {
