@@ -969,6 +969,22 @@ G.SoundEngine = class {
     });
   }
 
+  planetJump() {
+    if (!this.enabled) return;
+    const ac  = this._ctx();
+    const now = ac.currentTime;
+    // Quick rising pitch for jump (200→400Hz)
+    const osc = ac.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(200, now);
+    osc.frequency.exponentialRampToValueAtTime(400, now + 0.12);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.15, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    osc.connect(g); g.connect(this._uiOut);
+    osc.start(now); osc.stop(now + 0.13);
+  }
+
   boost(pan = 0) {
     if (!this.enabled) return;
     const ac  = this._ctx();

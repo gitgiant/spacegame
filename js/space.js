@@ -18,6 +18,7 @@ G.Space = class {
     this._cargoFullTimer = 0;
     this.time       = 0;
     this._npcSpawnTimer = 0;
+    this.revealedHexes = new Set();
     this._genBgStars(null);
   }
 

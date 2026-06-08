@@ -537,17 +537,17 @@ G.PTYPE_TERRAIN = {
   // sea: water line · mountainHt: ridge uplift · mtn: mountain elev threshold
   // baseTemp: global warmth offset · warmth: equator→pole swing · lapse: cooling
   // with altitude · arid: desert moisture cutoff
-  terran: { sea: 0.50, elevBias: 0.00, mountainHt: 0.30, mtn: 0.74, baseTemp: 0.16, warmth: 0.86, lapse: 1.10, arid: 0.30, liquid: 'water' },
-  ocean:  { sea: 0.68, elevBias: -0.10, mountainHt: 0.22, mtn: 0.82, baseTemp: 0.22, warmth: 0.80, lapse: 1.00, arid: 0.22, liquid: 'water' },
-  desert: { sea: 0.28, elevBias: 0.04, mountainHt: 0.34, mtn: 0.70, baseTemp: 0.46, warmth: 0.66, lapse: 0.90, arid: 0.60, liquid: 'water' },
-  rocky:  { sea: 0.30, elevBias: 0.03, mountainHt: 0.40, mtn: 0.66, baseTemp: 0.22, warmth: 0.70, lapse: 1.05, arid: 0.50, liquid: 'water' },
-  ice:    { sea: 0.46, elevBias: 0.00, mountainHt: 0.30, mtn: 0.72, baseTemp: -0.28, warmth: 0.55, lapse: 1.10, arid: 0.40, liquid: 'water' },
-  lava:   { sea: 0.42, elevBias: 0.05, mountainHt: 0.36, mtn: 0.68, baseTemp: 0.80, warmth: 0.35, lapse: 0.80, arid: 0.72, liquid: 'lava'  },
-  gas:    { sea: 1.10, elevBias: 0.00, mountainHt: 0.10, mtn: 0.90, baseTemp: 0.40, warmth: 0.40, lapse: 0.50, arid: 0.50, liquid: 'cloud' },
+  terran: { sea: 0.50, elevBias: 0.00, mountainHt: 0.60, mtn: 0.74, baseTemp: 0.16, warmth: 0.86, lapse: 1.10, arid: 0.30, liquid: 'water' },
+  ocean:  { sea: 0.68, elevBias: -0.10, mountainHt: 0.44, mtn: 0.82, baseTemp: 0.22, warmth: 0.80, lapse: 1.00, arid: 0.22, liquid: 'water' },
+  desert: { sea: 0.28, elevBias: 0.04, mountainHt: 0.68, mtn: 0.70, baseTemp: 0.46, warmth: 0.66, lapse: 0.90, arid: 0.60, liquid: 'water' },
+  rocky:  { sea: 0.30, elevBias: 0.03, mountainHt: 0.80, mtn: 0.66, baseTemp: 0.22, warmth: 0.70, lapse: 1.05, arid: 0.50, liquid: 'water' },
+  ice:    { sea: 0.46, elevBias: 0.00, mountainHt: 0.60, mtn: 0.72, baseTemp: -0.28, warmth: 0.55, lapse: 1.10, arid: 0.40, liquid: 'water' },
+  lava:   { sea: 0.42, elevBias: 0.05, mountainHt: 0.72, mtn: 0.68, baseTemp: 0.80, warmth: 0.35, lapse: 0.80, arid: 0.72, liquid: 'lava'  },
+  gas:    { sea: 1.10, elevBias: 0.00, mountainHt: 0.20, mtn: 0.90, baseTemp: 0.40, warmth: 0.40, lapse: 0.50, arid: 0.50, liquid: 'cloud' },
 };
 
 // Walkable-on-foot biomes (others block crew movement).
-G.TERRAIN_IMPASSABLE = new Set(['deep_water','ocean','shallow_water','mountain','glacier','liquid']);
+G.TERRAIN_IMPASSABLE = new Set(['deep_water','ocean','shallow_water','liquid']);
 
 // Earth's real continents, as lon/lat ellipse blobs (deg). `h` weights peak
 // land height. Sampled equirectangularly so a "terran" world named Earth gets a
@@ -735,10 +735,10 @@ G.genPlanetTerrain = function(body) {
       const biome = _classifyBiome(elev, temp, moist, cfg);
       // Discrete elevation tier -5..+5, anchored at sea level (water = negative).
       const level = G.clamp(Math.round((elev - cfg.sea) * 10), -5, 5);
-      tiles.set(G.hexKey(q, r), { q, r, elev, level, moist, temp, biome, walkable: !G.TERRAIN_IMPASSABLE.has(biome) });
+      tiles.set(G.hexKey(q, r), { q, r, elev, level, moist, temp, biome, walkable: !G.TERRAIN_IMPASSABLE.has(biome) && level < 5 });
     }
   }
-  for(const t of tiles.values()) t.walkable = !G.TERRAIN_IMPASSABLE.has(t.biome);
+  for(const t of tiles.values()) t.walkable = !G.TERRAIN_IMPASSABLE.has(t.biome) && t.level < 5;
   _traceRivers(tiles, W, H, rng);
   // Spaceport worlds get a built-up site: a landing pad surrounded by a small
   // settlement, stamped onto a flat dry-land patch near the block centre.
