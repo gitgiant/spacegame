@@ -2171,8 +2171,40 @@ G.Renderer = class {
         ctx.beginPath(); ctx.moveTo(-crad*0.3, crad*0.5); ctx.lineTo(crad*0.3, crad*0.5);
         ctx.lineTo(0, crad*0.5 + crad*(0.8 + Math.random()*0.5)); ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
       }
+      // Melee swing arc.
+      if(c._swingT > 0) {
+        const a = Math.atan2(c._faceY || 1, c._faceX || 0);
+        ctx.strokeStyle = '#ffffff'; ctx.globalAlpha = Math.min(1, c._swingT * 4); ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(0, 0, crad * 1.6, a - 0.9, a + 0.9); ctx.stroke(); ctx.globalAlpha = 1;
+      }
       this._drawCrewSprite(crad, c.ref.role, walking, tnow, this._crewPhase(c), false);
+      // Hit flash.
+      if(c._hurtT > 0) { ctx.globalAlpha = Math.min(0.7, c._hurtT * 3); ctx.fillStyle = '#ff3333'; ctx.beginPath(); ctx.arc(0, 0, crad, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1; }
       ctx.restore();
+      // HP bar above wounded units.
+      const ch = c.ref;
+      if(ch.hp < ch.maxHp && ch.hp > 0) {
+        const bw = crad * 2, bx2 = x - bw/2, by2 = y - crad * 1.9, frac = Math.max(0, ch.hp / ch.maxHp);
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(bx2-1, by2-1, bw+2, 4);
+        ctx.fillStyle = frac > 0.5 ? '#44dd66' : frac > 0.25 ? '#ddcc44' : '#dd4444';
+        ctx.fillRect(bx2, by2, bw * frac, 2);
+      }
+    }
+    // Foot projectiles.
+    for(const s of pl.shots) {
+      const slift = levelOf(G.wrapTile(ter, Math.round(s.x), Math.round(s.y))) * LIFT;
+      const sx = ox + s.x*S, sy = oy + s.y*S - slift;
+      ctx.fillStyle = s.color || '#ffcc44';
+      ctx.beginPath(); ctx.arc(sx, sy, Math.max(2, S*0.06), 0, Math.PI*2); ctx.fill();
+    }
+    // Ground loot.
+    for(const lt of pl.loot) {
+      const llift = levelOf(G.wrapTile(ter, Math.round(lt.x), Math.round(lt.y))) * LIFT;
+      const lx = ox + lt.x*S, ly = oy + lt.y*S - llift;
+      const it = G.ITEMS[lt.item]; const pulse = 0.6 + 0.4*Math.sin(tnow*5);
+      ctx.globalAlpha = pulse; ctx.fillStyle = it?.color || '#ffee88';
+      ctx.beginPath(); ctx.arc(lx, ly, Math.max(3, S*0.12), 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1;
+      if(it?.icon) { ctx.font = `${Math.round(S*0.32)}px serif`; ctx.textAlign='center'; ctx.fillText(it.icon, lx, ly + S*0.12); }
     }
     this._drawPlanetMinimap(game, pl);
     this._drawPlanetHUD(game, pl);
@@ -2286,9 +2318,26 @@ G.Renderer = class {
     ctx.textAlign = 'left';
     ctx.fillStyle = '#557'; ctx.font = '6px "Press Start 2P",monospace';
     const hint = pl.selected
-      ? 'WASD move • Shift sprint • SPACE jump/jetpack • C character • stand on ⛏ ore to mine • click tile to path • click ship to board'
+      ? 'WASD move • Shift sprint • SPACE jump/jetpack • F attack • C character • stand on ⛏ ore to mine • click tile to path'
       : 'Click a crew member to control • WASD/arrows pan camera • C character';
     ctx.fillText(hint, 12, G.CANVAS_H - 16);
+    // Selected character vitals (bottom-left, above the hint).
+    if(pl.selected?.ref) {
+      const ch = pl.selected.ref;
+      const wpn = G.charGearOfKind(ch, 'pistol') || G.charGearOfKind(ch, 'sword');
+      const bar = (lbl, cur, max, col, yy) => {
+        const w = 120, x0 = 12, frac = max ? Math.max(0, Math.min(1, cur/max)) : 0;
+        ctx.fillStyle = '#8899aa'; ctx.font = '6px "Press Start 2P",monospace'; ctx.fillText(lbl, x0, yy - 3);
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(x0 + 34, yy - 9, w, 7);
+        ctx.fillStyle = col; ctx.fillRect(x0 + 34, yy - 9, w * frac, 7);
+        ctx.fillStyle = '#cfe0f0'; ctx.fillText(Math.round(cur) + '/' + max, x0 + 34 + w + 6, yy - 3);
+      };
+      const baseY = G.CANVAS_H - 32;
+      ctx.fillStyle = '#cfe6ff'; ctx.font = '7px "Press Start 2P",monospace';
+      ctx.fillText(ch.name + (wpn ? '  ' + (wpn.icon || '') : '  (unarmed)'), 12, baseY - 40);
+      bar('HP', ch.hp, ch.maxHp, '#dd4455', baseY - 24);
+      bar('EN', ch.energy, ch.maxEnergy, '#ddcc44', baseY - 12);
+    }
   }
 
   // Full hex-map view: tactical sector overlay between space flight and galaxy map
@@ -4313,8 +4362,8 @@ G.Game = class {
       npcs.push({ ref: ch, q: cell.q, r: cell.r, px: u.x, py: u.y, path: null, _wanderT: Math.random() * 4 });
     }
     const su = G.hexToPixel(ship.q, ship.r, 1);
-    this._planet = { body, terrain, ship, crew, npcs, selected: null, buttons: [], layout: null,
-                     S: 46, cam: { x: su.x, y: su.y }, panX: 0, panY: 0 };
+    this._planet = { body, terrain, ship, crew, npcs, shots: [], loot: [], selected: null,
+                     buttons: [], layout: null, S: 46, cam: { x: su.x, y: su.y }, panX: 0, panY: 0 };
     const dispCounts = npcs.reduce((m, n) => (m[n.ref.disposition] = (m[n.ref.disposition] || 0) + 1, m), {});
     const hostiles = dispCounts.hostile || 0;
     this.ui.addMsg('Landed on ' + body.name + (body.hasSpaceport ? '' : ' — barren surface') +
@@ -4481,6 +4530,144 @@ G.Game = class {
         t.oreHp -= 1;
       }
       if(t.oreHp <= 0) { this.ui.addMsg(`${G.ITEMS[drop]?.name || drop} deposit depleted`, '#aa8855'); t.ore = null; c._mineTile = null; }
+    }
+  }
+
+  // Nearest delta between two surface points across the torus wrap copies.
+  _planetDelta(pl, ax, ay, bx, by) {
+    const W = pl.terrain.W, H = pl.terrain.H;
+    const P1x = G.HEX_SQRT3 * W, P2x = G.HEX_SQRT3 * 0.5 * H, P2y = 1.5 * H;
+    let bdx = bx - ax, bdy = by - ay, best = Infinity;
+    for(let k = -1; k <= 1; k++) for(let l = -1; l <= 1; l++) {
+      const dx = (bx + k*P1x + l*P2x) - ax, dy = (by + l*P2y) - ay, d = dx*dx + dy*dy;
+      if(d < best) { best = d; bdx = dx; bdy = dy; }
+    }
+    return { dx: bdx, dy: bdy, dist: Math.sqrt(best) };
+  }
+
+  // ── Foot combat ──────────────────────────────────────────────────────────
+  // Pistol = ranged bolts (auto-aim nearest hostile), sword = melee arc, shield
+  // = chance to block. Hostiles chase + attack player crew; cautious units flee;
+  // provoked neutrals turn hostile. Downed player crew recover at the ship.
+  updatePlanetCombat(dt) {
+    const pl = this._planet; if(!pl) return;
+    const live = pl.crew.filter(c => c.ref.hp > 0);
+    // Player attack: hold F (or Enter) to fire/strike with the selected character.
+    const sel = pl.selected;
+    if(sel && sel.ref && sel.ref.hp > 0) {
+      sel._atkCd = Math.max(0, (sel._atkCd || 0) - dt);
+      if((this.input.is('KeyF') || this.input.is('Enter')) && sel._atkCd <= 0) this._planetPlayerAttack(sel);
+    }
+    // NPC AI.
+    for(const n of pl.npcs) {
+      n._atkCd = Math.max(0, (n._atkCd || 0) - dt);
+      const disp = n.ref.disposition;
+      if(disp !== 'hostile' && disp !== 'cautious') continue;
+      let tgt = null, td = Infinity, tdel = null;
+      for(const c of live) { const d = this._planetDelta(pl, n.px, n.py, c.px, c.py); if(d.dist < td) { td = d.dist; tgt = c; tdel = d; } }
+      if(!tgt) continue;
+      if(disp === 'cautious') {
+        if(td < 5) { n._fleeT = (n._fleeT || 0) - dt; if(n._fleeT <= 0) { n._fleeT = 1.3; const aw = this._fleeCell(pl, n, tdel); if(aw) { const p = this._planetPath({ q: n.q, r: n.r }, aw); if(p && p.length) n.path = p; } } }
+        continue;
+      }
+      const wpn = G.charGearOfKind(n.ref, 'pistol') || G.charGearOfKind(n.ref, 'sword');
+      const range = wpn ? (wpn.range || (wpn.kind === 'pistol' ? 9 : 1.3)) : 1.2;
+      if(td > 8) continue;                       // outside aggro radius
+      if(td > range * 0.9) {
+        n._chaseT = (n._chaseT || 0) - dt;
+        if(n._chaseT <= 0 || !(n.path && n.path.length)) { n._chaseT = 0.6; const p = this._planetPath({ q: n.q, r: n.r }, { q: tgt.q, r: tgt.r }); if(p && p.length) n.path = p; }
+      } else {
+        n.path = null;
+        if(n._atkCd <= 0) {
+          n._atkCd = wpn ? 1 / (wpn.rof || 1.2) : 1.2;
+          const l = tdel.dist || 1, ux = tdel.dx / l, uy = tdel.dy / l;
+          n._faceX = ux; n._faceY = uy;
+          if(wpn && wpn.kind === 'pistol') this._spawnFootShot(pl, n, ux, uy, wpn.dmg || 10, 'enemy', wpn.color || '#ff5533');
+          else { this._applyFootDamage(pl, tgt, (wpn?.dmg || 12), n); n._swingT = 0.18; }
+        }
+      }
+    }
+    // Projectiles.
+    for(let i = pl.shots.length - 1; i >= 0; i--) {
+      const s = pl.shots[i]; s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
+      let hit = false;
+      const pool = s.team === 'player' ? pl.npcs : pl.crew;
+      for(const u of pool) { if(u.ref.hp <= 0) continue; const d = this._planetDelta(pl, s.x, s.y, u.px, u.py); if(d.dist < 0.55) { this._applyFootDamage(pl, u, s.dmg, s.src); hit = true; break; } }
+      if(hit || s.life <= 0) pl.shots.splice(i, 1);
+    }
+    // Ground loot pickup.
+    for(let i = pl.loot.length - 1; i >= 0; i--) {
+      const lt = pl.loot[i]; lt.life = (lt.life || 30) - dt; let taken = false;
+      for(const c of live) { const d = this._planetDelta(pl, lt.x, lt.y, c.px, c.py); if(d.dist < 0.7) { this.player.addCargo(lt.item, lt.qty || 1); this.ui.addMsg('Picked up ' + (G.ITEMS[lt.item]?.name || lt.item), '#88ddaa'); taken = true; break; } }
+      if(taken || lt.life <= 0) pl.loot.splice(i, 1);
+    }
+    // Timers + out-of-combat HP regen.
+    for(const c of pl.crew.concat(pl.npcs)) {
+      const ch = c.ref;
+      c._noRegenT = Math.max(0, (c._noRegenT || 0) - dt);
+      c._swingT   = Math.max(0, (c._swingT   || 0) - dt);
+      c._hurtT    = Math.max(0, (c._hurtT    || 0) - dt);
+      if(ch.hp > 0 && ch.hp < ch.maxHp && c._noRegenT <= 0) ch.hp = Math.min(ch.maxHp, ch.hp + 4 * dt);
+    }
+  }
+
+  // Pick a walkable cell ~3 tiles directly away from a threat (for fleeing).
+  _fleeCell(pl, n, del) {
+    const ter = pl.terrain, W = ter.W, H = ter.H;
+    const ax = -del.dx, ay = -del.dy, l = Math.hypot(ax, ay) || 1;
+    const h = G.pixelToHex(n.px + ax / l * 3, n.py + ay / l * 3, 1), w = G.wrapHex(W, H, h.q, h.r);
+    const t = ter.tiles.get(G.hexKey(w.q, w.r));
+    return (t && t.walkable) ? w : null;
+  }
+
+  _planetPlayerAttack(c) {
+    const pl = this._planet, ch = c.ref;
+    const wpn = G.charGearOfKind(ch, 'pistol') || G.charGearOfKind(ch, 'sword');
+    if(!wpn) { this.ui.addMsg('No weapon equipped — press C to gear up', '#ff8844'); c._atkCd = 0.5; return; }
+    c._atkCd = 1 / (wpn.rof || 1.5);
+    let aimx = c._faceX || 0, aimy = c._faceY || 1, tgt = null, td = Infinity, tdel = null;
+    for(const n of pl.npcs) { if(n.ref.hp <= 0) continue; const d = this._planetDelta(pl, c.px, c.py, n.px, n.py); if(d.dist < td) { td = d.dist; tgt = n; tdel = d; } }
+    if(tgt && tdel && td < (wpn.kind === 'pistol' ? (wpn.range || 9) : 6)) { const l = tdel.dist || 1; aimx = tdel.dx / l; aimy = tdel.dy / l; c._faceX = aimx; c._faceY = aimy; }
+    if(wpn.kind === 'pistol') {
+      this._spawnFootShot(pl, c, aimx, aimy, wpn.dmg || 12, 'player', wpn.color || '#ffcc44');
+      ch.energy = Math.max(0, ch.energy - 2);
+      G.sound?.uiClick?.();
+    } else {
+      const range = wpn.range || 1.3; let any = false;
+      for(const n of pl.npcs) { if(n.ref.hp <= 0) continue; const d = this._planetDelta(pl, c.px, c.py, n.px, n.py); if(d.dist <= range + 0.5) { const l = d.dist || 1; if((d.dx / l) * aimx + (d.dy / l) * aimy > 0 || d.dist < 0.8) { this._applyFootDamage(pl, n, wpn.dmg || 18, c); any = true; } } }
+      c._swingT = 0.18; G.sound?.uiClick?.();
+    }
+  }
+
+  _spawnFootShot(pl, from, ux, uy, dmg, team, color) {
+    const sp = 14;
+    pl.shots.push({ x: from.px, y: from.py, vx: ux * sp, vy: uy * sp, dmg, team, color, life: 1.2, src: from });
+  }
+
+  _applyFootDamage(pl, unit, dmg, src) {
+    const ch = unit.ref; if(ch.hp <= 0) return;
+    let dealt = Math.max(1, dmg - (ch.armor || 0) * 0.5);
+    if(G.charHasKind(ch, 'shield')) { const sh = G.charGearOfKind(ch, 'shield'); if(Math.random() < (sh.block || 0)) dealt *= 0.3; }
+    ch.hp -= dealt; unit._hurtT = 0.22; unit._noRegenT = 4;
+    // Provoke: a non-hostile NPC struck by the player turns hostile.
+    if(ch.disposition && ch.disposition !== 'hostile' && src && pl.crew.includes(src)) ch.disposition = 'hostile';
+    if(ch.hp <= 0) this._footDeath(pl, unit);
+  }
+
+  _footDeath(pl, unit) {
+    const ch = unit.ref;
+    if(pl.crew.includes(unit)) {
+      ch.hp = Math.round(ch.maxHp * 0.5);
+      unit.q = pl.ship.q; unit.r = pl.ship.r;
+      const u = G.hexToPixel(unit.q, unit.r, 1); unit.px = u.x; unit.py = u.y;
+      unit.path = null; unit._z = 0; unit._vz = 0; unit._noRegenT = 2;
+      this.ui.addMsg(ch.name + ' was downed — recovered at the ship', '#ff5555');
+    } else {
+      const idx = pl.npcs.indexOf(unit); if(idx >= 0) pl.npcs.splice(idx, 1);
+      const dropId = ch.equip?.righthand || (Math.random() < 0.3 ? 'food' : null);
+      if(dropId) pl.loot.push({ x: unit.px, y: unit.py, item: dropId, qty: 1, life: 40 });
+      this.ui.addMsg((G.DISPOSITIONS[ch.disposition]?.name || 'Unit') + ' ' + ch.name + ' down', '#ffaa66');
+      G.sound?.explosion?.();
     }
   }
 
@@ -5141,6 +5328,7 @@ G.Game.prototype._loop = function(ts) {
       this.player?._regenPassive?.(dt, 0.5);
       this.updatePlanetCrewControl(dt);
       this.updatePlanetNpcs(dt);
+      this.updatePlanetCombat(dt);
       this.updatePlanetCrew(dt);
       this.updatePlanetMining(dt);
       this.updatePlanetCamera(dt);
