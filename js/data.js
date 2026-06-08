@@ -1309,6 +1309,26 @@ G.CHAR_BASE = { hp:100, mana:50, energy:100 };
 // Diablo-style primary attributes (start value before level points / gear).
 G.CHAR_ATTRS = { str:10, dex:10, int:10, vit:10 };
 
+// ── ARPG active skills (planet hotbar 1-4) ───────────────────────────────────
+// Cast at the cursor; cost mana + go on cooldown. type drives the effect in
+// _castSkill (main.js). dmgMul scales the character's main-hand weapon damage.
+G.CHAR_SKILLS = {
+  cleave:    { id:'cleave',    name:'Cleave',     icon:'🪓', color:'#ff8844', mana:8,  cooldown:0.4, type:'melee',  dmgMul:1.6, radius:1.8, desc:'Wide melee strike — all foes in front.' },
+  multishot: { id:'multishot', name:'Multishot',  icon:'🏹', color:'#ffcc44', mana:12, cooldown:0.7, type:'spread', dmgMul:0.7, count:5, spread:0.45, desc:'Fan of ranged bolts.' },
+  dash:      { id:'dash',      name:'Dash',       icon:'💨', color:'#66ddff', mana:10, cooldown:2.5, type:'dash',   range:5,    desc:'Blink toward the cursor (over cliffs).' },
+  nova:      { id:'nova',      name:'Frost Nova', icon:'❄',  color:'#88ccff', mana:18, cooldown:4,   type:'nova',   dmgMul:1.2, radius:3, slow:2.5, desc:'Frost burst around you — damage + slow.' },
+  quake:     { id:'quake',     name:'Quake',      icon:'💥', color:'#ffaa33', mana:25, cooldown:6,   type:'nova',   dmgMul:2.2, radius:4, desc:'Ground slam — heavy AoE around you.' },
+  mend:      { id:'mend',      name:'Mend',       icon:'✚',  color:'#44ff99', mana:22, cooldown:5,   type:'heal',   healMul:0.45, desc:'Convert mana into a burst of health.' },
+};
+G.CHAR_SKILL_IDS = Object.keys(G.CHAR_SKILLS);
+// Each class starts with one planet skill already unlocked + slotted.
+G.CLASS_PLANET_SKILL = {
+  space_marine:'cleave', berserker:'cleave', knight:'cleave', tank:'quake',
+  sniper:'multishot', hacker:'dash', monk:'nova', medic:'mend', tech_priest:'mend',
+};
+// Cooldown flasks (Diablo 3 style — infinite uses, gated by cooldown).
+G.FLASK = { healCd:8, manaCd:8, healFrac:0.5, manaFrac:0.5 };
+
 // ── ARPG loot: rarity tiers + random affix pool (see G.rollItem in utils) ─────
 // Each dropped piece of gear is a rolled INSTANCE: a base item from G.ITEMS plus
 // rarity-scaled base mods and 0–6 random prefix/suffix affixes drawn by item level.

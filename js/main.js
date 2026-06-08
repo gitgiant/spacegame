@@ -2249,6 +2249,16 @@ G.Renderer = class {
       ctx.beginPath(); ctx.arc(lx, ly, Math.max(3, S*0.12), 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1;
       if(icon) { ctx.font = `${Math.round(S*0.32)}px serif`; ctx.textAlign='center'; ctx.fillText(icon, lx, ly + S*0.12); }
     }
+    // Skill burst FX (nova / quake / heal) — expanding ring.
+    if(pl._novaFx) {
+      const fx = pl._novaFx, prog = 1 - fx.t / 0.45;
+      const flift = levelOf(G.wrapTile(ter, Math.round(fx.x), Math.round(fx.y))) * LIFT;
+      const fxx = ox + fx.x*S, fxy = oy + fx.y*S - flift;
+      ctx.globalAlpha = Math.max(0, fx.t / 0.45) * 0.8;
+      ctx.strokeStyle = fx.color; ctx.lineWidth = Math.max(2, S*0.12);
+      ctx.beginPath(); ctx.arc(fxx, fxy, fx.r * S * prog, 0, Math.PI*2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
     this._drawPlanetMinimap(game, pl);
     this._drawPlanetHUD(game, pl);
     this._drawPlanetTooltip(game, pl, ox, oy, S, LIFT, levelOf, dt);
@@ -2387,12 +2397,39 @@ G.Renderer = class {
         ctx.fillStyle = col; ctx.fillRect(x0 + 34, yy - 9, w * frac, 7);
         ctx.fillStyle = '#cfe0f0'; ctx.fillText(Math.round(cur) + '/' + max, x0 + 34 + w + 6, yy - 3);
       };
-      const baseY = G.CANVAS_H - 32;
+      const baseY = G.CANVAS_H - 28;
       ctx.fillStyle = '#cfe6ff'; ctx.font = '7px "Press Start 2P",monospace';
-      ctx.fillText(ch.name + '   ' + wlabel, 12, baseY - 40);
-      bar('HP', ch.hp, ch.maxHp, '#dd4455', baseY - 24);
-      bar('EN', ch.energy, ch.maxEnergy, '#ddcc44', baseY - 12);
+      ctx.fillText(ch.name + '  L' + (ch.level || 1) + '   ' + wlabel, 12, baseY - 52);
+      bar('HP', ch.hp, ch.maxHp, '#dd4455', baseY - 38);
+      bar('MP', ch.mana, ch.maxMana, '#4488ff', baseY - 26);
+      bar('EN', ch.energy, ch.maxEnergy, '#ddcc44', baseY - 14);
+      this._drawPlanetHotbar(ctx, ch);
     }
+  }
+
+  // Skill hotbar (1-4) + health/mana flasks (Q/E), bottom-centre, with cooldowns.
+  _drawPlanetHotbar(ctx, ch) {
+    const sw = 30, gap = 6, n = 4;
+    let x = (G.CANVAS_W - (n * sw + (n - 1) * gap)) / 2 - (sw + gap) * 1.2;
+    const y = G.CANVAS_H - 52;
+    const cell = (label, col, icon, cd, cdMax, dim) => {
+      ctx.fillStyle = 'rgba(8,14,24,0.92)'; ctx.fillRect(x, y, sw, sw);
+      ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.strokeRect(x, y, sw, sw);
+      if(icon) { ctx.font = `${Math.round(sw * 0.5)}px serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff'; ctx.fillText(icon, x + sw / 2, y + sw / 2 + 1); }
+      if(dim) { ctx.fillStyle = 'rgba(40,0,60,0.45)'; ctx.fillRect(x, y, sw, sw); }
+      if(cd > 0) { const f = Math.min(1, cd / (cdMax || 1)); ctx.fillStyle = 'rgba(0,0,0,0.62)'; ctx.fillRect(x, y, sw, sw * f);
+        ctx.fillStyle = '#fff'; ctx.font = '7px "Press Start 2P",monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(cd.toFixed(1), x + sw / 2, y + sw / 2); }
+      ctx.fillStyle = '#9fb3c8'; ctx.font = '6px "Press Start 2P",monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillText(label, x + 2, y + 8);
+      x += sw + gap;
+    };
+    for(let i = 0; i < n; i++) {
+      const sk = G.CHAR_SKILLS[ch.hotbar?.[i]];
+      cell(String(i + 1), sk ? sk.color : '#26405a', sk ? sk.icon : null, sk ? (ch.skillCd?.[sk.id] || 0) : 0, sk?.cooldown, sk && ch.mana < sk.mana);
+    }
+    x += 8;
+    cell('Q', '#44ff88', '🧪', ch._healCd || 0, G.FLASK.healCd, false);
+    cell('E', '#4488ff', '🧪', ch._manaCd || 0, G.FLASK.manaCd, false);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   }
 
   // Full hex-map view: tactical sector overlay between space flight and galaxy map
@@ -3323,8 +3360,82 @@ G.Game = class {
       if(sword)  G.charEquip(pc, 'righthand', sword,  gear);
       if(shield) G.charEquip(pc, 'lefthand',  shield, gear);
       if(jet)    G.charEquip(pc, 'backpack',  jet,    gear);
+      // Grant the class's starting planet skill on hotbar slot 1.
+      const sk = G.CLASS_PLANET_SKILL[pc.classId] || 'cleave';
+      if(!pc.skills.includes(sk)) { pc.skills.push(sk); pc.hotbar[0] = sk; }
       G.charRecompute(pc);
     }
+  }
+
+  // ── ARPG skills + flasks (planet) ────────────────────────────────────────
+  // Number keys 1-4 cast the selected character's hotbar skills at the cursor;
+  // Q = health flask, E = mana flask (cooldown-gated). Ticks all cooldowns.
+  _planetSkills(dt) {
+    const pl = this._planet; if(!pl) return;
+    if(pl._novaFx) { pl._novaFx.t -= dt; if(pl._novaFx.t <= 0) pl._novaFx = null; }
+    const sel = pl.selected; if(!sel?.ref) return;
+    const ch = sel.ref;
+    if(ch.skillCd) for(const k in ch.skillCd) ch.skillCd[k] = Math.max(0, ch.skillCd[k] - dt);
+    ch._healCd = Math.max(0, (ch._healCd || 0) - dt);
+    ch._manaCd = Math.max(0, (ch._manaCd || 0) - dt);
+    if(ch.hp <= 0) return;
+    if(!this.ui.els['spaceport-overlay']?.classList.contains('hidden')) return;
+    if(!document.getElementById('char-screen-overlay')?.classList.contains('hidden')) return;
+    let aimx = sel._faceX || 0, aimy = sel._faceY || 1;
+    const lay = pl.layout;
+    if(lay) { const wmx = (this.input.mouseX - lay.ox) / lay.S, wmy = (this.input.mouseY - lay.oy) / lay.S;
+      const d = this._planetDelta(pl, sel.px, sel.py, wmx, wmy), l = d.dist || 1; aimx = d.dx / l; aimy = d.dy / l; }
+    const keys = ['Digit1', 'Digit2', 'Digit3', 'Digit4'];
+    for(let i = 0; i < 4; i++) {
+      if(!this.input.pressed(keys[i])) continue;
+      const sk = G.CHAR_SKILLS[ch.hotbar?.[i]]; if(!sk) continue;
+      sel._faceX = aimx; sel._faceY = aimy;
+      this._castSkill(sel, sk, aimx, aimy);
+    }
+    if(this.input.pressed('KeyQ') && ch._healCd <= 0 && ch.hp < ch.maxHp) {
+      ch.hp = Math.min(ch.maxHp, ch.hp + Math.round(ch.maxHp * G.FLASK.healFrac)); ch._healCd = G.FLASK.healCd;
+      this.ui.addMsg('Health flask', '#44ff88'); G.sound?.uiClick?.();
+    }
+    if(this.input.pressed('KeyE') && ch._manaCd <= 0 && ch.mana < ch.maxMana) {
+      ch.mana = Math.min(ch.maxMana, ch.mana + Math.round(ch.maxMana * G.FLASK.manaFrac)); ch._manaCd = G.FLASK.manaCd;
+      this.ui.addMsg('Mana flask', '#4488ff'); G.sound?.uiClick?.();
+    }
+  }
+
+  // Execute a skill for character wrapper `c` aimed at (aimx,aimy).
+  _castSkill(c, sk, aimx, aimy) {
+    const pl = this._planet, ch = c.ref;
+    if((ch.skillCd?.[sk.id] || 0) > 0) return false;
+    if(ch.mana < sk.mana) { this.ui.addMsg('Not enough mana', '#88aaff'); return false; }
+    ch.mana -= sk.mana;
+    (ch.skillCd || (ch.skillCd = {}))[sk.id] = sk.cooldown;
+    const mainDmg = G.gearDmg(ch.equip?.righthand) || G.gearDmg(ch.equip?.lefthand) || 12;
+    const crit = Math.random() < (ch.critChance || 0.05);
+    const hit = (mul, ranged) => Math.max(1, Math.round(mainDmg * mul * (ranged ? (ch.rangedMul || 1) : (ch.meleeMul || 1)) * (crit ? 2 : 1)));
+    if(sk.type === 'melee') {
+      for(const n of pl.npcs) { if(n.ref.hp <= 0) continue; const d = this._planetDelta(pl, c.px, c.py, n.px, n.py);
+        if(d.dist <= sk.radius + 0.4) { const l = d.dist || 1; if((d.dx / l) * aimx + (d.dy / l) * aimy > 0 || d.dist < 0.9) this._applyFootDamage(pl, n, hit(sk.dmgMul, false), c); } }
+      c._swingT = 0.2;
+    } else if(sk.type === 'spread') {
+      const base = Math.atan2(aimy, aimx);
+      for(let i = 0; i < sk.count; i++) { const a = base + (i - (sk.count - 1) / 2) * sk.spread; this._spawnFootShot(pl, c, Math.cos(a), Math.sin(a), hit(sk.dmgMul, true), 'player', sk.color); }
+      ch.energy = Math.max(0, ch.energy - 2);
+    } else if(sk.type === 'dash') {
+      const W = pl.terrain.W, H = pl.terrain.H;
+      for(let s = sk.range; s >= 1; s -= 0.5) { const px = c.px + aimx * s, py = c.py + aimy * s;
+        const h = G.pixelToHex(px, py, 1), w = G.wrapHex(W, H, h.q, h.r), t = pl.terrain.tiles.get(G.hexKey(w.q, w.r));
+        if(t && t.walkable) { c.px = px; c.py = py; c.q = w.q; c.r = w.r; c.path = null; break; } }
+      c._dodgeT = 0.15;
+    } else if(sk.type === 'nova') {
+      for(const n of pl.npcs) { if(n.ref.hp <= 0) continue; const d = this._planetDelta(pl, c.px, c.py, n.px, n.py);
+        if(d.dist <= sk.radius) { this._applyFootDamage(pl, n, hit(sk.dmgMul, false), c); if(sk.slow) n._slowT = Math.max(n._slowT || 0, sk.slow); } }
+      pl._novaFx = { x: c.px, y: c.py, r: sk.radius, t: 0.45, color: sk.color };
+    } else if(sk.type === 'heal') {
+      ch.hp = Math.min(ch.maxHp, ch.hp + Math.round(ch.maxHp * sk.healMul));
+      pl._novaFx = { x: c.px, y: c.py, r: 1.6, t: 0.45, color: sk.color };
+    }
+    G.sound?.uiClick?.();
+    return true;
   }
 
   // The player's own character object (the pilot crew member), or null.
@@ -4677,7 +4788,9 @@ G.Game = class {
       c._swingT   = Math.max(0, (c._swingT   || 0) - dt);
       if(c._swingT <= 0) c._sweptHexes = null;  // Clear swept hexes after swing ends
       c._hurtT    = Math.max(0, (c._hurtT    || 0) - dt);
+      c._slowT    = Math.max(0, (c._slowT    || 0) - dt);
       if(ch.hp > 0 && ch.hp < ch.maxHp && c._noRegenT <= 0) ch.hp = Math.min(ch.maxHp, ch.hp + 4 * dt);
+      if(ch.maxMana && ch.mana < ch.maxMana) ch.mana = Math.min(ch.maxMana, ch.mana + 5 * dt);  // mana regen
     }
   }
 
@@ -4911,7 +5024,7 @@ G.Game = class {
         const d = (cxp - c.px)**2 + (cyp - c.py)**2;
         if(d < bestD) { bestD = d; tx = cxp; ty = cyp; }
       }
-      const dx = tx - c.px, dy = ty - c.py, d = Math.hypot(dx, dy), step = spd * dt;
+      const dx = tx - c.px, dy = ty - c.py, d = Math.hypot(dx, dy), step = spd * dt * (c._slowT > 0 ? 0.45 : 1);
       if(Math.abs(dx) > 0.001) c._faceX = dx < 0 ? -1 : 1;   // face along travel
       if(d <= step) { c.px = tx; c.py = ty; c.q = n.q; c.r = n.r; c.path.shift(); }
       else { c.px += dx / d * step; c.py += dy / d * step; }
@@ -5612,6 +5725,7 @@ G.Game.prototype._loop = function(ts) {
       this.updatePlanetNpcs(dt);
       this.updatePlanetCombat(dt);
       this._planetMouse(dt);
+      this._planetSkills(dt);
       this.updatePlanetCrew(dt);
       this.updatePlanetMining(dt);
       this.updatePlanetCamera(dt);

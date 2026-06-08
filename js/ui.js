@@ -1589,11 +1589,22 @@ G.UI = class {
       ${sorted.length
         ? `<div style="display:flex;flex-wrap:wrap;gap:3px;max-height:120px;overflow-y:auto">${sorted.map(({ inst, i }) => { const col = G.gearColor(inst); return `<div data-gidx="${i}" title="${tip(inst)}" style="background:rgba(0,20,40,0.9);border:1px solid ${col}88;padding:3px 5px;font-size:5px;cursor:pointer"><span style="color:${col}">${G.gearIcon(inst)} ${G.gearName(inst)}</span></div>`; }).join('')}</div>`
         : `<div style="font-size:5px;color:#445566;text-align:left">No loose gear. Kill enemies on the surface for drops.</div>`}`;
-    host.innerHTML = stats + doll + inv;
+    // Skills: unlock with banked skill points; shows hotbar slot assignment.
+    const skills = `<div style="font-size:5px;color:#556677;margin:10px 0 4px;letter-spacing:2px;text-align:left">SKILLS${pc.skillPoints ? ` · <span style="color:#ffcc44">${pc.skillPoints} pts</span>` : ''} <span style="color:#445566">(hotbar 1-4 on the surface)</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:3px">${G.CHAR_SKILL_IDS.map(id => {
+        const s = G.CHAR_SKILLS[id], unlocked = pc.skills.includes(id), slot = pc.hotbar.indexOf(id), can = !unlocked && pc.skillPoints > 0;
+        return `<div data-skill="${id}" title="${(s.desc || '').replace(/"/g,'')} — ${s.mana} mana · ${s.cooldown}s" style="background:rgba(0,20,40,0.9);border:1px solid ${s.color}${unlocked ? '' : '44'};padding:3px 5px;font-size:5px;cursor:${can ? 'pointer' : 'default'};opacity:${unlocked || can ? 1 : 0.45}">
+          <span style="color:${s.color}">${s.icon} ${s.name}</span>${unlocked ? (slot >= 0 ? ` <span style="color:#9fb3c8">[${slot + 1}]</span>` : '') : (can ? ' <span style="color:#ffcc44">+unlock</span>' : ' <span style="color:#556677">locked</span>')}</div>`;
+      }).join('')}</div>`;
+    host.innerHTML = stats + doll + inv + skills;
     // Equipment slots — click to unequip.
     host.querySelectorAll('[data-eslot]').forEach(el => {
       const slot = el.dataset.eslot;
       el.addEventListener('click', () => { if(pc.equip[slot] && G.charUnequip(pc, slot, gear)) this.showCharScreen(); });
+    });
+    // Skills — click a locked one to unlock (spends a skill point).
+    host.querySelectorAll('[data-skill]').forEach(el => {
+      el.addEventListener('click', () => { if(G.charUnlockSkill(pc, el.dataset.skill)) this.showCharScreen(); });
     });
     // Inventory — click to equip into the first matching slot.
     host.querySelectorAll('[data-gidx]').forEach(el => {

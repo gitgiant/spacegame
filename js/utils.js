@@ -912,6 +912,9 @@ G.makeCharacter = function(opts = {}) {
     maxEnergy: b.energy, energy: b.energy,
     armor: 0,
     equip: {},                  // paper-doll slot -> gear INSTANCE (or null)
+    skills: [],                 // unlocked skill ids
+    hotbar: [null, null, null, null],   // hotbar 1-4 -> skill id
+    skillCd: {},                // skill id -> cooldown remaining
     isPlayer: !!opts.isPlayer,
   };
   for(const s of G.EQUIP_SLOTS) c.equip[s] = null;
@@ -938,9 +941,24 @@ G.ensureCharFields = function(c) {
   if(c.baseVit == null)   c.baseVit = A.vit;
   if(c.attrPoints == null)  c.attrPoints = 0;
   if(c.skillPoints == null) c.skillPoints = 0;
+  if(!Array.isArray(c.skills))  c.skills = [];
+  if(!Array.isArray(c.hotbar))  c.hotbar = [null, null, null, null];
+  if(!c.skillCd || typeof c.skillCd !== 'object') c.skillCd = {};
   if(!c.equip || typeof c.equip !== 'object') c.equip = {};
   for(const s of G.EQUIP_SLOTS) if(!(s in c.equip)) c.equip[s] = null;
   return c;
+};
+
+// Unlock a skill (costs 1 skill point) and slot it on the first empty hotbar
+// slot. Returns true on success.
+G.charUnlockSkill = function(c, skillId) {
+  if(!G.CHAR_SKILLS?.[skillId] || c.skills.includes(skillId)) return false;
+  if((c.skillPoints || 0) < 1) return false;
+  c.skillPoints--;
+  c.skills.push(skillId);
+  const free = c.hotbar.indexOf(null);
+  if(free >= 0) c.hotbar[free] = skillId;
+  return true;
 };
 
 // ── Gear value resolvers ─────────────────────────────────────────────────────
