@@ -17,6 +17,7 @@ G.SLOT_RING = {
   special: { angle: -10, r:0.42, color:'#cc44ff' },
   power:   { angle:  10, r:0.32, color:'#ffff44' },
   hull:    { angle: 180, r:0.28, color:'#667799' },
+  airlock: { angle: 180, r:0.28, color:'#33bbcc' },
 };
 
 G.UI = class {
@@ -309,6 +310,7 @@ G.UI = class {
     });
     document.getElementById('camera-close-btn')?.addEventListener('click',()=>{
       document.getElementById('camera-overlay')?.classList.add('hidden');
+      if(G.game) G.game.paused = false;
     });
     document.getElementById('opt-sfx-enabled')?.addEventListener('change', e=>{
       const on = e.target.checked;
@@ -518,6 +520,21 @@ G.UI = class {
       joy.addEventListener('pointerup',     e=>{ if(e.pointerId===_joyPtr){ _joyPtr=null; _joyRelease(); }});
       joy.addEventListener('pointercancel', e=>{ if(e.pointerId===_joyPtr){ _joyPtr=null; _joyRelease(); }});
     }
+
+    // Planet ATK / DEF touch buttons — drive Input.touchFire / touchDef flags.
+    const _bindPlanetBtn = (id, downFn, upFn) => {
+      const btn = document.getElementById(id); if(!btn) return;
+      const stop = e => { e.preventDefault(); btn.classList.remove('held'); upFn(); };
+      btn.addEventListener('pointerdown', e => {
+        e.preventDefault(); try{ btn.setPointerCapture(e.pointerId); }catch(_){}
+        btn.classList.add('held'); downFn();
+      });
+      btn.addEventListener('pointerup', stop);
+      btn.addEventListener('pointercancel', stop);
+      btn.addEventListener('contextmenu', e => e.preventDefault());
+    };
+    _bindPlanetBtn('mc-planet-atk', ()=>G.game?.input.touchFireDown(), ()=>G.game?.input.touchFireUp());
+    _bindPlanetBtn('mc-planet-def', ()=>G.game?.input.touchDefDown(),  ()=>G.game?.input.touchDefUp());
 
     // Tappable ability slots — the bar is re-rendered every frame, so use a
     // single delegated handler that reads data-aid off the tapped slot. This
@@ -2093,17 +2110,17 @@ G.UI = class {
     // Any inner module without a hex gets a free perimeter hex.
     for(const inst of Object.values(p.modules)) {
       const m = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
-      if(m && m.slot === 'hull') continue;
+      if(m && (m.slot === 'hull' || m.slot === 'airlock')) continue;
       if(inst.q == null) { const c = p._freeBuilderCell(); inst.q = c.q; inst.r = c.r; }
     }
     // Rebuild the hull wrap only when the inner layout actually changed — this
     // runs every render frame, so it must be a cheap no-op in the steady state.
     const sig = Object.values(p.modules)
-      .filter(m => { const md = G.MODULES[m.moduleId] || G.WEAPONS[m.moduleId]; return md && md.slot !== 'hull' && m.q != null; })
+      .filter(m => { const md = G.MODULES[m.moduleId] || G.WEAPONS[m.moduleId]; return md && md.slot !== 'hull' && md.slot !== 'airlock' && m.q != null; })
       .map(m => m.q + ',' + m.r).sort().join(';');
     if(sig !== p._hullSig) {
       for(const [id, inst] of Object.entries(p.modules)) {
-        if(G.MODULES[inst.moduleId]?.slot === 'hull') { p.slots[inst.slotIdx] = null; delete p.modules[id]; }
+        if(G.MODULES[inst.moduleId]?.slot === 'hull' || G.MODULES[inst.moduleId]?.slot === 'airlock') { p.slots[inst.slotIdx] = null; delete p.modules[id]; }
       }
       p._wrapHull();
       p._hullSig = sig;
@@ -2119,6 +2136,12 @@ G.UI = class {
     if(!inst) return '';
     const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
     if(!mod) return '';
+
+    // Airlock: show info card — auto-placed, cannot remove
+    if(mod.slot === 'airlock') {
+      return this._modCardHTML(mod, '') +
+        `<div style="font-size:5px;color:#33bbcc;margin-top:6px;text-align:center">AUTO-PLACED — required for EVA</div>`;
+    }
 
     // Hull panel: show color picker + shape selector
     if(mod.slot === 'hull') {
@@ -2185,7 +2208,7 @@ G.UI = class {
     this._ensureBuilderCells(p);
 
     // Count installed modules (slots are unlimited; this is informational only)
-    const hullInstIds = new Set(Object.keys(p.modules).filter(id => G.MODULES[p.modules[id].moduleId]?.slot === 'hull'));
+    const hullInstIds = new Set(Object.keys(p.modules).filter(id => { const s = G.MODULES[p.modules[id].moduleId]?.slot; return s === 'hull' || s === 'airlock'; }));
     const used = Object.keys(p.modules).filter(id => !hullInstIds.has(id)).length;
     const hullCount = hullInstIds.size;
 
@@ -2318,7 +2341,7 @@ G.UI = class {
       const inst = hex && this._builderInstAt(hex);
       if(inst) {
         const mod = G.MODULES[inst.id_mod] || G.WEAPONS[inst.id_mod];
-        const movable = mod && mod.slot !== 'core' && mod.slot !== 'hull';
+        const movable = mod && mod.slot !== 'core' && mod.slot !== 'hull' && mod.slot !== 'airlock';
         this._builderDrag = movable
           ? { source:'canvas', instId: inst.id, startX:e.clientX, startY:e.clientY, active:false, ghost:null }
           : null;
@@ -2506,13 +2529,15 @@ G.UI = class {
     for(const pass of [0, 1]) {
       for(const { id, inst, u } of mods) {
         const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
-        const isHull = mod?.slot === 'hull';
+        const isHull = mod?.slot === 'hull' || mod?.slot === 'airlock';
         if((pass === 0) !== isHull) continue;
         if(inst.broken) continue;
         const px = cx + u.x * BR, py = cy + u.y * BR;
         let tile;
-        if(isHull) tile = G.Sprites.getHexTile('hull', inst.color || '#667799', false);
-        else {
+        if(isHull) {
+          const hCol = mod?.slot === 'airlock' ? '#33bbcc' : (inst.color || '#667799');
+          tile = G.Sprites.getHexTile('hull', hCol, false);
+        } else {
           const slotCol = G.SLOT_RING[mod?.slot]?.color || '#334455';
           const visual = mod?.visual || (G.WEAPONS[inst.moduleId] ? 'weapon' : 'special');
           tile = G.Sprites.getHexTile(visual, slotCol, inst.broken);
@@ -2526,6 +2551,12 @@ G.UI = class {
           ctx.restore();
         } else {
           ctx.drawImage(tile, (px - BR) | 0, (py - BR) | 0, T, T);
+        }
+        // Airlock icon overlay
+        if(mod?.slot === 'airlock') {
+          const icon = G.Sprites.getMod('airlock');
+          const isz = T * 0.55 | 0, ioff = ((T - isz) / 2) | 0;
+          ctx.drawImage(icon, (px - BR + ioff) | 0, (py - BR + ioff) | 0, isz, isz);
         }
         // Selection outline
         if(this._builderSel === id) {
@@ -2588,12 +2619,14 @@ G.UI = class {
     for(const pass of [0, 1]) {
       for(const { inst, u } of mods) {
         const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
-        const isHull = mod?.slot === 'hull';
+        const isHull = mod?.slot === 'hull' || mod?.slot === 'airlock';
         if((pass === 0) !== isHull) continue;
         if(inst.broken) continue;
         let tile;
-        if(isHull) tile = G.Sprites.getHexTile('hull', inst.color || '#667799', false);
-        else tile = G.Sprites.getHexTile(mod?.visual || (G.WEAPONS[inst.moduleId] ? 'weapon' : 'special'), G.SLOT_RING[mod?.slot]?.color || '#334455', inst.broken);
+        if(isHull) {
+          const hCol = mod?.slot === 'airlock' ? '#33bbcc' : (inst.color || '#667799');
+          tile = G.Sprites.getHexTile('hull', hCol, false);
+        } else tile = G.Sprites.getHexTile(mod?.visual || (G.WEAPONS[inst.moduleId] ? 'weapon' : 'special'), G.SLOT_RING[mod?.slot]?.color || '#334455', inst.broken);
         const rot = isHull ? 0 : (inst.rot || 0) % 4;
         if(rot) {
           ctx.save();
@@ -2653,7 +2686,7 @@ G.UI = class {
     const inst = G.game.player.modules[this._builderSel];
     if(!inst) return;
     const mod = G.MODULES[inst.moduleId];
-    if(mod?.slot === 'hull') return; // hexes are symmetric — hull rotation is a no-op
+    if(mod?.slot === 'hull' || mod?.slot === 'airlock') return; // perimeter cells are symmetric — rotation is a no-op
     G.game.player.rotateModule(this._builderSel, dir);
     this.renderSpaceportTab('builder');
   }
@@ -3092,14 +3125,16 @@ G.UI = class {
 
       for(const pass of [0, 1]) {
         for(const e of entries) {
-          const isHull = e.slot === 'hull';
+          const isHull = e.slot === 'hull' || e.slot === 'airlock';
           if((pass === 0) !== isHull) continue;
           if(e.broken) continue;
           const u = G.hexToPixel(e.q, e.r, 1);
           const px = cx + u.x * BR, py = cy + u.y * BR;
           let tile;
-          if(isHull) tile = G.Sprites.getHexTile('hull', e.color || '#667799', false);
-          else {
+          if(isHull) {
+            const hCol = e.slot === 'airlock' ? (e.color || '#33bbcc') : (e.color || '#667799');
+            tile = G.Sprites.getHexTile('hull', hCol, false);
+          } else {
             const slotCol = G.SLOT_RING[e.slot]?.color || '#334455';
             tile = G.Sprites.getHexTile(e.visual || 'special', slotCol, e.broken || false);
           }
@@ -3112,6 +3147,11 @@ G.UI = class {
             ctx.restore();
           } else {
             ctx.drawImage(tile, (px - BR)|0, (py - BR)|0, T, T);
+          }
+          if(e.slot === 'airlock') {
+            const icon = G.Sprites.getMod('airlock');
+            const isz = T * 0.55 | 0, ioff = ((T - isz) / 2) | 0;
+            ctx.drawImage(icon, (px - BR + ioff)|0, (py - BR + ioff)|0, isz, isz);
           }
         }
       }
@@ -4216,6 +4256,7 @@ G.UI = class {
     if(!overlay || !list) return;
 
     const game = G.game;
+    if(game) game.paused = true;
     const collisionsEnabled = game?.collisionsEnabled !== false;
     const fpsEnabled = game?._fpsEl != null;
     const godmodeEnabled = game?._godMode ?? false;
@@ -4287,7 +4328,6 @@ G.UI = class {
     });
 
     overlay.classList.remove('hidden');
-    if(game) game.paused = true;
   }
 
   showCameraMenu() {
@@ -4296,6 +4336,7 @@ G.UI = class {
     if(!overlay || !list) return;
 
     const game = G.game;
+    if(game) game.paused = true;
     let html = '<div style="color:#00ddff;margin-bottom:12px;letter-spacing:1px">CAMERA</div>';
 
     // Spaceflight camera
@@ -5167,6 +5208,7 @@ G.UI = class {
           broken: false,
         };
         if(mod.slot === 'hull') entry.color = inst.color || '#667799';
+        if(mod.slot === 'airlock') entry.color = '#33bbcc';
         entries.push(entry);
       }
 
