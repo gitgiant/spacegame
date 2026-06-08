@@ -4226,7 +4226,11 @@ G.Game = class {
     const _wasCrewView = this._crewView;
     this._crewView = this.camZoom >= this.CREW_VIEW_ZOOM;
     if(this._crewView && !_wasCrewView) { this.ui?.addMsg?.('CREW VIEW — click crew to select, WASD to move, click to attack','#88ccff'); this._initShipCrewWrappers(); }
-    if(!this._crewView && _wasCrewView) { this._selectedCrew = null; if(this.player._crewWrappers) this.player._crewWrappers.forEach(w => { w._playerControlled = false; }); }
+    if(!this._crewView && _wasCrewView) {
+      // Clear interior crew selection, but keep EVA crew selected for continued control
+      if(this._selectedCrew && !this._selectedCrew.eva) this._selectedCrew = null;
+      if(this.player._crewWrappers) this.player._crewWrappers.forEach(w => { w._playerControlled = false; });
+    }
 
     // Interact prompts — land on ANY planet (spaceport or barren).
     const pHex = G.worldToHex(p.x, p.y);
@@ -4705,10 +4709,14 @@ G.Game = class {
       this._selectedCrew = (this._selectedCrew === pick) ? null : pick;
       G.sound?.uiClick?.();
       if(this._selectedCrew) {
-        const _atCockpit = p._slotAt(pick.q, pick.r) === 'cockpit';
-        this.ui?.addMsg?.(_atCockpit
-          ? pick.name + ' — PILOTING (click Stop Piloting or order to another module)'
-          : pick.name + ' — WASD to move, click module to order', '#ffff66');
+        if(pick.eva) {
+          this.ui?.addMsg?.(pick.name + ' — EVA: WASD to move, E to board airlock', '#44ffff');
+        } else {
+          const _atCockpit = p._slotAt(pick.q, pick.r) === 'cockpit';
+          this.ui?.addMsg?.(_atCockpit
+            ? pick.name + ' — PILOTING (click Stop Piloting or order to another module)'
+            : pick.name + ' — WASD to move, click module to order', '#ffff66');
+        }
       }
       return true;
     }
