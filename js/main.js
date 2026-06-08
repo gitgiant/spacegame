@@ -2050,7 +2050,7 @@ G.Renderer = class {
     ctx.imageSmoothingEnabled = false;
     const SQ3 = G.HEX_SQRT3;
     const WATER = new Set(['deep_water','ocean','shallow_water','river','liquid','coast']);
-    const R = S * 1.02, motifSz = S * 1.2;
+    const R = S * 1.02, motifSz = S * 1.2, TD = Math.ceil(R * 2);
     const PX = Math.max(2, Math.round(S * 0.14));   // chunky relief pixel unit
     const LIFT = Math.max(2, Math.round(S * 0.18)); // screen-px height per tier
     const apo = R * Math.cos(Math.PI/6);            // hex apothem (centre→edge)
@@ -2087,7 +2087,6 @@ G.Renderer = class {
         ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = Math.max(1, PX*0.4);
         ctx.beginPath(); ctx.moveTo(a1x,a1y); ctx.lineTo(a2x,a2y); ctx.stroke();
       }
-      const TD = Math.ceil(R * 2);
       ctx.drawImage(G.TerrainTiles.tile(t.biome, animFrame), (x - R) | 0, (y - R) | 0, TD, TD);
       if(L) { hexPath(x, y); ctx.fillStyle = L > 0 ? `rgba(255,255,255,${Math.min(0.16, L*0.035)})` : `rgba(0,0,40,${Math.min(0.28, -L*0.06)})`; ctx.fill(); }
       // Road overlay: dynamic connected segments toward road-property neighbors.
@@ -5364,10 +5363,13 @@ G.Game = class {
   // to enter its service (Market, Vendor, Stash, etc.).
   _planetInteract(dt) {
     const pl = this._planet; if(!pl) return;
+    if(!this.ui.els['spaceport-overlay']?.classList.contains('hidden')) {
+      if(this.input.pressed('KeyE')) { this.ui.hideSpaceport(); }
+      return;
+    }
     pl._nearBuilding = null;
     if(!(pl.buildings && pl.buildings.length)) return;
     const sel = pl.selected; if(!sel?.ref || sel.ref.hp <= 0) return;
-    if(!this.ui.els['spaceport-overlay']?.classList.contains('hidden')) return;
     if(!document.getElementById('char-screen-overlay')?.classList.contains('hidden')) return;
     let best = null, bd = 1.7;
     for(const b of pl.buildings) { const bp = G.hexToPixel(b.q, b.r, 1); const d = this._planetDelta(pl, sel.px, sel.py, bp.x, bp.y); if(d.dist < bd) { bd = d.dist; best = b; } }
