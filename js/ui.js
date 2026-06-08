@@ -193,6 +193,21 @@ G.UI = class {
     document.getElementById('opt-controls-btn')?.addEventListener('click',()=>{
       this.showControlsMenu();
     });
+    // Sound & Music submenu
+    document.getElementById('opt-sound-btn')?.addEventListener('click',()=>{
+      document.getElementById('sound-overlay')?.classList.remove('hidden');
+      this.refreshMusicPicker();
+    });
+    document.getElementById('sound-close-btn')?.addEventListener('click',()=>{
+      document.getElementById('sound-overlay')?.classList.add('hidden');
+    });
+    document.getElementById('music-prev-btn')?.addEventListener('click',()=>{ G.sound?.musicPrev?.(); });
+    document.getElementById('music-next-btn')?.addEventListener('click',()=>{ G.sound?.musicNext?.(); });
+    document.getElementById('music-playstop-btn')?.addEventListener('click',()=>{
+      const s=G.sound; if(!s) return;
+      if(s.currentTrack().playing) s.musicStop(); else s.musicPlay();
+    });
+    document.getElementById('music-auto')?.addEventListener('change', e=>{ G.sound?.musicSetAuto?.(e.target.checked); });
     document.getElementById('ctrl-close-btn')?.addEventListener('click',()=>{
       document.getElementById('controls-overlay')?.classList.add('hidden');
     });
@@ -293,6 +308,7 @@ G.UI = class {
       const on = e.target.checked;
       document.getElementById('opt-music-label').textContent = on ? 'ON' : 'OFF';
       G.sound?.setMusicEnabled(on);
+      this.refreshMusicPicker();
       e.target.blur();
     });
     document.getElementById('opt-music-volume')?.addEventListener('input', e=>{
@@ -1623,6 +1639,24 @@ G.UI = class {
   hideCharScreen() {
     document.getElementById('char-screen-overlay')?.classList.add('hidden');
     if(G.game?.player) this.updateAbilityBar(G.game.player);
+  }
+
+  // Sync the Sound menu's music picker with the engine state.
+  refreshMusicPicker() {
+    const s = G.sound; if(!s || !s.currentTrack) return;
+    const t = s.currentTrack();
+    const np  = document.getElementById('music-now-playing');
+    const pos = document.getElementById('music-track-pos');
+    const btn = document.getElementById('music-playstop-btn');
+    const auto= document.getElementById('music-auto');
+    if(np)  np.textContent  = t.name + (t.auto ? '  ◇ auto' : '  ◆ locked');
+    if(pos) pos.textContent = 'TRACK ' + (t.idx + 1) + ' / ' + t.count + (t.playing ? '   ▶ PLAYING' : '   ◼ STOPPED');
+    if(btn) { btn.textContent = t.playing ? '◼ STOP' : '▶ PLAY'; const c = t.playing ? '#ff6644' : '#44ff88'; btn.style.borderColor = c; btn.style.color = c; }
+    if(auto) auto.checked = t.auto;
+    // Keep the MUSIC on/off row in sync (play/stop flips musicEnabled).
+    const mEn = document.getElementById('opt-music-enabled'), mLbl = document.getElementById('opt-music-label');
+    if(mEn)  mEn.checked = !!s.musicEnabled;
+    if(mLbl) mLbl.textContent = s.musicEnabled ? 'ON' : 'OFF';
   }
 
   showSkillTree() {

@@ -198,32 +198,9 @@
   <div id="options-overlay" class="hidden">
     <div id="options-box">
       <div class="panel-title" style="text-align:center;margin-bottom:16px">OPTIONS</div>
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-        <span style="font-size:6px;color:#aabbcc;font-family:'Press Start 2P',monospace;min-width:48px">SFX</span>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="opt-sfx-enabled" checked style="accent-color:#00ffee;width:13px;height:13px">
-          <span id="opt-sfx-label" style="font-size:6px;color:#00ffee;font-family:'Press Start 2P',monospace">ON</span>
-        </label>
-        <input type="range" id="opt-volume" min="0" max="100" value="45" style="flex:1;accent-color:#00ffee">
-        <span id="opt-volume-val" style="font-size:6px;color:#00ffee;font-family:'Press Start 2P',monospace;min-width:28px">45%</span>
-      </div>
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
-        <span style="font-size:6px;color:#aabbcc;font-family:'Press Start 2P',monospace;min-width:48px">MUSIC</span>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="opt-music-enabled" checked style="accent-color:#bb88ff;width:13px;height:13px">
-          <span id="opt-music-label" style="font-size:6px;color:#bb88ff;font-family:'Press Start 2P',monospace">ON</span>
-        </label>
-        <input type="range" id="opt-music-volume" min="0" max="100" value="30" style="flex:1;accent-color:#bb88ff">
-        <span id="opt-music-vol-val" style="font-size:6px;color:#bb88ff;font-family:'Press Start 2P',monospace;min-width:28px">30%</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
-        <span style="font-size:6px;color:#aabbcc;font-family:'Press Start 2P',monospace;min-width:48px">VOICE</span>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="opt-voice-enabled" checked style="accent-color:#ffaa44;width:13px;height:13px">
-          <span id="opt-voice-label" style="font-size:6px;color:#ffaa44;font-family:'Press Start 2P',monospace">ON</span>
-        </label>
-        <input type="range" id="opt-voice-volume" min="0" max="100" value="25" style="flex:1;accent-color:#ffaa44">
-        <span id="opt-voice-vol-val" style="font-size:6px;color:#ffaa44;font-family:'Press Start 2P',monospace;min-width:28px">25%</span>
+        <span style="font-size:6px;color:#aabbcc;font-family:'Press Start 2P',monospace;min-width:48px">AUDIO</span>
+        <button class="btn" id="opt-sound-btn" style="font-size:6px;padding:5px 14px;border-color:#bb88ff;color:#bb88ff">SOUND &amp; MUSIC ▸</button>
       </div>
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
         <span style="font-size:6px;color:#aabbcc;font-family:'Press Start 2P',monospace;min-width:48px">BG</span>
@@ -259,6 +236,59 @@
         <button class="btn btn-big" id="opt-quit-btn" style="border-color:#ff6644;color:#ff6644">QUIT TO MENU</button>
       </div>
       <button class="btn btn-big" id="opt-close-btn" style="width:100%;margin-top:8px">RESUME [ESC]</button>
+    </div>
+  </div>
+
+  <!-- Sound & Music overlay -->
+  <div id="sound-overlay" class="hidden">
+    <div id="sound-box" style="background:#070512;border:2px solid #bb88ff;padding:20px;max-width:460px;font-family:'Press Start 2P',monospace">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+        <div class="panel-title" style="margin:0;color:#bb88ff">SOUND &amp; MUSIC</div>
+        <button id="sound-close-btn" class="btn" style="font-size:6px">CLOSE</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="font-size:6px;color:#aabbcc;min-width:48px">SFX</span>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="opt-sfx-enabled" checked style="accent-color:#00ffee;width:13px;height:13px">
+          <span id="opt-sfx-label" style="font-size:6px;color:#00ffee">ON</span>
+        </label>
+        <input type="range" id="opt-volume" min="0" max="100" value="45" style="flex:1;accent-color:#00ffee">
+        <span id="opt-volume-val" style="font-size:6px;color:#00ffee;min-width:28px">45%</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="font-size:6px;color:#aabbcc;min-width:48px">MUSIC</span>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="opt-music-enabled" checked style="accent-color:#bb88ff;width:13px;height:13px">
+          <span id="opt-music-label" style="font-size:6px;color:#bb88ff">ON</span>
+        </label>
+        <input type="range" id="opt-music-volume" min="0" max="100" value="30" style="flex:1;accent-color:#bb88ff">
+        <span id="opt-music-vol-val" style="font-size:6px;color:#bb88ff;min-width:28px">30%</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <span style="font-size:6px;color:#aabbcc;min-width:48px">VOICE</span>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="opt-voice-enabled" checked style="accent-color:#ffaa44;width:13px;height:13px">
+          <span id="opt-voice-label" style="font-size:6px;color:#ffaa44">ON</span>
+        </label>
+        <input type="range" id="opt-voice-volume" min="0" max="100" value="25" style="flex:1;accent-color:#ffaa44">
+        <span id="opt-voice-vol-val" style="font-size:6px;color:#ffaa44;min-width:28px">25%</span>
+      </div>
+      <!-- Music track picker -->
+      <div style="border-top:1px solid #2a1f4a;padding-top:14px">
+        <div style="font-size:6px;color:#8877aa;letter-spacing:2px;margin-bottom:8px">NOW PLAYING</div>
+        <div id="music-now-playing" style="font-size:9px;color:#d8c4ff;margin-bottom:3px">—</div>
+        <div id="music-track-pos" style="font-size:5px;color:#6a5a8a;margin-bottom:10px">—</div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button class="btn" id="music-prev-btn" style="font-size:7px;padding:5px 10px">◂ PREV</button>
+          <button class="btn" id="music-playstop-btn" style="font-size:7px;padding:5px 12px;border-color:#44ff88;color:#44ff88">▶ PLAY</button>
+          <button class="btn" id="music-next-btn" style="font-size:7px;padding:5px 10px">NEXT ▸</button>
+          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;margin-left:auto">
+            <input type="checkbox" id="music-auto" checked style="accent-color:#bb88ff;width:12px;height:12px">
+            <span style="font-size:6px;color:#bb88ff">AUTO</span>
+          </label>
+        </div>
+        <div style="font-size:4px;color:#55476a;margin-top:8px">AUTO follows the local faction. Picking a track locks it.</div>
+      </div>
     </div>
   </div>
 
@@ -471,21 +501,21 @@
   </div>
 
 </div>
-<script src="js/data.js?v=5"></script>
-<script src="js/utils.js?v=5"></script>
-<script src="js/sprites.js?v=5"></script>
-<script src="js/planets.js?v=5"></script>
-<script src="js/npc.js?v=5"></script>
-<script src="js/input.js?v=5"></script>
-<script src="js/particles.js?v=5"></script>
-<script src="js/ship.js?v=5"></script>
-<script src="js/enemies.js?v=5"></script>
-<script src="js/space.js?v=5"></script>
-<script src="js/economy.js?v=5"></script>
-<script src="js/galaxy.js?v=5"></script>
-<script src="js/ui.js?v=5"></script>
-<script src="js/sound.js?v=5"></script>
-<script src="js/main.js?v=5"></script>
+<script src="js/data.js?v=6"></script>
+<script src="js/utils.js?v=6"></script>
+<script src="js/sprites.js?v=6"></script>
+<script src="js/planets.js?v=6"></script>
+<script src="js/npc.js?v=6"></script>
+<script src="js/input.js?v=6"></script>
+<script src="js/particles.js?v=6"></script>
+<script src="js/ship.js?v=6"></script>
+<script src="js/enemies.js?v=6"></script>
+<script src="js/space.js?v=6"></script>
+<script src="js/economy.js?v=6"></script>
+<script src="js/galaxy.js?v=6"></script>
+<script src="js/ui.js?v=6"></script>
+<script src="js/sound.js?v=6"></script>
+<script src="js/main.js?v=6"></script>
 <script>
 (function() {
   function fitMenuTitle() {

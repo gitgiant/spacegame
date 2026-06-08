@@ -1438,6 +1438,7 @@ G.SoundEngine = class {
       this._musicGain.gain.setTargetAtTime(0, now, 0.8);
       this._musicStop();
     }
+    this._notifyMusicUI();
   }
 
   setMusicVolume(v) {

@@ -2239,7 +2239,7 @@ G.Renderer = class {
     const tkey = G.hexKey(t.q, t.r);
     if(pl._lastHoveredTile !== tkey) { pl._lastHoveredTile = tkey; pl._tooltipHoverTime = 0; }
     pl._tooltipHoverTime = (pl._tooltipHoverTime || 0) + dt;
-    if(pl._tooltipHoverTime < 0.5) return;  // Don't show tooltip until hovered 0.5s
+    if(pl._tooltipHoverTime < 1.0) return;  // Don't show tooltip until hovered 1.0s
     const lvl = t.level || 0;
     const oreName = (t.ore && t.oreHp > 0) ? (G.ITEMS[G.ASTEROID_MAT[t.ore]?.drop || t.ore]?.name || t.ore) : null;
     const lines = [

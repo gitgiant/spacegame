@@ -142,7 +142,7 @@ G.Input = class {
           e.preventDefault();
           return;
         }
-        const popups = ['options-overlay','spaceport-overlay','inventory-overlay',
+        const popups = ['sound-overlay','options-overlay','spaceport-overlay','inventory-overlay',
                        'mission-log-overlay','boarding-popup','disabled-ship-popup','mission-result-popup',
                        'controls-overlay','fleet-overlay','ship-overlay','debug-overlay','camera-overlay'];
         for(const id of popups) {
