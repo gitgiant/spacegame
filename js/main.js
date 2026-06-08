@@ -2090,6 +2090,21 @@ G.Renderer = class {
       const TD = Math.ceil(R * 2);
       ctx.drawImage(G.TerrainTiles.tile(t.biome, animFrame), (x - R) | 0, (y - R) | 0, TD, TD);
       if(L) { hexPath(x, y); ctx.fillStyle = L > 0 ? `rgba(255,255,255,${Math.min(0.16, L*0.035)})` : `rgba(0,0,40,${Math.min(0.28, -L*0.06)})`; ctx.fill(); }
+      // Road overlay: dynamic connected segments toward road-property neighbors.
+      if(t.road) {
+        const roW = Math.max(3, S * 0.44), surf = '#565c64';
+        ctx.save();
+        ctx.lineCap = 'butt'; ctx.lineWidth = roW; ctx.strokeStyle = surf;
+        for(const [dq, dr] of G.HEX_DIRS) {
+          const nt = G.wrapTile(ter, q+dq, r+dr);
+          if(!nt || !nt.road) continue;
+          const nL = levelOf(nt);
+          const ex = x + SQ3*(dq + dr*0.5)*S*0.5, ey = y + 1.5*dr*S*0.5 - (nL-L)*LIFT*0.5;
+          ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(ex, ey); ctx.stroke();
+        }
+        ctx.fillStyle = surf; ctx.beginPath(); ctx.arc(x, y, roW*0.52, 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+      }
     };
     pl._drawTile = drawTile; pl._terLayout = { ox, oy, S, SQ3, LIFT };
     // Single back-to-front pass.
@@ -2100,21 +2115,14 @@ G.Renderer = class {
         drawTile(q, r);
         const L = levelOf(t);
         const x = ox + SQ3*(q + r/2)*S, y = oy + 1.5*r*S - L*LIFT;
-        // Mineable ore deposit: a small cluster of mineral crystals on the tile.
+        // Mineable ore deposit: colored hex border + pixel-art sprite.
         if(t.ore && t.oreHp > 0) {
           const mat = G.ASTEROID_MAT[t.ore] || G.ASTEROID_MAT.rock;
-          const gr = Math.max(2, S * 0.13);
-          const gems = [[-0.22, 0.10], [0.20, 0.16], [0.02, -0.16], [0.26, -0.06]];
-          for(let gi = 0; gi < gems.length; gi++) {
-            const gx = x + gems[gi][0] * S, gy = y + gems[gi][1] * S, gs = gr * (gi === 2 ? 1.25 : 1);
-            ctx.beginPath();
-            ctx.moveTo(gx, gy - gs); ctx.lineTo(gx + gs*0.7, gy); ctx.lineTo(gx, gy + gs); ctx.lineTo(gx - gs*0.7, gy); ctx.closePath();
-            ctx.fillStyle = mat.base; ctx.fill();
-            ctx.strokeStyle = mat.spec; ctx.lineWidth = 1; ctx.stroke();
-          }
-          ctx.fillStyle = mat.spec; ctx.globalAlpha = 0.9;
-          ctx.fillRect((x + 0.02*S - gr*0.3)|0, (y - 0.16*S - gr*0.3)|0, Math.max(1, gr*0.5), Math.max(1, gr*0.5));
+          hexPath(x, y);
+          ctx.lineWidth = Math.max(4, S * 0.17); ctx.strokeStyle = mat.spec; ctx.globalAlpha = 0.24; ctx.stroke();
+          ctx.lineWidth = Math.max(1.5, S * 0.06); ctx.strokeStyle = mat.spec; ctx.globalAlpha = 0.94; ctx.stroke();
           ctx.globalAlpha = 1;
+          ctx.drawImage(G.OreSprites.sprite(t.ore), (x - R)|0, (y - R)|0, TD, TD);
         }
       }
     }
@@ -2348,7 +2356,7 @@ G.Renderer = class {
     const lvl = t.level || 0;
     const oreName = (t.ore && t.oreHp > 0) ? (G.ITEMS[G.ASTEROID_MAT[t.ore]?.drop || t.ore]?.name || t.ore) : null;
     const lines = [
-      (G.TERRAIN_LABEL[t.biome] || t.biome).toUpperCase(),
+      (t.road ? 'Road / ' : '') + (G.TERRAIN_LABEL[t.biome] || t.biome).toUpperCase(),
       'Elevation ' + (lvl > 0 ? '+' + lvl : lvl),
       t.walkable ? 'On foot: walkable' : 'On foot: impassable',
     ];
@@ -2379,7 +2387,7 @@ G.Renderer = class {
       const mc = cv.getContext('2d');
       for(const t of ter.tiles.values()) {
         const pal = G.TERRAIN_COLORS[t.biome] || ['#888','#555'];
-        mc.fillStyle = pal[0]; mc.fillRect(t.q*cell, t.r*cell, cell, cell);
+        mc.fillStyle = t.road ? '#565c70' : pal[0]; mc.fillRect(t.q*cell, t.r*cell, cell, cell);
       }
       pl._miniCanvas = cv; pl._miniSeed = ter.seed;
     }
@@ -2422,7 +2430,7 @@ G.Renderer = class {
     btns.push({ label:'LAUNCH [L]', col:'#ffcc44', action:()=>game.launch() });
     const bw=156, bh=34, gap=16;
     const totalW = btns.length*bw + (btns.length-1)*gap;
-    let bx = G.CANVAS_W/2 - totalW/2; const by = G.CANVAS_H - 52;
+    let bx = G.CANVAS_W/2 - totalW/2; const by = G.CANVAS_H - 94;  // above skill bar
     for(const b of btns) {
       ctx.fillStyle = 'rgba(10,20,35,0.92)'; ctx.fillRect(bx, by, bw, bh);
       ctx.strokeStyle = b.col; ctx.lineWidth = 2; ctx.strokeRect(bx, by, bw, bh);
@@ -2444,14 +2452,14 @@ G.Renderer = class {
     ctx.textAlign = 'left';
     ctx.fillStyle = '#557'; ctx.font = '6px "Press Start 2P",monospace';
     const hint = pl.selected
-      ? 'WASD move • SPACE jump • L-click attack • R-click shield/2nd • X swap loadout • 1-4 skills • Q/E flasks • C character • G building'
+      ? 'WASD move • SPACE jump • L-click attack • R-click shield/2nd • X swap loadout • 1-4 skills • E interact • C character'
       : 'Click a crew member to control • WASD/arrows pan camera • C character';
     ctx.fillText(hint, 12, G.CANVAS_H - 16);
     // Building interaction prompt.
     if(pl._nearBuilding) {
       ctx.textAlign = 'center'; ctx.font = '9px "Press Start 2P",monospace';
       ctx.fillStyle = pl._nearBuilding.color || '#ffffff';
-      ctx.fillText('[G] ' + pl._nearBuilding.name, G.CANVAS_W / 2, G.CANVAS_H - 96);
+      ctx.fillText('[E] ' + pl._nearBuilding.name, G.CANVAS_W / 2, G.CANVAS_H - 96);
       ctx.textAlign = 'left';
     }
     // Selected character vitals (bottom-left, above the hint).
@@ -2466,12 +2474,13 @@ G.Renderer = class {
         ctx.fillStyle = '#cfe0f0'; ctx.fillText(Math.round(cur) + '/' + max, x0 + 34 + w + 6, yy - 3);
       };
       const baseY = G.CANVAS_H - 28;
+      this._drawPlanetHotbar(ctx, ch);
+      // Draw stats on top of hotbar so they're always visible
       ctx.fillStyle = '#cfe6ff'; ctx.font = '7px "Press Start 2P",monospace';
       ctx.fillText(ch.name + '  L' + (ch.level || 1) + '   ' + wlabel, 12, baseY - 52);
       bar('HP', ch.hp, ch.maxHp, '#dd4455', baseY - 38);
       bar('MP', ch.mana, ch.maxMana, '#4488ff', baseY - 26);
       bar('EN', ch.energy, ch.maxEnergy, '#ddcc44', baseY - 14);
-      this._drawPlanetHotbar(ctx, ch);
     }
   }
 
@@ -3470,14 +3479,6 @@ G.Game = class {
       sel._faceX = aimx; sel._faceY = aimy;
       this._castSkill(sel, sk, aimx, aimy);
     }
-    if(this.input.pressed('KeyQ') && ch._healCd <= 0 && ch.hp < ch.maxHp) {
-      ch.hp = Math.min(ch.maxHp, ch.hp + Math.round(ch.maxHp * G.FLASK.healFrac)); ch._healCd = G.FLASK.healCd;
-      this.ui.addMsg('Health flask', '#44ff88'); G.sound?.uiClick?.();
-    }
-    if(this.input.pressed('KeyE') && ch._manaCd <= 0 && ch.mana < ch.maxMana) {
-      ch.mana = Math.min(ch.maxMana, ch.mana + Math.round(ch.maxMana * G.FLASK.manaFrac)); ch._manaCd = G.FLASK.manaCd;
-      this.ui.addMsg('Mana flask', '#4488ff'); G.sound?.uiClick?.();
-    }
   }
 
   // Execute a skill for character wrapper `c` aimed at (aimx,aimy).
@@ -4321,6 +4322,15 @@ G.Game = class {
       this.ui.addMsg(reason+' — check Ship Builder.','#ff4444');
       return;
     }
+    // Check if player is on the ship
+    const pl = this._planet;
+    if(pl && pl.ship && pl.crew.length > 0) {
+      const pc = pl.crew[0];  // player character
+      if(pc.q !== pl.ship.q || pc.r !== pl.ship.r) {
+        this.ui.addMsg('Return to the ship to launch.', '#ff8844');
+        return;
+      }
+    }
     this.state='launching';
     this._landFade=1;
     this.camZoom=1.35;
@@ -4729,7 +4739,9 @@ G.Game = class {
     if(inp.is('KeyW') || inp.is('ArrowUp'))    dy -= 1;
     if(inp.is('KeyS') || inp.is('ArrowDown'))  dy += 1;
     const panSpd = 10 * dt;
-    pl.panX += dx * panSpd; pl.panY += dy * panSpd;
+    const maxPan = 200;
+    pl.panX = G.clamp(pl.panX + dx * panSpd, -maxPan, maxPan);
+    pl.panY = G.clamp(pl.panY + dy * panSpd, -maxPan, maxPan);
     const base = G.hexToPixel(pl.ship.q, pl.ship.r, 1);
     const tx = base.x + pl.panX, ty = base.y + pl.panY, k = Math.min(1, 8 * dt);
     pl.cam.x += (tx - pl.cam.x) * k; pl.cam.y += (ty - pl.cam.y) * k;
@@ -4784,7 +4796,10 @@ G.Game = class {
     const airborne = c._z > 0.05;
     if(ch && !c._jetActive) ch.energy = Math.min(ch.maxEnergy, ch.energy + 14 * dt);  // ground regen
 
-    let vx = 0, vy = 0; const base = 3.2;
+    let vx = 0, vy = 0;
+    const _curTile = G.wrapTile(ter, c.q, c.r);
+    const _roadMul = _curTile?.road ? 1.65 : (_curTile?.biome === 'spaceport' || _curTile?.biome === 'settlement') ? 1.1 : 1.0;
+    const base = 3.2 * _roadMul;
     if(c._dodgeT > 0) { vx = c._dodgeX * 11; vy = c._dodgeY * 11; }   // dodge lunge
     else if(dx || dy) {
       const l = Math.hypot(dx, dy);
@@ -4811,7 +4826,18 @@ G.Game = class {
     let w = can(nx, ny);
     if(w) { c.px = nx; c.py = ny; }
     else { const wx = can(nx, c.py); if(wx) { c.px = nx; w = wx; } const wy = can(c.px, ny); if(wy) { c.py = ny; w = wy; } }
-    if(w) { c.q = w.q; c.r = w.r; pl._charMoving = !!(vx || vy); }
+    if(w) {
+      const newTile = G.wrapTile(ter, w.q, w.r) || { level: 0 };
+      const oldLevel = (cur.level || 0);
+      const newLevel = (newTile.level || 0);
+      // Smooth elevation transition: adjust _z when landing on different elevation
+      if(newLevel !== oldLevel && !airborne && Math.abs(c._vz) < 0.5) {
+        const levelDiff = (newLevel - oldLevel) * 0.1;  // terrain level difference in unit-hex
+        c._z += levelDiff;  // adjust height to match new terrain
+      }
+      c.q = w.q; c.r = w.r;
+      pl._charMoving = !!(vx || vy);
+    }
   }
 
   // Wandering surface NPCs: idle, then path to a nearby walkable cell.
@@ -5257,7 +5283,9 @@ G.Game = class {
         const d = (cxp - c.px)**2 + (cyp - c.py)**2;
         if(d < bestD) { bestD = d; tx = cxp; ty = cyp; }
       }
-      const dx = tx - c.px, dy = ty - c.py, d = Math.hypot(dx, dy), step = spd * dt * (c._spdMul || 1) * (c._slowT > 0 ? 0.45 : 1);
+      const curTile = ter.tiles.get(G.hexKey(c.q, c.r));
+      const roadMul = curTile?.road ? 1.65 : (curTile?.biome === 'spaceport' || curTile?.biome === 'settlement') ? 1.1 : 1.0;
+      const dx = tx - c.px, dy = ty - c.py, d = Math.hypot(dx, dy), step = spd * dt * roadMul * (c._spdMul || 1) * (c._slowT > 0 ? 0.45 : 1);
       if(Math.abs(dx) > 0.001) c._faceX = dx < 0 ? -1 : 1;   // face along travel
       if(d <= step) { c.px = tx; c.py = ty; c.q = n.q; c.r = n.r; c.path.shift(); }
       else { c.px += dx / d * step; c.py += dy / d * step; }
@@ -5292,7 +5320,7 @@ G.Game = class {
     let best = null, bd = 1.7;
     for(const b of pl.buildings) { const bp = G.hexToPixel(b.q, b.r, 1); const d = this._planetDelta(pl, sel.px, sel.py, bp.x, bp.y); if(d.dist < bd) { bd = d.dist; best = b; } }
     pl._nearBuilding = best;
-    if(best && this.input.pressed('KeyG')) this._openBuilding(best);
+    if(best && this.input.pressed('KeyE')) this._openBuilding(best);
   }
   _openBuilding(b) {
     const name = this._planet.body.name;
