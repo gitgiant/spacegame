@@ -1539,12 +1539,13 @@ G.UI = class {
     document.getElementById('char-screen-close').onclick = () => this.hideCharScreen();
   }
 
-  // Equipment paper-doll + hp/mana/energy/armor stats + gear inventory (ship cargo).
+  // Paper-doll + attributes/pools + rolled-gear inventory (the ship's gear pool).
   _buildCharGear() {
     const host = document.getElementById('char-screen-gear'); if(!host) return;
-    const g = G.game, pc = g?.playerCharacter?.(), cargo = g?.player?.cargo || {};
+    const g = G.game, pc = g?.playerCharacter?.(), gear = g?.player?.gear || (g?.player ? (g.player.gear = []) : []);
     if(!pc) { host.innerHTML = ''; return; }
-    G.charSyncEquip(pc, cargo);   // drop equips whose backing cargo copy is gone
+    G.charRecompute(pc);
+    const tip = v => G.gearTooltip(v).map(l => l.t).join(' · ').replace(/"/g, '');
     const bar = (label, cur, max, col) => {
       const pct = max ? Math.max(0, Math.min(100, Math.round(cur / max * 100))) : 0;
       return `<div style="margin-bottom:4px">
@@ -1552,81 +1553,71 @@ G.UI = class {
         <div style="background:#0a1a2a;border:1px solid #1a4a6a;height:5px;border-radius:1px;overflow:hidden"><div style="width:${pct}%;height:100%;background:${col}"></div></div>
       </div>`;
     };
-    const stats = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;margin-bottom:10px;text-align:left">
+    const attr = (lbl, v) => `<span style="color:#8899aa">${lbl}</span> <span style="color:#dfe8f4">${v}</span>`;
+    const need = (40 + (pc.level - 1) * pc.level * 12);
+    const stats = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;margin-bottom:6px;text-align:left">
       ${bar('HP', pc.hp, pc.maxHp, 'linear-gradient(90deg,#ff4455,#ff8866)')}
       ${bar('MANA', pc.mana, pc.maxMana, 'linear-gradient(90deg,#3366ff,#33aaff)')}
       ${bar('ENERGY', pc.energy, pc.maxEnergy, 'linear-gradient(90deg,#ffcc00,#ffee66)')}
       <div style="display:flex;align-items:center;font-size:6px"><span style="color:#8899aa;margin-right:6px">ARMOR</span><span style="color:#ccddff">🛡 ${pc.armor}</span></div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:4px 12px;font-size:6px;margin-bottom:10px;text-align:left">
+      ${attr('LVL', pc.level)} ${attr('XP', Math.round(pc.xp) + '/' + need)}
+      ${attr('STR', pc.str)} ${attr('DEX', pc.dex)} ${attr('INT', pc.int)} ${attr('VIT', pc.vit)}
+      ${attr('CRIT', Math.round((pc.critChance||0)*100) + '%')}
+      ${pc.attrPoints ? `<span style="color:#ffcc44">${pc.attrPoints} attr pts</span>` : ''}
     </div>`;
     const slotCell = (s) => {
-      const id = pc.equip[s], it = id && G.ITEMS[id], lbl = G.EQUIP_LABELS[s] || s;
-      return `<div data-eslot="${s}" title="${it ? it.name + ' — click to remove' : lbl}"
-        style="aspect-ratio:1;background:rgba(0,10,20,0.9);border:1px solid ${it ? (it.color || '#33aa66') : '#1a4a6a'};border-radius:2px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:${it ? 'pointer' : 'default'};position:relative;transition:border-color 0.1s,background 0.1s">
-        ${it ? `<div style="font-size:15px;line-height:1">${it.icon || '▪'}</div>` : `<div style="font-size:4px;color:#445566">${lbl}</div>`}
+      const v = pc.equip[s], lbl = G.EQUIP_LABELS[s] || s;
+      const col = v ? G.gearColor(v) : '#1a4a6a';
+      return `<div data-eslot="${s}" title="${v ? tip(v) + ' — click to remove' : lbl}"
+        style="aspect-ratio:1;background:rgba(0,10,20,0.9);border:1px solid ${col};border-radius:2px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:${v ? 'pointer' : 'default'};position:relative">
+        ${v ? `<div style="font-size:15px;line-height:1">${G.gearIcon(v)}</div>` : `<div style="font-size:4px;color:#445566">${lbl}</div>`}
       </div>`;
     };
     const order = ['helm','necklace','shoulders','chest','bracers','belt','leggings','boots','ring1','ring2','backpack','lefthand','righthand'];
-    const doll = `<div style="font-size:5px;color:#556677;margin-bottom:4px;letter-spacing:2px;text-align:left">EQUIPMENT</div>
+    const setBtn = pc._equipSets ? `<button id="swap-equip-btn" style="font-size:5px;background:#1a3a4a;border:1px solid #44aaff;color:#44aaff;padding:2px 6px;cursor:pointer;margin-bottom:4px">⟲ SWAP SET</button>` : '';
+    const doll = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <div style="font-size:5px;color:#556677;letter-spacing:2px">EQUIPMENT</div>
+      ${setBtn}
+    </div>
       <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:3px">${order.map(slotCell).join('')}</div>`;
-    // Spare (un-worn) gear in cargo. Worn copies stay in cargo (count vs space)
-    // so only the surplus beyond what's equipped is shown as equippable.
-    const spare = Object.keys(cargo).map(id => ({ id, n: cargo[id] - G.charEquippedCount(pc, id) }))
-      .filter(o => o.n > 0 && G.ITEMS[o.id]?.equipSlot);
-    const inv = `<div style="font-size:5px;color:#556677;margin:8px 0 4px;letter-spacing:2px;text-align:left">INVENTORY · GEAR (worn counts vs cargo)</div>
-      ${spare.length
-        ? `<div style="display:flex;flex-wrap:wrap;gap:3px">${spare.map(o => { const it = G.ITEMS[o.id]; return `<div data-equip="${o.id}" title="${(it.desc || '').replace(/"/g,'')}" style="background:rgba(0,20,40,0.9);border:1px solid ${(it.color || '#4466aa')}66;padding:3px 5px;font-size:5px;cursor:pointer"><span style="color:${it.color || '#99aabb'}">${it.icon || '▪'} ${it.name}</span> <span style="color:#556677">×${o.n}</span></div>`; }).join('')}</div>`
-        : `<div style="font-size:5px;color:#445566;text-align:left">No spare gear in cargo.</div>`}`;
+    // Sort the loose gear pool by rarity then name.
+    const rOrd = { legendary:0, rare:1, magic:2, common:3 };
+    const sorted = gear.map((inst, i) => ({ inst, i })).sort((a, b) => (rOrd[a.inst.rarity] - rOrd[b.inst.rarity]) || G.gearName(a.inst).localeCompare(G.gearName(b.inst)));
+    const inv = `<div style="font-size:5px;color:#556677;margin:8px 0 4px;letter-spacing:2px;text-align:left">INVENTORY · ${gear.length} item${gear.length===1?'':'s'} (click to equip)</div>
+      ${sorted.length
+        ? `<div style="display:flex;flex-wrap:wrap;gap:3px;max-height:120px;overflow-y:auto">${sorted.map(({ inst, i }) => { const col = G.gearColor(inst); return `<div data-gidx="${i}" title="${tip(inst)}" style="background:rgba(0,20,40,0.9);border:1px solid ${col}88;padding:3px 5px;font-size:5px;cursor:pointer"><span style="color:${col}">${G.gearIcon(inst)} ${G.gearName(inst)}</span></div>`; }).join('')}</div>`
+        : `<div style="font-size:5px;color:#445566;text-align:left">No loose gear. Kill enemies on the surface for drops.</div>`}`;
     host.innerHTML = stats + doll + inv;
-    // Equipment slots — click to remove, drop to equip
+    // Equipment slots — click to unequip.
     host.querySelectorAll('[data-eslot]').forEach(el => {
       const slot = el.dataset.eslot;
-      // Click to remove equipped item
-      el.addEventListener('click', () => { if(pc.equip[slot] && G.charUnequip(pc, slot)) this.showCharScreen(); });
-      // Drop target for inventory items
-      el.addEventListener('dragover', e => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
-        el.style.background = 'rgba(0,60,120,0.6)';
-        el.style.borderColor = '#00aaff';
-      });
-      el.addEventListener('dragleave', () => {
-        const id = pc.equip[slot], it = id && G.ITEMS[id];
-        el.style.background = 'rgba(0,10,20,0.9)';
-        el.style.borderColor = it ? (it.color || '#33aa66') : '#1a4a6a';
-      });
-      el.addEventListener('drop', e => {
-        e.preventDefault();
-        const id = pc.equip[slot], it = id && G.ITEMS[id];
-        el.style.background = 'rgba(0,10,20,0.9)';
-        el.style.borderColor = it ? (it.color || '#33aa66') : '#1a4a6a';
-        try {
-          const payload = JSON.parse(e.dataTransfer.getData('text/plain'));
-          if(payload.src === 'inventory' && payload.itemId) {
-            if(G.charEquip(pc, slot, payload.itemId, cargo)) this.showCharScreen();
-          }
-        } catch { }
+      el.addEventListener('click', () => { if(pc.equip[slot] && G.charUnequip(pc, slot, gear)) this.showCharScreen(); });
+    });
+    // Inventory — click to equip into the first matching slot.
+    host.querySelectorAll('[data-gidx]').forEach(el => {
+      el.addEventListener('click', () => {
+        const inst = gear[+el.dataset.gidx]; if(!inst) return;
+        const es = G.gearEquipSlot(inst);
+        const target = G.EQUIP_SLOTS.find(s => G.slotAccepts(s, es) && !pc.equip[s]) || G.EQUIP_SLOTS.find(s => G.slotAccepts(s, es));
+        if(target && G.charEquip(pc, target, inst, gear)) this.showCharScreen();
       });
     });
-    // Inventory items — draggable + click to equip
-    host.querySelectorAll('[data-equip]').forEach(el => {
-      el.draggable = true;
-      const itemId = el.dataset.equip;
-      // Drag start
-      el.addEventListener('dragstart', e => {
-        e.dataTransfer.setData('text/plain', JSON.stringify({src:'inventory', itemId}));
-        e.dataTransfer.effectAllowed = 'copy';
-        el.style.opacity = '0.5';
-      });
-      el.addEventListener('dragend', () => {
-        el.style.opacity = '1';
-      });
-      // Click to equip
-      el.addEventListener('click', () => {
-        const it = G.ITEMS[itemId]; if(!it) return;
-        let target = G.EQUIP_SLOTS.find(s => G.slotAccepts(s, it.equipSlot) && !pc.equip[s])
-                  || G.EQUIP_SLOTS.find(s => G.slotAccepts(s, it.equipSlot));
-        if(target && G.charEquip(pc, target, itemId, cargo)) this.showCharScreen();
-      });
+    // Equipment set swap button
+    document.getElementById('swap-equip-btn')?.addEventListener('click', () => {
+      if(!pc._equipSets) return;
+      // Unequip current set (hands only)
+      if(pc.equip.righthand) G.charUnequip(pc, 'righthand', gear);
+      if(pc.equip.lefthand) G.charUnequip(pc, 'lefthand', gear);
+      // Switch to other set
+      pc._activeSet = 1 - pc._activeSet;
+      const set = pc._equipSets[pc._activeSet];
+      // Equip new set
+      if(set.righthand) G.charEquip(pc, 'righthand', set.righthand, gear);
+      if(set.lefthand) G.charEquip(pc, 'lefthand', set.lefthand, gear);
+      G.charRecompute(pc);
+      this.showCharScreen();
     });
   }
 
@@ -3019,10 +3010,10 @@ G.UI = class {
   _buildCrewHTML(){
     const p=G.game.player, available=G.game.economy.getCrew(this._currentSysId);
     let html=`<div class="panel-title">CREW MANAGEMENT</div>
-    <div class="section-title">CURRENT CREW (${p.crew.length}/${p.maxCrew})</div><div class="three-col">`;
+    <div class="section-title">CURRENT CREW (${p.crew.length}/${p.maxCrew})</div><div class="three-col" id="crew-list">`;
     if(!p.crew.length) html+='<div style="color:#556677;font-size:7px">No crew hired</div>';
     for(const c of p.crew){
-      html+=`<div class="item-card"><div class="item-name">${c.name}</div>
+      html+=`<div class="item-card crew-card" draggable="true" data-crew-id="${c.id}"><div class="item-name">${c.name}</div>
       <div class="item-stats">Role: ${c.roleName}<br>Skill: ${'★'.repeat(c.skill)}<br>Wage: ${G.fmtCredits(c.wage)}/jump<br>${c.desc}</div>
       <button class="btn btn-sell" data-firecrew="${c.id}">DISMISS</button></div>`;
     }
@@ -3037,6 +3028,7 @@ G.UI = class {
   }
 
   _bindCrew(){
+    this._draggedCrewId = null;
     document.querySelectorAll('[data-firecrew]').forEach(btn=>{
       btn.addEventListener('click',()=>{
         const idx=G.game.player.crew.findIndex(c=>c.id===btn.dataset.firecrew);
@@ -3053,6 +3045,38 @@ G.UI = class {
           G.game.credits-=c.hireCost; G.game.player.crew.push(c); G.game.player._recompute();
           this.addMsg('Hired '+c.name,'#44ff44'); this.renderSpaceportTab('crew');
         }catch(e){}
+      });
+    });
+    document.querySelectorAll('.crew-card').forEach(card=>{
+      card.addEventListener('dragstart',e=>{
+        this._draggedCrewId=card.dataset.crewId;
+        card.classList.add('dragging');
+      });
+      card.addEventListener('dragend',e=>{
+        card.classList.remove('dragging');
+        document.querySelectorAll('.crew-card').forEach(c=>c.classList.remove('drag-over'));
+        this._draggedCrewId=null;
+      });
+      card.addEventListener('dragover',e=>{
+        e.preventDefault();
+        if(this._draggedCrewId && this._draggedCrewId!==card.dataset.crewId){
+          card.classList.add('drag-over');
+        }
+      });
+      card.addEventListener('dragleave',e=>{
+        card.classList.remove('drag-over');
+      });
+      card.addEventListener('drop',e=>{
+        e.preventDefault();
+        e.stopPropagation();
+        if(this._draggedCrewId && this._draggedCrewId!==card.dataset.crewId){
+          const from=G.game.player.crew.findIndex(c=>c.id===this._draggedCrewId);
+          const to=G.game.player.crew.findIndex(c=>c.id===card.dataset.crewId);
+          if(from>=0 && to>=0){
+            [G.game.player.crew[from],G.game.player.crew[to]]=[G.game.player.crew[to],G.game.player.crew[from]];
+            this.renderSpaceportTab('crew');
+          }
+        }
       });
     });
   }

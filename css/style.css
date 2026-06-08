@@ -359,6 +359,9 @@ html, body {
 }
 .item-card:hover { border-color: var(--col-text); }
 .item-card.selected { border-color: var(--col-bright); }
+.crew-card { cursor: move; }
+.crew-card.dragging { opacity: 0.5; border-color: var(--col-fuel); }
+.crew-card.drag-over { border-color: var(--col-bright); background: rgba(0,60,100,0.8); }
 .item-card .item-name { font-size: 7px; color: var(--col-bright); margin-bottom: 4px; }
 .item-card .item-stats { font-size: 6px; color: var(--col-dim); line-height: 1.7; }
 .item-card .item-price { font-size: 7px; color: var(--col-fuel); margin-top: 4px; }
@@ -752,6 +755,8 @@ html, body {
   align-items: center;
   gap: 10px;
   min-width: 300px;
+  max-height: 85vh;
+  overflow-y: auto;
 }
 
 #controls-overlay,
