@@ -1427,7 +1427,7 @@ G.Renderer = class {
     ctx.translate(-(camX + G.CANVAS_W/2), -(camY + G.CANVAS_H/2));
 
     // Hex outline helper - sized to match hex map visual size
-    const HEX_R = 2 * G.HEX_WORLD / Math.sqrt(3);
+    const HEX_R = G.HEX_WORLD;
     const drawHexOutline = (q, r) => {
       const hexW = G.hexToWorld(q, r);
       ctx.beginPath();
@@ -2081,7 +2081,8 @@ G.Renderer = class {
           const emx = x + ux*apo, emy = y + uy*apo, half = R*0.52;
           const a1x = emx+prx*half, a1y = emy+pry*half, a2x = emx-prx*half, a2y = emy-pry*half;
           const drop = diff*LIFT;
-          ctx.fillStyle = G._shadeHex(pal[1], Math.max(0.32, 0.52 - diff*0.05));
+          const cliffCol = G.CLIFF_COLORS[t.biome] || '#555555';
+          ctx.fillStyle = G._shadeHex(cliffCol, Math.max(0.32, 0.52 - diff*0.05));
           ctx.beginPath(); ctx.moveTo(a1x,a1y); ctx.lineTo(a2x,a2y);
           ctx.lineTo(a2x, a2y+drop); ctx.lineTo(a1x, a1y+drop); ctx.closePath(); ctx.fill();
           // darker lower band + lit top lip = pixel-art relief
@@ -2152,6 +2153,26 @@ G.Renderer = class {
         ctx.fillStyle = 'rgba(255,200,100,0.3)'; ctx.fill();
         ctx.strokeStyle = '#ffcc44'; ctx.globalAlpha = 0.6; ctx.lineWidth = 1.5; ctx.stroke(); ctx.globalAlpha = 1;
       }
+    }
+    // Landing pad ring + spaceport service buildings.
+    if(pl.pad) {
+      const pl0 = levelOf(G.wrapTile(ter, pl.pad.q, pl.pad.r)) * LIFT;
+      const px = ox + G.hexToPixel(pl.pad.q, pl.pad.r, 1).x * S, py = oy + G.hexToPixel(pl.pad.q, pl.pad.r, 1).y * S - pl0;
+      ctx.strokeStyle = '#ffcc44'; ctx.globalAlpha = 0.5; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(px, py, S * 0.9, 0, Math.PI*2); ctx.stroke();
+      ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.arc(px, py, S * 0.6, 0, Math.PI*2); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+    }
+    for(const b of (pl.buildings || [])) {
+      const bl = levelOf(G.wrapTile(ter, b.q, b.r)) * LIFT;
+      const u = G.hexToPixel(b.q, b.r, 1), bx = ox + u.x * S, by = oy + u.y * S - bl;
+      const near = pl._nearBuilding === b;
+      ctx.fillStyle = 'rgba(12,16,26,0.95)'; ctx.strokeStyle = b.color; ctx.lineWidth = near ? 2.5 : 1.5;
+      ctx.fillRect(bx - S*0.42, by - S*0.62, S*0.84, S*0.9); ctx.strokeRect(bx - S*0.42, by - S*0.62, S*0.84, S*0.9);
+      ctx.font = `${Math.round(S*0.5)}px serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#fff'; ctx.fillText(b.icon, bx, by - S*0.16);
+      ctx.font = '6px "Press Start 2P",monospace'; ctx.fillStyle = near ? '#ffffff' : b.color;
+      ctx.fillText(b.name, bx, by + S*0.5);
+      ctx.textBaseline = 'alphabetic';
     }
     // Crew + NPCs + selection + order target (animated sprites). NPCs draw a
     // disposition-coloured ring; airborne characters (jump/jetpack) lift up the
@@ -2364,9 +2385,9 @@ G.Renderer = class {
     ctx.fillText(pl.body.name.toUpperCase() + '  [' + (pl.body.ptype||'').toUpperCase() + ']', G.CANVAS_W/2, 30);
     ctx.fillStyle = '#6f8aa6'; ctx.font = '7px "Press Start 2P",monospace';
     ctx.fillText(pl.body.hasSpaceport ? 'SPACEPORT WORLD' : 'BARREN WORLD — no facilities', G.CANVAS_W/2, 46);
-    // Buttons (bottom-centre).
+    // Buttons (bottom-centre). Services are now walk-up buildings; only LAUNCH
+    // stays as a button (plus a quick-access port button on barren worlds — none).
     const btns = [];
-    if(pl.body.hasSpaceport) btns.push({ label:'SPACEPORT', col:'#44ddff', action:()=>game.ui.showSpaceport(pl.body.name, game.currentSysId) });
     btns.push({ label:'LAUNCH [L]', col:'#ffcc44', action:()=>game.launch() });
     const bw=156, bh=34, gap=16;
     const totalW = btns.length*bw + (btns.length-1)*gap;
@@ -2392,9 +2413,16 @@ G.Renderer = class {
     ctx.textAlign = 'left';
     ctx.fillStyle = '#557'; ctx.font = '6px "Press Start 2P",monospace';
     const hint = pl.selected
-      ? 'WASD move • Shift sprint • SPACE jump/jetpack • L-click main / R-click secondary (aim at cursor) • C character • stand on ⛏ ore to mine'
+      ? 'WASD move • Shift sprint • SPACE jump/jetpack • L/R-click attack • 1-4 skills • Q/E flasks • C character • G use building'
       : 'Click a crew member to control • WASD/arrows pan camera • C character';
     ctx.fillText(hint, 12, G.CANVAS_H - 16);
+    // Building interaction prompt.
+    if(pl._nearBuilding) {
+      ctx.textAlign = 'center'; ctx.font = '9px "Press Start 2P",monospace';
+      ctx.fillStyle = pl._nearBuilding.color || '#ffffff';
+      ctx.fillText('[G] ' + pl._nearBuilding.name, G.CANVAS_W / 2, G.CANVAS_H - 96);
+      ctx.textAlign = 'left';
+    }
     // Selected character vitals (bottom-left, above the hint).
     if(pl.selected?.ref) {
       const ch = pl.selected.ref;
@@ -3133,6 +3161,7 @@ G.Game = class {
       playerXP:        this.playerXP        || 0,
       playerLevel:     this.playerLevel     || 1,
       credits:      this.credits,
+      stash:        JSON.parse(JSON.stringify(this.stash || [])),
       kills:        this.kills,
       currentSysId: this.currentSysId,
       relations:    {...this.relations},
@@ -3170,6 +3199,7 @@ G.Game = class {
     this.playerXP        = d.playerXP        || 0;
     this.playerLevel     = d.playerLevel     || 1;
     this.credits   = d.credits   || 0;
+    this.stash     = d.stash     || [];
     this.kills     = d.kills     || 0;
     this.relations = d.relations || { earth:50, rebellion:0, pirate:-50, alien:-100 };
     this.activeMissions    = d.activeMissions    || [];
@@ -3291,6 +3321,7 @@ G.Game = class {
 
     this.state    = 'space';
     this.credits  = 1000;
+    this.stash    = [];
     this.kills    = 0;
     this.playerXP    = 0;
     this.playerLevel = 1;
@@ -4483,14 +4514,9 @@ G.Game = class {
     const terrain = G.genPlanetTerrain(body);
     const W = terrain.W, H = terrain.H;
     let ship = null;
-    // Spaceport world: park right next to the landing pad.
+    // Spaceport world: park the ship ON the landing pad (centre of the town).
     if(terrain.port) {
-      const p = terrain.port;
-      for(const nb of G.hexNeighbors(p.q, p.r)) {
-        const w = G.wrapHex(W, H, nb.q, nb.r), t = terrain.tiles.get(G.hexKey(w.q, w.r));
-        if(t && t.walkable && t.biome !== 'spaceport') { ship = { q: w.q, r: w.r }; break; }
-      }
-      ship = ship || { q: p.q, r: p.r };
+      ship = { q: terrain.port.q, r: terrain.port.r };
     } else {
       // Otherwise: walkable tile nearest the block centre (torus).
       const c0q = W >> 1, c0r = H >> 1;
@@ -4542,9 +4568,10 @@ G.Game = class {
     }
     // Hostile monster packs (with elites + a rare boss), scaled by zone level.
     const zoneLvl = G.clamp(Math.round((sys.danger || 1) + (this.playerCharacter()?.level || 1)), 1, 60);
-    this._spawnPlanetEnemies(npcs, walkCells, used, sys.danger || 1, zoneLvl);
+    this._spawnPlanetEnemies(npcs, walkCells, used, sys.danger || 1, zoneLvl, terrain.port);
     const su = G.hexToPixel(ship.q, ship.r, 1);
     this._planet = { body, terrain, ship, crew, npcs, shots: [], loot: [], selected: null,
+                     buildings: terrain.port?.buildings || [], pad: terrain.port ? { q: terrain.port.q, r: terrain.port.r } : null,
                      buttons: [], layout: null, S: 46, cam: { x: su.x, y: su.y }, panX: 0, panY: 0 };
     this._planet.selected = crew.find(c => c.ref?.isPlayer) || crew[0] || null;   // control + fire right away
     const hostiles = npcs.filter(n => n.ref.disposition === 'hostile').length;
@@ -4572,8 +4599,9 @@ G.Game = class {
   }
 
   // Spawn hostile packs (+ elites + a rare boss) across walkable ground.
-  _spawnPlanetEnemies(npcs, walkCells, used, danger, lvl) {
+  _spawnPlanetEnemies(npcs, walkCells, used, danger, lvl, port) {
     if(!walkCells.length) return;
+    const farFromTown = c => !port || G.hexDist(c.q, c.r, port.q, port.r) >= 9;
     const pickArch = () => {
       const elig = G.PLANET_ENEMY_IDS.filter(id => danger >= G.PLANET_ENEMIES[id].minDanger);
       let tot = 0; for(const id of elig) tot += G.PLANET_ENEMIES[id].weight;
@@ -4582,9 +4610,9 @@ G.Game = class {
       return 'grunt';
     };
     const freeNear = (c, rad) => {
-      for(let t = 0; t < 10; t++) {
+      for(let t = 0; t < 14; t++) {
         const cand = walkCells[(Math.random() * walkCells.length) | 0];
-        if(used.has(G.hexKey(cand.q, cand.r))) continue;
+        if(used.has(G.hexKey(cand.q, cand.r)) || !farFromTown(cand)) continue;
         if(!c || G.hexDist(c.q, c.r, cand.q, cand.r) <= rad) { used.add(G.hexKey(cand.q, cand.r)); return cand; }
       }
       return null;
@@ -4624,7 +4652,7 @@ G.Game = class {
 
   // BFS shortest path on the torus; from/to are canonical [0,W)×[0,H) cells.
   // Cliffs (elevation-tier diff ≥ 2 between adjacent tiles) cannot be crossed —
-  // only ramps/slopes (diff ≤ 1) are walkable.
+  // any elevation walkable via jump.
   _planetPath(from, to) {
     const pl = this._planet, ter = pl?.terrain, T = ter?.tiles; if(!T) return null;
     const W = ter.W, H = ter.H;
@@ -4639,7 +4667,7 @@ G.Game = class {
       for(const nb of G.hexNeighbors(cq, cr)) {
         const w = G.wrapHex(W, H, nb.q, nb.r), nk = G.hexKey(w.q, w.r);
         const nt = T.get(nk);
-        if(nt && nt.walkable && Math.abs((nt.level||0) - curLvl) <= 1 && !prev.has(nk)) { prev.set(nk, ck); queue.push(nk); }
+        if(nt && nt.walkable && !prev.has(nk)) { prev.set(nk, ck); queue.push(nk); }
       }
     }
     if(!prev.has(gK)) return null;
@@ -4694,6 +4722,8 @@ G.Game = class {
         let fx = dx, fy = dy; if(!(fx || fy)) { fx = c._faceX || 0; fy = c._faceY || 1; }
         const l = Math.hypot(fx, fy) || 1;
         c._dodgeX = fx / l; c._dodgeY = fy / l; c._dodgeT = 0.22; c._dodgeCd = 0.7;
+        const ch = c.ref;
+        if(ch) ch.energy = Math.max(0, ch.energy - 25);  // dash cost
         pl._lastShift = null; G.sound?.uiClick?.();
       } else pl._lastShift = now;
     }
@@ -4723,8 +4753,10 @@ G.Game = class {
     if(c._dodgeT > 0) { vx = c._dodgeX * 11; vy = c._dodgeY * 11; }   // dodge lunge
     else if(dx || dy) {
       const l = Math.hypot(dx, dy);
-      const sprint = (c._jetActive ? 2.1 : (inp.is('ShiftLeft') || inp.is('ShiftRight')) ? 1.9 : 1);
+      const isSprinting = !c._jetActive && (inp.is('ShiftLeft') || inp.is('ShiftRight'));
+      const sprint = (c._jetActive ? 2.1 : isSprinting ? 1.9 : 1);
       vx = dx / l * base * sprint; vy = dy / l * base * sprint;
+      if(isSprinting && ch && ch.energy > 0) ch.energy = Math.max(0, ch.energy - 12 * dt);  // sprint drain
       if(dx) c._faceX = dx / l;             // keep last facing on pure-vertical move
       c._faceY = dy / l;
       c.path = null;                       // WASD overrides any click-move path
@@ -4737,7 +4769,8 @@ G.Game = class {
       const t = ter.tiles.get(G.hexKey(w.q, w.r));
       if(!t || !t.walkable) return null;
       if(airborne) return w;               // mid-air: ignore the elevation-tier gate
-      return Math.abs((t.level || 0) - (cur.level || 0)) <= 1 ? w : null;
+      const diff = (t.level || 0) - (cur.level || 0);
+      return diff <= 0 || diff <= 1 ? w : null;  // free drop-down, climb up to 1 level
     };
     const nx = c.px + vx * dt, ny = c.py + vy * dt;
     let w = can(nx, ny);
@@ -5170,6 +5203,26 @@ G.Game = class {
 
   // Poll planet-surface mouse each frame: buttons / crew-select on first press,
   // then left = fire main (right hand), right = fire secondary (left hand).
+  // Highlight the nearest spaceport building to the selected character; press G
+  // to enter its service (Market, Vendor, Stash, etc.).
+  _planetInteract(dt) {
+    const pl = this._planet; if(!pl) return;
+    pl._nearBuilding = null;
+    if(!(pl.buildings && pl.buildings.length)) return;
+    const sel = pl.selected; if(!sel?.ref || sel.ref.hp <= 0) return;
+    if(!this.ui.els['spaceport-overlay']?.classList.contains('hidden')) return;
+    if(!document.getElementById('char-screen-overlay')?.classList.contains('hidden')) return;
+    let best = null, bd = 1.7;
+    for(const b of pl.buildings) { const bp = G.hexToPixel(b.q, b.r, 1); const d = this._planetDelta(pl, sel.px, sel.py, bp.x, bp.y); if(d.dist < bd) { bd = d.dist; best = b; } }
+    pl._nearBuilding = best;
+    if(best && this.input.pressed('KeyG')) this._openBuilding(best);
+  }
+  _openBuilding(b) {
+    const name = this._planet.body.name;
+    this.ui.showSpaceport(name, this.currentSysId, b.special || b.tab || 'trade');
+    G.sound?.uiClick?.();
+  }
+
   _planetMouse(dt) {
     const pl = this._planet; if(!pl) return;
     if(!this.ui.els['spaceport-overlay']?.classList.contains('hidden')) return;   // spaceport open
@@ -5849,6 +5902,7 @@ G.Game.prototype._loop = function(ts) {
       this.updatePlanetCombat(dt);
       this._planetMouse(dt);
       this._planetSkills(dt);
+      this._planetInteract(dt);
       this.updatePlanetCrew(dt);
       this.updatePlanetMining(dt);
       this.updatePlanetCamera(dt);

@@ -1134,6 +1134,17 @@ G.rollItem = function(baseId, ilvl = 1, opts = {}) {
            base: baseId, rarity, ilvl, name: G._itemName(base, rarity, chosen), dmg, affixes: chosen, mods };
 };
 
+// Credit value of a gear value (instance or base id): base price scaled by
+// rarity, item level, and affix count.
+G.gearPrice = function(v) {
+  const base = G.gearBase(v); if(!base) return 0;
+  const inst = (typeof v === 'object') ? v : null;
+  const rMul = { common:1, magic:2.2, rare:4, legendary:9 }[G.gearRarity(v)] || 1;
+  const ilvl = inst?.ilvl || 1, affs = inst?.affixes?.length || 0;
+  return Math.max(20, Math.round((base.base || 120) * rMul * (1 + ilvl * 0.05) * (1 + affs * 0.15)));
+};
+G.gearSellPrice = (v) => Math.max(10, Math.round(G.gearPrice(v) * 0.4));
+
 // Tooltip line list for a gear value (instance or base id).
 G.gearTooltip = function(v) {
   const base = G.gearBase(v); if(!base) return [];

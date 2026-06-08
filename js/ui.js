@@ -885,9 +885,9 @@ G.UI = class {
   }
 
   // ── Spaceport ────────────────────────────────────────────
-  showSpaceport(name, sysId) {
+  showSpaceport(name, sysId, tab='trade') {
     this._currentSysId=sysId;
-    this._spTab='trade';
+    this._spTab=tab;
     if(this._cantinaCache) delete this._cantinaCache['cantina_'+sysId];
     if(this.els['sp-name']) this.els['sp-name'].textContent=name.toUpperCase();
     // Show cantina tab only at systems with a cantina
@@ -895,8 +895,8 @@ G.UI = class {
     const cantinaTab = document.getElementById('cantina-tab');
     if(cantinaTab) cantinaTab.classList.toggle('hidden', !sys?.hasCantina);
     this._updateSpStatusBar();
-    this.renderSpaceportTab('trade');
-    document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab==='trade'));
+    this.renderSpaceportTab(tab);
+    document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
     this.els['spaceport-overlay']?.classList.remove('hidden');
     G.game._hideHUD();
   }
@@ -929,6 +929,8 @@ G.UI = class {
       case 'craft':     body.innerHTML=this._buildCraftHTML();     this._bindCraft();     break;
       case 'inventory': body.innerHTML=this._buildModInventoryHTML(); this._bindModInventory(); setTimeout(()=>this._startInventoryCrewAnim(),50); break;
       case 'cantina':   body.innerHTML=this._buildCantinaHTML();      this._bindCantina();      break;
+      case 'vendor':    body.innerHTML=this._buildVendorHTML();       this._bindVendor();       break;
+      case 'stash':     body.innerHTML=this._buildStashHTML();        this._bindStash();        break;
     }
     this._updateSpStatusBar();
   }
@@ -938,6 +940,72 @@ G.UI = class {
     if(this._tradeSort.col === col) this._tradeSort.dir *= -1;
     else { this._tradeSort.col = col; this._tradeSort.dir = 1; }
     this.renderSpaceportTab('trade');
+  }
+
+  // ── Gear Vendor (buy/sell rolled instances for credits) ──────────────────
+  _vendorStock(sysId) {
+    this._vendorCache = this._vendorCache || {};
+    if(this._vendorCache[sysId]) return this._vendorCache[sysId];
+    const sys = G.SYSTEMS.find(s => s.id === sysId);
+    const ilvl = G.clamp(Math.round((sys?.danger || 1) + (G.game.playerCharacter?.()?.level || 1)), 1, 60);
+    const bases = ['pistol','sword','shield','combat_helm','flak_vest','pauldrons','bracers','utility_belt','greaves','combat_boots','power_ring','vital_amulet','jetpack','storage_pack'];
+    const stock = [];
+    for(let i = 0; i < 8; i++) { const inst = G.rollItem(bases[(Math.random() * bases.length) | 0], ilvl); if(inst) stock.push(inst); }
+    this._vendorCache[sysId] = stock;
+    return stock;
+  }
+  _gearChip(v, priceLabel, dataAttr) {
+    const col = G.gearColor(v), tip = G.gearTooltip(v).map(l => l.t).join(' · ').replace(/"/g, '');
+    return `<div ${dataAttr} title="${tip}" style="display:flex;justify-content:space-between;align-items:center;gap:8px;background:rgba(0,20,40,0.9);border:1px solid ${col}66;padding:5px 8px;margin-bottom:3px;cursor:pointer;font-size:7px">
+      <span style="color:${col}">${G.gearIcon(v)} ${G.gearName(v)}</span><span style="color:#ffcc44">${priceLabel}</span></div>`;
+  }
+  _buildVendorHTML() {
+    const stock = this._vendorStock(this._currentSysId), gear = G.game.player.gear || [];
+    const buy = stock.length ? stock.map((inst, i) => this._gearChip(inst, G.fmtCredits(G.gearPrice(inst)), `data-buy="${i}"`)).join('') : '<div style="color:#556677;font-size:7px">Sold out.</div>';
+    const sell = gear.length ? gear.map((inst, i) => this._gearChip(inst, '+' + G.fmtCredits(G.gearSellPrice(inst)), `data-sell="${i}"`)).join('') : '<div style="color:#556677;font-size:7px">No loose gear to sell.</div>';
+    return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;font-family:'Press Start 2P',monospace">
+      <div><div style="color:#ff6688;font-size:8px;margin-bottom:8px;letter-spacing:2px">BUY · click to purchase</div><div style="max-height:340px;overflow-y:auto">${buy}</div></div>
+      <div><div style="color:#44dd88;font-size:8px;margin-bottom:8px;letter-spacing:2px">SELL · your gear pool</div><div style="max-height:340px;overflow-y:auto">${sell}</div></div>
+    </div>`;
+  }
+  _bindVendor() {
+    const body = this.els['sp-body']; if(!body) return;
+    const stock = this._vendorStock(this._currentSysId), gear = G.game.player.gear || (G.game.player.gear = []);
+    body.querySelectorAll('[data-buy]').forEach(el => el.addEventListener('click', () => {
+      const i = +el.dataset.buy, inst = stock[i]; if(!inst) return;
+      const price = G.gearPrice(inst);
+      if(G.game.credits < price) { this.addMsg('Not enough credits', '#ff4444'); return; }
+      G.game.credits -= price; gear.push(inst); stock.splice(i, 1);
+      this.addMsg('Bought ' + inst.name, G.gearColor(inst)); G.sound?.uiClick?.();
+      this.renderSpaceportTab('vendor');
+    }));
+    body.querySelectorAll('[data-sell]').forEach(el => el.addEventListener('click', () => {
+      const i = +el.dataset.sell, inst = gear[i]; if(!inst) return;
+      G.game.credits += G.gearSellPrice(inst); gear.splice(i, 1);
+      this.addMsg('Sold ' + inst.name, '#88ddaa'); G.sound?.uiClick?.();
+      this.renderSpaceportTab('vendor');
+    }));
+  }
+
+  // ── Stash (bank gear between runs; persists with the save) ────────────────
+  _buildStashHTML() {
+    const gear = G.game.player.gear || [], stash = G.game.stash || [];
+    const left = gear.length ? gear.map((inst, i) => this._gearChip(inst, 'store ▸', `data-stow="${i}"`)).join('') : '<div style="color:#556677;font-size:7px">No loose gear aboard.</div>';
+    const right = stash.length ? stash.map((inst, i) => this._gearChip(inst, '◂ take', `data-take="${i}"`)).join('') : '<div style="color:#556677;font-size:7px">Stash empty.</div>';
+    return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;font-family:'Press Start 2P',monospace">
+      <div><div style="color:#44dd88;font-size:8px;margin-bottom:8px;letter-spacing:2px">SHIP GEAR</div><div style="max-height:340px;overflow-y:auto">${left}</div></div>
+      <div><div style="color:#aaccee;font-size:8px;margin-bottom:8px;letter-spacing:2px">STASH · ${stash.length}</div><div style="max-height:340px;overflow-y:auto">${right}</div></div>
+    </div>`;
+  }
+  _bindStash() {
+    const body = this.els['sp-body']; if(!body) return;
+    const gear = G.game.player.gear || (G.game.player.gear = []), stash = G.game.stash || (G.game.stash = []);
+    body.querySelectorAll('[data-stow]').forEach(el => el.addEventListener('click', () => {
+      const i = +el.dataset.stow; if(gear[i]) { stash.push(gear.splice(i, 1)[0]); G.sound?.uiClick?.(); this.renderSpaceportTab('stash'); }
+    }));
+    body.querySelectorAll('[data-take]').forEach(el => el.addEventListener('click', () => {
+      const i = +el.dataset.take; if(stash[i]) { gear.push(stash.splice(i, 1)[0]); G.sound?.uiClick?.(); this.renderSpaceportTab('stash'); }
+    }));
   }
 
   // ── Trade ────────────────────────────────────────────────
@@ -1609,10 +1677,44 @@ G.UI = class {
     host.querySelectorAll('[data-attr]').forEach(el => {
       el.addEventListener('click', () => { if(G.charSpendAttr(pc, el.dataset.attr)) this.showCharScreen(); });
     });
-    // Equipment slots — click to unequip.
+    // Equipment slots — click to unequip, drag to swap.
     host.querySelectorAll('[data-eslot]').forEach(el => {
       const slot = el.dataset.eslot;
+      el.draggable = true;
       el.addEventListener('click', () => { if(pc.equip[slot] && G.charUnequip(pc, slot, gear)) this.showCharScreen(); });
+      el.addEventListener('dragstart', ev => {
+        if(!pc.equip[slot]) { ev.preventDefault(); return; }
+        ev.dataTransfer.effectAllowed = 'move';
+        ev.dataTransfer.setData('app/equip-slot', slot);
+      });
+      el.addEventListener('dragover', ev => { ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; el.style.opacity = '0.6'; });
+      el.addEventListener('dragleave', () => { el.style.opacity = '1'; });
+      el.addEventListener('drop', ev => {
+        el.style.opacity = '1';
+        ev.preventDefault();
+        const srcSlot = ev.dataTransfer.getData('app/equip-slot');
+        const gidx = ev.dataTransfer.getData('app/gear-idx');
+        if(srcSlot) {
+          const srcItem = pc.equip[srcSlot];
+          const tgtItem = pc.equip[slot];
+          if(srcItem && G.slotAccepts(slot, G.gearEquipSlot(srcItem))) {
+            pc.equip[slot] = srcItem;
+            if(tgtItem && G.slotAccepts(srcSlot, G.gearEquipSlot(tgtItem))) pc.equip[srcSlot] = tgtItem;
+            else if(tgtItem) gear.push(pc.equip[srcSlot] = undefined);
+            G.charRecompute(pc);
+            this.showCharScreen();
+          }
+        } else if(gidx !== undefined) {
+          const inst = gear[+gidx];
+          if(inst && G.slotAccepts(slot, G.gearEquipSlot(inst))) {
+            if(pc.equip[slot]) gear.push(pc.equip[slot]);
+            pc.equip[slot] = inst;
+            gear.splice(+gidx, 1);
+            G.charRecompute(pc);
+            this.showCharScreen();
+          }
+        }
+      });
     });
     // Skills — click to unlock (if locked) or rank up (if unlocked).
     host.querySelectorAll('[data-skill]').forEach(el => {
@@ -1623,14 +1725,21 @@ G.UI = class {
       });
     });
     host.querySelector('[data-respec]')?.addEventListener('click', () => { G.charRespec(pc); this.showCharScreen(); });
-    // Inventory — click to equip into the first matching slot.
+    // Inventory — click to equip into the first matching slot, drag to move.
     host.querySelectorAll('[data-gidx]').forEach(el => {
+      el.draggable = true;
       el.addEventListener('click', () => {
         const inst = gear[+el.dataset.gidx]; if(!inst) return;
         const es = G.gearEquipSlot(inst);
         const target = G.EQUIP_SLOTS.find(s => G.slotAccepts(s, es) && !pc.equip[s]) || G.EQUIP_SLOTS.find(s => G.slotAccepts(s, es));
         if(target && G.charEquip(pc, target, inst, gear)) this.showCharScreen();
       });
+      el.addEventListener('dragstart', ev => {
+        ev.dataTransfer.effectAllowed = 'move';
+        ev.dataTransfer.setData('app/gear-idx', el.dataset.gidx);
+      });
+      el.addEventListener('dragover', ev => { ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; el.style.opacity = '0.6'; });
+      el.addEventListener('dragleave', () => { el.style.opacity = '1'; });
     });
     // Equipment set swap button
     document.getElementById('swap-equip-btn')?.addEventListener('click', () => {

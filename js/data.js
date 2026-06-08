@@ -1351,6 +1351,23 @@ G.ELITE_AFFIXES = {
 };
 G.ELITE_AFFIX_IDS = Object.keys(G.ELITE_AFFIXES);
 
+// ── Spaceport town buildings ─────────────────────────────────────────────────
+// Each service in the spaceport menu gets a physical building plot on the
+// surface, arranged around the landing pad. `tab` opens that spaceport tab;
+// `special` opens a bespoke overlay (vendor / stash).
+G.SPACEPORT_BUILDINGS = [
+  { service:'trade',     name:'Market',        icon:'🛒', color:'#44dd88', tab:'trade' },
+  { service:'missions',  name:'Mission Board', icon:'📋', color:'#ffcc44', tab:'missions' },
+  { service:'outfitter', name:'Outfitter',     icon:'🔧', color:'#44aaff', tab:'outfitter' },
+  { service:'shipyard',  name:'Shipyard',      icon:'🚀', color:'#ff8844', tab:'shipyard' },
+  { service:'builder',   name:'Drydock',       icon:'⬡', color:'#88aaff', tab:'builder' },
+  { service:'crew',      name:'Cantina',       icon:'🍺', color:'#ffaa66', tab:'crew' },
+  { service:'repair',    name:'Repair Bay',    icon:'🛠', color:'#66ccff', tab:'repair' },
+  { service:'craft',     name:'Workshop',      icon:'⚙', color:'#bb88ff', tab:'craft' },
+  { service:'vendor',    name:'Gear Vendor',   icon:'🗡', color:'#ff6688', special:'vendor' },
+  { service:'stash',     name:'Stash',         icon:'📦', color:'#aaccee', special:'stash' },
+];
+
 // ── ARPG loot: rarity tiers + random affix pool (see G.rollItem in utils) ─────
 // Each dropped piece of gear is a rolled INSTANCE: a base item from G.ITEMS plus
 // rarity-scaled base mods and 0–6 random prefix/suffix affixes drawn by item level.

@@ -740,10 +740,10 @@ G.genPlanetTerrain = function(body) {
       const biome = _classifyBiome(elev, temp, moist, cfg, q, r, W, H, rng);
       // Discrete elevation tier -5..+5, anchored at sea level (water = negative).
       const level = G.clamp(Math.round((elev - cfg.sea) * 10), -5, 5);
-      tiles.set(G.hexKey(q, r), { q, r, elev, level, moist, temp, biome, walkable: !G.TERRAIN_IMPASSABLE.has(biome) && level < 5 });
+      tiles.set(G.hexKey(q, r), { q, r, elev, level, moist, temp, biome, walkable: !G.TERRAIN_IMPASSABLE.has(biome) });
     }
   }
-  for(const t of tiles.values()) t.walkable = !G.TERRAIN_IMPASSABLE.has(t.biome) && t.level < 5;
+  for(const t of tiles.values()) t.walkable = !G.TERRAIN_IMPASSABLE.has(t.biome);
   _traceRivers(tiles, W, H, rng);
   // Spaceport worlds get a built-up site: a landing pad surrounded by a small
   // settlement, stamped onto a flat dry-land patch near the block centre.
@@ -798,17 +798,36 @@ function _placeSpaceport(tiles, W, H, rng) {
     if(score < bestScore) { bestScore = score; site = t; }
   }
   if(!site) return null;
-  const sl = site.level;
-  // Flatten + build a radius-2 patch so there are no cliffs blocking the port.
+  const sl = site.level, WET = ['deep_water','ocean','shallow_water','liquid','river'];
+  // Flatten a generous plaza so the town is spacious + cliff-free.
+  const R = 6;
   for(const t of tiles.values()) {
     const d = tdist(site.q, site.r, t.q, t.r);
-    if(d > 2) continue;
-    if(['deep_water','ocean','shallow_water','liquid','river'].includes(t.biome)) continue;
-    t.level = sl;
-    t.biome = (d === 0) ? 'spaceport' : (d === 1 || rng() < 0.55) ? 'settlement' : t.biome;
-    t.walkable = true;
+    if(d > R || WET.includes(t.biome)) continue;
+    t.level = sl; t.walkable = true;
+    t.biome = (d === 0) ? 'spaceport' : 'settlement';
   }
-  return { q: site.q, r: site.r };
+  // One building per service on a spaced ring around the landing pad; the pad
+  // stays open for the ship. Building tiles are solid (stand beside to use).
+  const services = G.SPACEPORT_BUILDINGS || [];
+  const ring = [...tiles.values()].filter(t => { const d = tdist(site.q, site.r, t.q, t.r); return d >= 3 && d <= 5 && t.biome === 'settlement'; });
+  const ang = t => { const u = G.hexToPixel(t.q - site.q, t.r - site.r, 1); return Math.atan2(u.y, u.x); };
+  const buildings = [], taken = new Set([G.hexKey(site.q, site.r)]);
+  for(let i = 0; i < services.length; i++) {
+    const want = (i / services.length) * Math.PI * 2 - Math.PI;
+    let best = null, bd = Infinity;
+    for(const t of ring) {
+      const k = G.hexKey(t.q, t.r);
+      if(taken.has(k) || buildings.some(b => tdist(b.q, b.r, t.q, t.r) < 2)) continue;
+      const da = Math.abs(((ang(t) - want + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+      if(da < bd) { bd = da; best = t; }
+    }
+    if(!best) continue;
+    taken.add(G.hexKey(best.q, best.r));
+    best.biome = 'building'; best.walkable = false; best.building = services[i].service;
+    buildings.push(Object.assign({ q: best.q, r: best.r }, services[i]));
+  }
+  return { q: site.q, r: site.r, buildings };
 }
 
 // ── Terrain tile palette + motif icons ────────────────────────────────────
@@ -823,7 +842,18 @@ G.TERRAIN_COLORS = {
   glacier:['#e9f4fa','#c4def0'], valley:['#74c150','#4f9a38'], ridge:['#b3a585','#897b62'],
   liquid:['#ff7331','#c63410'],
   hills:['#86a94e','#5e7d33'], forest:['#3f8f3e','#296627'], jungle:['#2f8a34','#185f22'],
-  spaceport:['#aab4c4','#6f7a8d'], settlement:['#c0936a','#8a6442'],
+  spaceport:['#aab4c4','#6f7a8d'], settlement:['#c0936a','#8a6442'], building:['#5a6070','#3a4050'],
+};
+
+G.CLIFF_COLORS = {
+  deep_water:'#0d1f3d', ocean:'#0d2d52', shallow_water:'#1a5a99',
+  coast:'#a89060', river:'#1a5a99',
+  dirt:'#5a4420', rocks:'#3a3530', grassland:'#3d6b1f',
+  mountain:'#6b5d47', desert:'#b8934a', tundra:'#6b8080',
+  glacier:'#a0c8e8', valley:'#2d6b1a', ridge:'#6b5d47',
+  liquid:'#a01800',
+  hills:'#3d5a1f', forest:'#1a4d1a', jungle:'#0d3d0d',
+  spaceport:'#4a5266', settlement:'#6b5238',
 };
 
 // Shade a #rrggbb by a brightness factor.
