@@ -309,3 +309,10 @@ select text, hold space, voice command, query this code with voice command query
 
 
 airlock modules, must be on outer permiter.  allow crew to disembark, but also allow invaiding crew to enter.
+
+space walk, 2d player controls.  
+
+planet atmosphere..sound noises etc
+
+right now its civilization, but space above is RTS.  need to make RTS.
+

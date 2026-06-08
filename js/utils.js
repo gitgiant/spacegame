@@ -886,3 +886,133 @@ G.commsNoResponseChance = function(target) {
   if(target.type === 'npc' && target.hostile) return 0.30;
   return 0;
 };
+
+// ── Unified character model ──────────────────────────────────────────────────
+// One person shape for ship crew, planet units, and boarders. Plain serializable
+// object (saves with ship.crew). hp/mana/energy pools + a paper-doll `equip` map
+// (slot -> itemId, item resolved from the unified G.ITEMS registry).
+G.makeCharacter = function(opts = {}) {
+  const roleId = opts.role || 'marine';
+  const role = G.CREW_ROLES[roleId] || {};
+  const b = G.CHAR_BASE;
+  const c = {
+    id: opts.id || ('c' + (Math.random() * 1e9 | 0)),
+    name: opts.name || G.CREW_NAMES[(Math.random() * G.CREW_NAMES.length) | 0],
+    role: roleId, roleName: role.name || roleId,
+    classId: opts.classId || null,
+    faction: opts.faction || 'neutral',
+    disposition: opts.disposition || null,   // null = the player's own crew
+    skill: opts.skill ?? 2,
+    level: opts.level ?? 1,
+    maxHp: b.hp, hp: b.hp,
+    maxMana: b.mana, mana: b.mana,
+    maxEnergy: b.energy, energy: b.energy,
+    armor: 0,
+    equip: {},                  // paper-doll slot -> itemId
+    isPlayer: !!opts.isPlayer,
+  };
+  for(const s of G.EQUIP_SLOTS) c.equip[s] = null;
+  G.charRecompute(c);
+  return c;
+};
+
+// Idempotently add any missing character fields to an existing crew object.
+// Used to migrate legacy crew (and saved games) into the unified shape.
+G.ensureCharFields = function(c) {
+  if(!c) return c;
+  const b = G.CHAR_BASE;
+  if(c.maxHp == null)     c.maxHp = (c.hp != null ? c.hp : b.hp);
+  if(c.hp == null)        c.hp = c.maxHp;
+  if(c.maxMana == null)   c.maxMana = b.mana;
+  if(c.mana == null)      c.mana = c.maxMana;
+  if(c.maxEnergy == null) c.maxEnergy = b.energy;
+  if(c.energy == null)    c.energy = c.maxEnergy;
+  if(c.armor == null)     c.armor = 0;
+  if(c.level == null)     c.level = 1;
+  if(!c.equip || typeof c.equip !== 'object') c.equip = {};
+  for(const s of G.EQUIP_SLOTS) if(!(s in c.equip)) c.equip[s] = null;
+  return c;
+};
+
+// True if any equipped item has the given kind ('jetpack'|'pistol'|'sword'|...).
+G.charHasKind = function(c, kind) {
+  if(!c?.equip) return false;
+  for(const s of G.EQUIP_SLOTS) { const id = c.equip[s]; if(id && G.ITEMS[id]?.kind === kind) return true; }
+  return false;
+};
+// The equipped item def for a kind, or null.
+G.charGearOfKind = function(c, kind) {
+  if(!c?.equip) return null;
+  for(const s of G.EQUIP_SLOTS) { const id = c.equip[s]; const it = id && G.ITEMS[id]; if(it && it.kind === kind) return it; }
+  return null;
+};
+
+// Recompute derived pools/armor from equipped gear + level. Clamps current
+// pools to their new maxima. Call after any equip change or level up.
+G.charRecompute = function(c) {
+  G.ensureCharFields(c);
+  const b = G.CHAR_BASE;
+  let hp = b.hp, mana = b.mana, energy = b.energy, armor = 0, carry = 0;
+  for(const s of G.EQUIP_SLOTS) {
+    const id = c.equip[s]; if(!id) continue;
+    const m = G.ITEMS[id]?.mods; if(!m) continue;
+    if(m.hp)     hp += m.hp;
+    if(m.mana)   mana += m.mana;
+    if(m.energy) energy += m.energy;
+    if(m.armor)  armor += m.armor;
+    if(m.carry)  carry += m.carry;
+  }
+  const lvlMul = 1 + (Math.max(1, c.level) - 1) * 0.05;
+  c.maxHp     = Math.round(hp * lvlMul);
+  c.maxMana   = Math.round(mana * lvlMul);
+  c.maxEnergy = Math.round(energy * lvlMul);
+  c.armor     = armor;
+  c.carryBonus = carry;
+  c.hp     = Math.min(c.hp, c.maxHp);
+  c.mana   = Math.min(c.mana, c.maxMana);
+  c.energy = Math.min(c.energy, c.maxEnergy);
+  c.hasJetpack = G.charHasKind(c, 'jetpack');
+  return c;
+};
+
+// Equip itemId into paper-doll `slot`, pulling 1 unit from `cargo` (the unified
+// inventory). Any item already in the slot returns to cargo. Returns true on ok.
+G.charEquip = function(c, slot, itemId, cargo) {
+  const it = G.ITEMS[itemId];
+  if(!it || !it.equipSlot || !G.slotAccepts(slot, it.equipSlot)) return false;
+  if(!cargo || (cargo[itemId] || 0) < 1) return false;
+  const cur = c.equip[slot];
+  cargo[itemId] -= 1; if(cargo[itemId] <= 0) delete cargo[itemId];
+  if(cur) cargo[cur] = (cargo[cur] || 0) + 1;
+  c.equip[slot] = itemId;
+  G.charRecompute(c);
+  return true;
+};
+
+// Remove gear from `slot`, returning it to `cargo`. Returns true if something moved.
+G.charUnequip = function(c, slot, cargo) {
+  const cur = c.equip?.[slot]; if(!cur) return false;
+  if(cargo) cargo[cur] = (cargo[cur] || 0) + 1;
+  c.equip[slot] = null;
+  G.charRecompute(c);
+  return true;
+};
+
+// Pick a planet character disposition from body stats. Higher danger → more
+// hostiles; higher population/security → more friendly/faction folk.
+G.rollDisposition = function(body, rng) {
+  const r = rng ? rng() : Math.random();
+  const danger = body?.danger ?? body?.threat ?? 0.3;          // 0..1
+  const security = body?.security ?? (1 - danger);
+  const pHostile  = G.clamp(0.10 + danger * 0.5, 0, 0.85);
+  const pCautious = 0.20;
+  const pFaction  = G.clamp(security * 0.25, 0, 0.4);
+  const pFriendly = G.clamp(0.15 + security * 0.2, 0, 0.5);
+  // normalize the four + neutral remainder
+  let acc = 0;
+  const bands = [['hostile', pHostile], ['cautious', pCautious], ['faction', pFaction], ['friendly', pFriendly]];
+  const total = bands.reduce((s, b2) => s + b2[1], 0);
+  const scale = total > 1 ? 1 / total : 1;
+  for(const [name, p] of bands) { acc += p * scale; if(r < acc) return name; }
+  return 'neutral';
+};

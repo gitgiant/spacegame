@@ -1260,6 +1260,63 @@ G.CREW_ROLES = {
 G.CREW_NAMES = ['Alex','Sam','Jordan','Casey','Morgan','Riley','Drew','Jamie','Quinn','Blake',
   'Avery','Cameron','Skyler','Harley','Reagan','Taylor','Finley','Rowan','Parker','Logan'];
 
+// ── Characters: unified person model (ship crew, planet units, boarders) ──────
+// A character is a plain serializable object built by G.makeCharacter (utils.js).
+// Base pools every character starts from before gear/level mods are applied.
+G.CHAR_BASE = { hp:100, mana:50, energy:100 };
+
+// Equipment paper-doll slots. 'ring1'/'ring2' both accept equipSlot:'ring' gear;
+// 'lefthand'/'righthand' both accept equipSlot:'hand' gear (pistol/sword/shield).
+G.EQUIP_SLOTS = ['helm','necklace','shoulders','chest','bracers','belt',
+  'leggings','boots','ring1','ring2','backpack','lefthand','righthand'];
+// Pretty labels for the character screen paper-doll.
+G.EQUIP_LABELS = {
+  helm:'Helm', necklace:'Necklace', shoulders:'Shoulders', chest:'Chest',
+  bracers:'Bracers', belt:'Belt', leggings:'Leggings', boots:'Boots',
+  ring1:'Ring', ring2:'Ring', backpack:'Back', lefthand:'L.Hand', righthand:'R.Hand',
+};
+// Which item.equipSlot families may sit in a given paper-doll slot.
+G.slotAccepts = function(paperSlot, equipSlot) {
+  if(equipSlot === 'hand') return paperSlot === 'lefthand' || paperSlot === 'righthand';
+  if(equipSlot === 'ring') return paperSlot === 'ring1' || paperSlot === 'ring2';
+  return paperSlot === equipSlot;
+};
+
+// Disposition toward the player. Drives ring colour + planet behaviour.
+G.DISPOSITIONS = {
+  friendly: { id:'friendly', name:'Friendly', color:'#44ff88' },
+  neutral:  { id:'neutral',  name:'Neutral',  color:'#aaaaaa' },
+  cautious: { id:'cautious', name:'Cautious', color:'#ffcc44' },
+  hostile:  { id:'hostile',  name:'Hostile',  color:'#ff3333' },
+  faction:  { id:'faction',  name:'Faction',  color:'#4488ff' },
+};
+
+// ── Personal Gear (UNIFIED with cargo) ───────────────────────────────────────
+// Gear lives in the SAME G.ITEMS registry as raw materials / goods, so it is
+// carried in ship cargo (consumes mass / cargo space) and traded like anything
+// else. `equipSlot` marks it wearable; equipping pulls 1 unit from cargo into a
+// character paper-doll slot. `mods` add to character pools/armor; hand items also
+// carry kind ('pistol'|'sword'|'shield'|'jetpack') + combat numbers.
+Object.assign(G.ITEMS, {
+  // Weapons / off-hand (equipSlot:'hand')
+  pistol:  { id:'pistol',  name:'Laser Pistol', cat:'gear', equipSlot:'hand', kind:'pistol', icon:'🔫', color:'#ff8844', base:260,  mass:2, rarity:'c', dmg:12, range:9,  rof:2.5, desc:'Sidearm. Ranged energy bolts.' },
+  sword:   { id:'sword',   name:'Vibro-Sword',  cat:'gear', equipSlot:'hand', kind:'sword',  icon:'🗡', color:'#ccddff', base:220,  mass:3, rarity:'c', dmg:20, range:1.3, rof:1.6, desc:'Close-quarters melee blade.' },
+  shield:  { id:'shield',  name:'Combat Shield',cat:'gear', equipSlot:'hand', kind:'shield', icon:'🛡', color:'#88aaff', base:240,  mass:4, rarity:'c', mods:{armor:10}, block:0.4, desc:'Off-hand guard. Blocks incoming hits.' },
+  // Backpack (equipSlot:'backpack') — jetpack OR storage
+  jetpack: { id:'jetpack', name:'Jetpack',      cat:'gear', equipSlot:'backpack', kind:'jetpack', icon:'🚀', color:'#ffaa33', base:600,  mass:6, rarity:'u', thrust:9, lift:5.5, drain:18, desc:'Sustained flight on the surface. Drains energy.' },
+  storage_pack:{ id:'storage_pack', name:'Storage Pack', cat:'gear', equipSlot:'backpack', kind:'pack', icon:'🎒', color:'#aa8855', base:150, mass:2, rarity:'c', mods:{carry:8}, desc:'Roomy pack. More cargo space when worn.' },
+  // Armor
+  combat_helm:{ id:'combat_helm', name:'Combat Helm', cat:'gear', equipSlot:'helm', icon:'⛑', color:'#99aabb', base:180, mass:2, rarity:'c', mods:{armor:4, hp:10}, desc:'Reinforced head protection.' },
+  flak_vest: { id:'flak_vest', name:'Flak Vest', cat:'gear', equipSlot:'chest', icon:'🦺', color:'#bbaa66', base:300, mass:5, rarity:'c', mods:{armor:10, hp:20}, desc:'Torso plating.' },
+  pauldrons: { id:'pauldrons', name:'Pauldrons', cat:'gear', equipSlot:'shoulders', icon:'🛡', color:'#99aabb', base:160, mass:3, rarity:'c', mods:{armor:4}, desc:'Shoulder guards.' },
+  bracers:   { id:'bracers',   name:'Bracers',   cat:'gear', equipSlot:'bracers', icon:'🩹', color:'#99aabb', base:90, mass:1, rarity:'c', mods:{armor:2}, desc:'Forearm guards.' },
+  utility_belt:{ id:'utility_belt', name:'Utility Belt', cat:'gear', equipSlot:'belt', icon:'➰', color:'#aa8855', base:120, mass:1, rarity:'c', mods:{energy:15}, desc:'Carries spare cells.' },
+  greaves:   { id:'greaves',   name:'Greaves',   cat:'gear', equipSlot:'leggings', icon:'👖', color:'#99aabb', base:200, mass:3, rarity:'c', mods:{armor:6, hp:10}, desc:'Leg plating.' },
+  combat_boots:{ id:'combat_boots', name:'Combat Boots', cat:'gear', equipSlot:'boots', icon:'🥾', color:'#aa8855', base:110, mass:1, rarity:'c', mods:{armor:2}, desc:'Sturdy footwear.' },
+  power_ring:{ id:'power_ring', name:'Power Ring', cat:'gear', equipSlot:'ring', icon:'💍', color:'#bb88ff', base:280, mass:0, rarity:'u', mods:{mana:20}, desc:'Channels psionic energy.' },
+  vital_amulet:{ id:'vital_amulet', name:'Vital Amulet', cat:'gear', equipSlot:'necklace', icon:'📿', color:'#ff6699', base:320, mass:0, rarity:'u', mods:{hp:25}, desc:'Bolsters constitution.' },
+});
+
 // ── Mission Templates ────────────────────────────────────
 G.MISSION_TYPES = [
   {

@@ -512,53 +512,119 @@ function _makeNoise(seedStr) {
   };
 }
 
-// Per-ptype terrain tuning: sea level, elevation bias, liquid type, palette flags.
+// ── "Earthlike" planet generation rules ──────────────────────────────────
+// Every planet is built from three independent layers, then biome-classified
+// Whittaker-style (by elevation + temperature + moisture). Per-ptype params
+// warp the same model so an ocean world, desert world or ice world all read as
+// coherent places rather than noise mush:
+//
+//   1. CONTINENTS — a low-frequency noise field split at `sea` level into
+//      land vs. ocean. `sea` therefore controls the land/water ratio
+//      (Earth ≈ 0.5 → ~60% water). Big smooth landmasses, not speckle.
+//   2. RELIEF — higher-frequency fractal noise adds coastline raggedness and
+//      inland hills; a *ridged* noise term raises mountain spines on land
+//      (scaled by `mountainHt`), so peaks form ranges, not random dots.
+//   3. CLIMATE — temperature falls off from equator to poles via a latitude
+//      band (`warmth`), drops with altitude (`lapse`), and is shifted by a
+//      global `baseTemp` (cold worlds < 0, hot worlds > 0). Moisture is noise
+//      with an equatorial wet bias. Cold → tundra/glacier, hot+dry → desert,
+//      warm+wet → grassland, otherwise temperate dirt/valley.
+//
+// Rivers then run downhill from the mountains to the sea (see _traceRivers).
+// On a torus the latitude band uses sin(π·r/H) so both poles are cold and the
+// climate tiles seamlessly across the r-wrap.
 G.PTYPE_TERRAIN = {
-  terran: { sea: 0.46, elevBias: 0.00, liquid: 'water', cold: 0.78, arid: 0.28 },
-  ocean:  { sea: 0.64, elevBias: -0.10, liquid: 'water', cold: 0.82, arid: 0.20 },
-  desert: { sea: 0.30, elevBias: 0.06, liquid: 'water', cold: 0.92, arid: 0.62 },
-  rocky:  { sea: 0.28, elevBias: 0.04, liquid: 'water', cold: 0.85, arid: 0.50 },
-  ice:    { sea: 0.42, elevBias: 0.00, liquid: 'water', cold: 0.30, arid: 0.40 },
-  lava:   { sea: 0.40, elevBias: 0.05, liquid: 'lava',  cold: 0.99, arid: 0.70 },
-  gas:    { sea: 1.10, elevBias: 0.00, liquid: 'cloud', cold: 0.50, arid: 0.50 },
+  // sea: water line · mountainHt: ridge uplift · mtn: mountain elev threshold
+  // baseTemp: global warmth offset · warmth: equator→pole swing · lapse: cooling
+  // with altitude · arid: desert moisture cutoff
+  terran: { sea: 0.50, elevBias: 0.00, mountainHt: 0.30, mtn: 0.74, baseTemp: 0.16, warmth: 0.86, lapse: 1.10, arid: 0.30, liquid: 'water' },
+  ocean:  { sea: 0.68, elevBias: -0.10, mountainHt: 0.22, mtn: 0.82, baseTemp: 0.22, warmth: 0.80, lapse: 1.00, arid: 0.22, liquid: 'water' },
+  desert: { sea: 0.28, elevBias: 0.04, mountainHt: 0.34, mtn: 0.70, baseTemp: 0.46, warmth: 0.66, lapse: 0.90, arid: 0.60, liquid: 'water' },
+  rocky:  { sea: 0.30, elevBias: 0.03, mountainHt: 0.40, mtn: 0.66, baseTemp: 0.22, warmth: 0.70, lapse: 1.05, arid: 0.50, liquid: 'water' },
+  ice:    { sea: 0.46, elevBias: 0.00, mountainHt: 0.30, mtn: 0.72, baseTemp: -0.28, warmth: 0.55, lapse: 1.10, arid: 0.40, liquid: 'water' },
+  lava:   { sea: 0.42, elevBias: 0.05, mountainHt: 0.36, mtn: 0.68, baseTemp: 0.80, warmth: 0.35, lapse: 0.80, arid: 0.72, liquid: 'lava'  },
+  gas:    { sea: 1.10, elevBias: 0.00, mountainHt: 0.10, mtn: 0.90, baseTemp: 0.40, warmth: 0.40, lapse: 0.50, arid: 0.50, liquid: 'cloud' },
 };
 
 // Walkable-on-foot biomes (others block crew movement).
 G.TERRAIN_IMPASSABLE = new Set(['deep_water','ocean','shallow_water','mountain','glacier','liquid']);
 
-function _classifyBiome(elev, moist, lat, cfg) {
+// Earth's real continents, as lon/lat ellipse blobs (deg). `h` weights peak
+// land height. Sampled equirectangularly so a "terran" world named Earth gets a
+// recognisable layout; everything else is procedural.
+G.EARTH_BLOBS = [
+  { lon:-100, lat: 48, wl: 38, hl: 26, h: 0.9 },   // North America
+  { lon:-115, lat: 42, wl: 10, hl: 22, h: 1.3 },   // Rocky Mountains
+  { lon: -88, lat: 14, wl: 12, hl: 12, h: 0.7 },   // Central America
+  { lon: -40, lat: 72, wl: 20, hl: 10, h: 0.8 },   // Greenland
+  { lon: -60, lat:-22, wl: 18, hl: 34, h: 0.9 },   // South America
+  { lon: -70, lat:-25, wl:  6, hl: 33, h: 1.4 },   // Andes
+  { lon:  16, lat: 52, wl: 26, hl: 14, h: 0.8 },   // Europe
+  { lon:  10, lat: 46, wl: 14, hl:  5, h: 1.1 },   // Alps
+  { lon:  20, lat:  3, wl: 26, hl: 36, h: 0.9 },   // Africa
+  { lon: 100, lat: 60, wl: 72, hl: 24, h: 0.85 },  // Siberia / N Asia
+  { lon:  82, lat: 33, wl: 42, hl: 20, h: 0.9 },   // Central Asia
+  { lon:  85, lat: 33, wl: 20, hl:  6, h: 1.5 },   // Himalaya
+  { lon: 120, lat: 36, wl: 22, hl: 22, h: 0.85 },  // East Asia
+  { lon:  78, lat: 20, wl: 12, hl: 15, h: 0.9 },   // India
+  { lon: 116, lat:  2, wl: 24, hl: 12, h: 0.7 },   // SE Asia / Indonesia
+  { lon: 134, lat:-25, wl: 20, hl: 14, h: 0.8 },   // Australia
+];
+// Continental land height at a lon/lat (0 = ocean … ~1.5 = high mountain).
+G._earthElev = (lon, lat) => {
+  let land = 0;
+  for(const b of G.EARTH_BLOBS) {
+    let dlon = Math.abs(lon - b.lon); if(dlon > 180) dlon = 360 - dlon;
+    const e = 1 - ((dlon / b.wl) ** 2 + ((lat - b.lat) / b.hl) ** 2);
+    if(e > 0) land = Math.max(land, Math.sqrt(e) * (b.h || 1));
+  }
+  if(lat < -72) land = Math.max(land, 1.0);   // Antarctica ice sheet
+  return land;
+};
+
+// Biome from the three layers. elev/temp/moist are all ~0..1.
+function _classifyBiome(elev, temp, moist, cfg) {
   const sea = cfg.sea;
-  if(cfg.liquid === 'cloud') return elev > 0.66 ? 'ridge' : (elev > 0.5 ? 'rocks' : 'liquid'); // gas giant cloud bands
-  if(elev < sea - 0.14) return cfg.liquid === 'lava' ? 'liquid' : 'deep_water';
+  if(cfg.liquid === 'cloud') return elev > 0.66 ? 'ridge' : (elev > 0.5 ? 'rocks' : 'liquid'); // gas giant bands
+  if(elev < sea - 0.16) return cfg.liquid === 'lava' ? 'liquid' : 'deep_water';
   if(elev < sea - 0.06) return cfg.liquid === 'lava' ? 'liquid' : 'ocean';
-  if(elev < sea - 0.015) return cfg.liquid === 'lava' ? 'liquid' : 'shallow_water';
-  if(elev < sea + 0.02) return 'coast';
-  // land
-  if(lat > cfg.cold + 0.12) return 'glacier';
-  if(lat > cfg.cold) return 'tundra';
-  if(elev > 0.86) return 'mountain';
-  if(elev > 0.74) return 'ridge';
-  if(elev < sea + 0.10) return 'valley';
-  if(moist < cfg.arid) return (cfg.liquid === 'lava') ? 'rocks' : 'desert';
-  if(moist > 0.60) return 'grassland';
-  return (cfg.liquid === 'lava') ? 'rocks' : 'dirt';
+  if(elev < sea - 0.02) return cfg.liquid === 'lava' ? 'liquid' : 'shallow_water';
+  if(elev < sea + 0.015) return 'coast';
+  // ── land ──
+  if(elev > cfg.mtn + 0.08) return temp < 0.32 ? 'glacier' : 'mountain';   // snow-capped peaks
+  if(elev > cfg.mtn)        return temp < 0.30 ? 'glacier' : 'ridge';
+  if(cfg.liquid === 'lava') return moist < cfg.arid ? 'rocks' : 'dirt';
+  if(temp < 0.22) return 'glacier';
+  if(temp < 0.34) return 'tundra';
+  if(moist < cfg.arid) return 'desert';
+  if(elev < sea + 0.05) return 'valley';                       // low, well-watered basins
+  if(temp > 0.58 && moist > 0.64) return 'jungle';             // hot & very wet
+  if(moist > 0.54 && temp > 0.38) return 'forest';             // temperate & wet
+  if(elev > sea + (cfg.mtn - sea) * 0.55) return 'hills';      // upper land = rolling hills
+  if(moist > 0.42) return 'grassland';
+  return 'dirt';
 }
 
-function _traceRivers(tiles, R, elevN, rng) {
+// Wrap an axial coord into the canonical [0,W)×[0,H) torus block.
+G.wrapHex = (W, H, q, r) => ({ q: ((q % W) + W) % W, r: ((r % H) + H) % H });
+G.wrapTile = (ter, q, r) => ter.tiles.get(G.hexKey(((q % ter.W) + ter.W) % ter.W, ((r % ter.H) + ter.H) % ter.H));
+
+function _traceRivers(tiles, W, H, rng, srcElev) {
   const land = [...tiles.values()].filter(t => !['deep_water','ocean','shallow_water','liquid','coast'].includes(t.biome));
   if(!land.length) return;
-  const sources = land.filter(t => t.elev > 0.72);
-  const nRivers = Math.min(sources.length, 1 + (R / 5 | 0));
+  const sources = land.filter(t => t.elev > srcElev);
+  const nRivers = Math.min(sources.length, 2 + ((W * H) / 220 | 0));
   for(let i = 0; i < nRivers; i++) {
     let cur = sources[(rng() * sources.length) | 0];
     let steps = 0;
-    while(cur && steps++ < R * 3) {
+    while(cur && steps++ < W + H) {
       if(['deep_water','ocean','shallow_water','liquid'].includes(cur.biome)) break;
       if(cur.biome !== 'mountain' && cur.biome !== 'glacier') cur.biome = 'river', cur.walkable = true;
-      // step to lowest neighbour
+      // step to lowest neighbour (torus-wrapped)
       let best = null, bestE = cur.elev;
       for(const nb of G.hexNeighbors(cur.q, cur.r)) {
-        const t = tiles.get(G.hexKey(nb.q, nb.r));
+        const w = G.wrapHex(W, H, nb.q, nb.r);
+        const t = tiles.get(G.hexKey(w.q, w.r));
         if(t && t.elev < bestE) { bestE = t.elev; best = t; }
       }
       if(!best) break;
@@ -572,87 +638,239 @@ G.genPlanetTerrain = function(body) {
   const ptype = body.ptype || 'rocky';
   const cfg = G.PTYPE_TERRAIN[ptype] || G.PTYPE_TERRAIN.rocky;
   const seed = (body.name || 'planet') + '|' + ptype;
-  const R = G.clamp(Math.round((body.r || 100) / 12), 6, 20);
+  // Wrapping rectangular hex field (torus) — no map edge. Very large surface
+  // (~10x the previous tile count) so there's lots of room to roam; only the
+  // visible tiles are drawn each frame, so size is cheap at render time.
+  const W = G.clamp(Math.round((body.r || 100) / 0.57), 190, 420);
+  const H = W;
   const elevN = _makeNoise(seed + '|e'), moistN = _makeNoise(seed + '|m');
   const rng = G.seededRng(seed + '|r');
   const freq = 0.34;
+  // A "terran" world literally named Earth gets Earth's real continent layout.
+  const isEarth = ptype === 'terran' && /^earth$/i.test(body.name || '');
   const tiles = new Map();
-  for(let q = -R; q <= R; q++) {
-    for(let r = -R; r <= R; r++) {
-      if(Math.max(Math.abs(q), Math.abs(r), Math.abs(-q - r)) > R) continue;
+  for(let r = 0; r < H; r++) {
+    // Latitude band: warm at the equator (mid-r), cold at both poles (r→0,H).
+    // sin keeps it seamless across the r-wrap. Earth uses its true latitude.
+    const tband = Math.sin(Math.PI * (r / H));
+    for(let q = 0; q < W; q++) {
       // pointy-top pixel coords (size 1) for smooth, isotropic noise sampling
       const px = G.hexToPixel(q, r, 1);
       const nx = px.x * freq, ny = px.y * freq;
-      const ring = Math.max(Math.abs(q), Math.abs(r), Math.abs(-q - r)) / R;
-      let elev = elevN(nx + 5, ny + 5) * (1 - 0.30 * ring * ring) + cfg.elevBias;
-      const moist = moistN(nx - 9, ny - 9);
-      const lat = G.clamp(Math.abs(px.y) / (1.5 * R), 0, 1);   // poles at top/bottom
-      const biome = _classifyBiome(elev, moist, lat, cfg);
-      tiles.set(G.hexKey(q, r), { q, r, elev, moist, lat, biome, walkable: !G.TERRAIN_IMPASSABLE.has(biome) });
+      // ── Layer 1: continents (+ Earth override) ──
+      let elev, warm;
+      if(isEarth) {
+        const lon = (q / W) * 360 - 180, lat = 90 - (r / H) * 180;
+        const land = G._earthElev(lon, lat);
+        elev = (cfg.sea - 0.18) + land * 0.5 + (elevN(nx * 1.7 + 3, ny * 1.7 + 3, 3) - 0.5) * 0.10;
+        warm = G.clamp(Math.cos(lat * Math.PI / 180), 0, 1);   // true-latitude climate
+      } else {
+        const cont = elevN(nx * 0.5 + 5, ny * 0.5 + 5, 2);     // big landmasses
+        const detail = elevN(nx * 1.8 - 3, ny * 1.8 - 3, 3);   // coastline + hills
+        elev = cont * 0.72 + detail * 0.28 + cfg.elevBias;
+        warm = tband;
+      }
+      // ── Layer 2: ridged mountain spines on land ──
+      const ridge = 1 - Math.abs(elevN(nx * 1.1 + 20, ny * 1.1 + 20, 3) * 2 - 1);
+      if(elev > cfg.sea + 0.04) elev += ridge * ridge * cfg.mountainHt;
+      // ── Layer 3: climate ──
+      const above = Math.max(0, elev - cfg.sea);
+      const temp = G.clamp(cfg.baseTemp + warm * cfg.warmth - above * cfg.lapse + (moistN(nx + 13, ny + 7) - 0.5) * 0.12, 0, 1);
+      let moist = moistN(nx - 9, ny - 9);
+      moist = G.clamp(moist * 0.9 + tband * 0.12, 0, 1);       // mild equatorial wet bias
+      const biome = _classifyBiome(elev, temp, moist, cfg);
+      // Discrete elevation tier -3..+3, anchored at sea level (water = negative).
+      const level = G.clamp(Math.round((elev - cfg.sea) * 7), -3, 3);
+      tiles.set(G.hexKey(q, r), { q, r, elev, level, moist, temp, biome, walkable: !G.TERRAIN_IMPASSABLE.has(biome) });
     }
   }
-  _traceRivers(tiles, R, elevN, rng);
+  _traceRivers(tiles, W, H, rng, cfg.sea + 0.22);
   for(const t of tiles.values()) t.walkable = !G.TERRAIN_IMPASSABLE.has(t.biome);
-  body._terrain = { R, tiles, ptype, seed, name: body.name, hasSpaceport: !!body.hasSpaceport };
+  // Spaceport worlds get a built-up site: a landing pad surrounded by a small
+  // settlement, stamped onto a flat dry-land patch near the block centre.
+  const port = body.hasSpaceport ? _placeSpaceport(tiles, W, H, rng) : null;
+  _seedDeposits(tiles, W, H, rng);
+  body._terrain = { W, H, tiles, ptype, seed, name: body.name, hasSpaceport: !!body.hasSpaceport, port };
   return body._terrain;
 };
 
-// ── Terrain tile sprites (pointy-top hex icons) ───────────────────────────
+// Scatter mineable raw-material deposits onto walkable land tiles — the planet
+// analogue of asteroid ore. Material is biased by biome (ice in the cold, metals
+// in rock/mountain country) but drawn from the same G.ASTEROID_MATS table, so a
+// deposit drops the same goods (iron/copper/.../platinum) into ship cargo.
+function _seedDeposits(tiles, W, H, rng) {
+  const COLD = new Set(['glacier', 'tundra', 'coast', 'river']);
+  const STONY = new Set(['rocks', 'ridge', 'hills', 'mountain', 'desert', 'dirt']);
+  const SKIP = new Set(['deep_water', 'ocean', 'shallow_water', 'liquid', 'river', 'coast', 'spaceport', 'settlement']);
+  const land = [...tiles.values()].filter(t => t.walkable && !SKIP.has(t.biome));
+  if(!land.length) return;
+  const target = G.clamp(Math.round((W * H) / 2200), 10, 120);
+  for(let i = 0; i < target; i++) {
+    const t = land[(rng() * land.length) | 0];
+    if(t.ore) continue;
+    let mat = G.astRandMat(rng);
+    // Biome bias: cold → ice; stony/high → reroll ice away toward metals.
+    if(COLD.has(t.biome) && rng() < 0.6) mat = 'ice';
+    else if(STONY.has(t.biome) && mat === 'ice') mat = G.astRandMat(rng);
+    const def = G.ASTEROID_MAT[mat] || G.ASTEROID_MAT.rock;
+    t.ore = mat;
+    t.oreHp = G.clamp(Math.round(6 + (def.weight || 1) * 0.4 + rng() * 4), 4, 26);   // units to mine out
+  }
+}
+
+// Stamp a spaceport + settlement onto the terrain; returns the port cell {q,r}.
+function _placeSpaceport(tiles, W, H, rng) {
+  const cq = W >> 1, cr = H >> 1;
+  const tdist = (aq, ar, bq, br) => {       // shortest hex dist on the torus
+    let best = Infinity;
+    for(let kq = -1; kq <= 1; kq++) for(let kr = -1; kr <= 1; kr++) {
+      const d = G.hexDist(aq, ar, bq + kq*W, br + kr*H);
+      if(d < best) best = d;
+    }
+    return best;
+  };
+  // Site: walkable dry land near centre, preferring flat low ground (not water/ice).
+  let site = null, bestScore = Infinity;
+  for(const t of tiles.values()) {
+    if(!t.walkable || t.biome === 'river' || t.biome === 'tundra' || t.biome === 'glacier') continue;
+    if(t.elev == null) continue;
+    const score = tdist(cq, cr, t.q, t.r) + Math.abs(t.level) * 3;
+    if(score < bestScore) { bestScore = score; site = t; }
+  }
+  if(!site) return null;
+  const sl = site.level;
+  // Flatten + build a radius-2 patch so there are no cliffs blocking the port.
+  for(const t of tiles.values()) {
+    const d = tdist(site.q, site.r, t.q, t.r);
+    if(d > 2) continue;
+    if(['deep_water','ocean','shallow_water','liquid','river'].includes(t.biome)) continue;
+    t.level = sl;
+    t.biome = (d === 0) ? 'spaceport' : (d === 1 || rng() < 0.55) ? 'settlement' : t.biome;
+    t.walkable = true;
+  }
+  return { q: site.q, r: site.r };
+}
+
+// ── Terrain tile palette + motif icons ────────────────────────────────────
+// Tiles are filled as exact, gap-free pointy-top hexes by the renderer; the
+// gradient (light/dark) + per-tile elevation shading give relief, and a baked
+// transparent motif icon sits on top for at-a-glance biome identity.
 G.TERRAIN_COLORS = {
-  deep_water:   ['#0a2a55','#0d3469'], ocean: ['#114a86','#0f3f74'], shallow_water:['#2f7fb8','#2670a6'],
-  coast:        ['#d9c98f','#cdbb7c'], river: ['#3b8fd0','#317fbe'],
-  dirt:         ['#7a5b3a','#6b4f33'], rocks: ['#6f6a63','#5d5851'], grassland:['#4e8c3a','#447d33'],
-  mountain:     ['#8a8278','#6c655d'], desert:['#d7b56a','#caa658'], tundra:['#8fa39a','#7e9389'],
-  glacier:      ['#cfe6f0','#b9d6e6'], valley:['#5f9a4a','#538a40'], ridge:['#9a8d72','#857a63'],
-  liquid:       ['#d8451f','#b8350f'],
+  deep_water:['#1d4e96','#143a72'], ocean:['#2a6fbd','#1c5391'], shallow_water:['#4fb4e6','#3690cc'],
+  coast:['#ecdfa4','#d8c684'], river:['#4cb0ef','#2f8ad0'],
+  dirt:['#946f44','#6f5230'], rocks:['#857f76','#5c574e'], grassland:['#6fc04a','#4a9333'],
+  mountain:['#a39a8d','#6b6358'], desert:['#edcd7a','#d2ab57'], tundra:['#aebfb4','#85988c'],
+  glacier:['#e9f4fa','#c4def0'], valley:['#74c150','#4f9a38'], ridge:['#b3a585','#897b62'],
+  liquid:['#ff7331','#c63410'],
+  hills:['#86a94e','#5e7d33'], forest:['#3f8f3e','#296627'], jungle:['#2f8a34','#185f22'],
+  spaceport:['#aab4c4','#6f7a8d'], settlement:['#c0936a','#8a6442'],
 };
+
+// Shade a #rrggbb by a brightness factor.
+G._shadeHex = function(hex, f) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.max(0, Math.min(255, ((n >> 16) & 255) * f)) | 0;
+  const g = Math.max(0, Math.min(255, ((n >> 8) & 255) * f)) | 0;
+  const b = Math.max(0, Math.min(255, (n & 255) * f)) | 0;
+  return 'rgb(' + r + ',' + g + ',' + b + ')';
+};
+// Mean of two #rrggbb colors, shaded by factor f -> rgb() string.
+G._mixShade = function(a, b, f) {
+  const na = parseInt(a.slice(1), 16), nb = parseInt(b.slice(1), 16);
+  const r = Math.max(0, Math.min(255, (((na>>16&255)+(nb>>16&255))/2) * f)) | 0;
+  const g = Math.max(0, Math.min(255, (((na>>8&255)+(nb>>8&255))/2) * f)) | 0;
+  const bl = Math.max(0, Math.min(255, (((na&255)+(nb&255))/2) * f)) | 0;
+  return 'rgb(' + r + ',' + g + ',' + bl + ')';
+};
+
 G.TerrainTiles = {
-  _cache: new Map(),
-  SZ: 48,
-  get(biome) {
-    if(this._cache.has(biome)) return this._cache.get(biome);
-    const SZ = this.SZ, R = SZ / 2;
-    const cvs = document.createElement('canvas'); cvs.width = SZ; cvs.height = SZ;
-    const c = cvs.getContext('2d');
-    const pal = G.TERRAIN_COLORS[biome] || ['#555','#444'];
-    // pointy-top hex fill
-    c.beginPath();
-    for(let i = 0; i < 6; i++) { const a = Math.PI/6 + i*Math.PI/3; const x = R + (R-0.5)*Math.cos(a), y = R + (R-0.5)*Math.sin(a); i ? c.lineTo(x,y) : c.moveTo(x,y); }
-    c.closePath();
-    const g = c.createLinearGradient(0,0,0,SZ); g.addColorStop(0,pal[0]); g.addColorStop(1,pal[1]);
-    c.fillStyle = g; c.fill();
-    c.strokeStyle = 'rgba(0,0,0,0.25)'; c.lineWidth = 1; c.stroke();
-    c.save(); c.clip();
-    this._motif(c, biome, SZ, R, pal);
-    c.restore();
-    this._cache.set(biome, cvs); return cvs;
+  _motifCache: new Map(),
+  _swatchCache: new Map(),
+  MZ: 64,
+  // Transparent icon (no hex fill) centred in an MZ box — drawn over the tile.
+  motif(biome) {
+    if(this._motifCache.has(biome)) return this._motifCache.get(biome);
+    const Z = this.MZ, cv = document.createElement('canvas'); cv.width = Z; cv.height = Z;
+    const c = cv.getContext('2d');
+    this._drawMotif(c, biome, Z);
+    this._motifCache.set(biome, cv); return cv;
   },
-  _motif(c, biome, SZ, R, pal) {
-    const dark = 'rgba(0,0,0,0.30)', light = 'rgba(255,255,255,0.35)';
-    const dot = (x,y,r,col)=>{ c.fillStyle=col; c.beginPath(); c.arc(x,y,r,0,Math.PI*2); c.fill(); };
+  // Small filled hex swatch for the legend.
+  swatch(biome, S = 14) {
+    const key = biome + '|' + S;
+    if(this._swatchCache.has(key)) return this._swatchCache.get(key);
+    const cv = document.createElement('canvas'); cv.width = S * 2; cv.height = S * 2;
+    const c = cv.getContext('2d'); const R = S, cx = S, cy = S;
+    c.beginPath();
+    for(let i = 0; i < 6; i++) { const a = Math.PI/6 + i*Math.PI/3; const x = cx + R*Math.cos(a), y = cy + R*Math.sin(a); i ? c.lineTo(x,y) : c.moveTo(x,y); }
+    c.closePath();
+    const pal = G.TERRAIN_COLORS[biome] || ['#888','#555'];
+    const g = c.createLinearGradient(0,0,0,S*2); g.addColorStop(0,pal[0]); g.addColorStop(1,pal[1]);
+    c.fillStyle = g; c.fill();
+    c.drawImage(this.motif(biome), cx - S, cy - S, S*2, S*2);
+    this._swatchCache.set(key, cv); return cv;
+  },
+  // Pixel-art motif on a 16×16 grid, transparent, drawn over the tile fill.
+  _drawMotif(c, biome, Z) {
+    const N = 16, u = Z / N;
+    const P = (gx, gy, col, gw = 1, gh = 1) => { c.fillStyle = col; c.fillRect((gx*u)|0, (gy*u)|0, Math.ceil(gw*u), Math.ceil(gh*u)); };
+    const water = (lo, hi) => {            // staggered wave bars
+      P(3,6,lo,4,1); P(9,6,lo,3,1);
+      P(2,9,hi,3,1); P(7,9,hi,4,1); P(12,9,hi,2,1);
+      P(4,12,lo,4,1); P(10,12,lo,3,1);
+    };
+    const pine = (x, top) => {             // conifer: stacked canopy + trunk
+      const g='rgba(46,128,56,0.95)', gd='rgba(24,78,32,0.96)', tr='rgba(84,54,26,0.97)';
+      P(x,top,gd,2,1); P(x-1,top+1,g,4,1); P(x-1,top+2,gd,4,1);
+      P(x-2,top+3,g,6,1); P(x-2,top+4,gd,6,1); P(x,top+5,tr,2,2);
+    };
+    const bush = (x, y, r, col, hi) => {   // round dense canopy (jungle)
+      P(x-r,y,col,r*2,2); P(x-r+1,y-1,col,r*2-2,1); P(x-r+1,y+2,col,r*2-2,1);
+      P(x-r+1,y-1,hi,2,1);
+    };
+    const hump = (x, y, w, col, sh) => {   // rolling hill
+      P(x+1,y,col,w-2,1); P(x,y+1,col,w,1); P(x-1,y+2,col,w+2,1); P(x-1,y+3,sh,w+2,1);
+    };
+    const mtn = (cx, apexY, h, snow) => {  // pixel peak with optional snow cap
+      const rock='rgba(120,112,100,0.95)', shad='rgba(74,68,58,0.95)', sn='rgba(244,250,255,0.97)';
+      for(let i=0;i<h;i++){ const y=apexY+i; P(cx-i,y,rock,2*i+1,1); if(i>0) P(cx+1,y,shad,i,1); }
+      if(snow){ P(cx,apexY,sn,1,1); P(cx-1,apexY+1,sn,3,1); }
+    };
     switch(biome) {
-      case 'deep_water': case 'ocean': case 'shallow_water': case 'river': case 'liquid': {
-        c.strokeStyle = light; c.lineWidth = 1;
-        for(let i=0;i<3;i++){ const yy=SZ*0.32+i*SZ*0.18; c.beginPath(); c.moveTo(SZ*0.18,yy); c.quadraticCurveTo(SZ*0.5,yy-3,SZ*0.82,yy); c.stroke(); }
+      case 'deep_water':    water('rgba(120,180,240,0.4)','rgba(160,210,255,0.5)'); break;
+      case 'ocean':         water('rgba(150,200,250,0.45)','rgba(190,225,255,0.55)'); break;
+      case 'shallow_water': water('rgba(200,235,255,0.55)','rgba(225,248,255,0.7)'); break;
+      case 'river':         { const w='rgba(220,245,255,0.8)'; P(6,2,w,3,2); P(7,5,w,3,2); P(6,8,w,3,2); P(8,11,w,3,2); break; }
+      case 'liquid':        water('rgba(255,210,110,0.7)','rgba(255,240,170,0.85)'); P(7,7,'rgba(255,250,200,0.9)',2,2); break;
+      case 'coast':
+        P(0,9,'rgba(245,236,180,0.5)',16,7);
+        P(2,5,'rgba(190,225,255,0.6)',5,1); P(9,6,'rgba(190,225,255,0.6)',4,1);
+        P(5,11,'rgba(150,120,70,0.6)',1,1); P(10,12,'rgba(150,120,70,0.6)',1,1); break;
+      case 'mountain':      mtn(6,3,6,true); mtn(11,6,4,true); break;
+      case 'ridge':         mtn(5,7,3,false); mtn(10,8,3,false); break;
+      case 'hills':         hump(3,7,5,'rgba(120,164,74,0.9)','rgba(82,118,48,0.92)'); hump(8,9,6,'rgba(106,150,64,0.9)','rgba(72,104,42,0.92)'); break;
+      case 'grassland':     { const g='rgba(34,100,26,0.7)'; for(const x of [4,6,8,10,12]) P(x,7+(x%2),g,1,5); P(3,11,g,1,2); P(13,10,g,1,3); break; }
+      case 'forest':        pine(5,3); pine(11,5); pine(8,7); break;
+      case 'jungle':        bush(6,6,3,'rgba(30,108,42,0.95)','rgba(64,156,70,0.95)'); bush(10,8,3,'rgba(20,86,32,0.96)','rgba(52,138,60,0.95)'); bush(7,10,2,'rgba(26,98,38,0.95)','rgba(58,144,62,0.95)'); break;
+      case 'valley':        { const g='rgba(34,100,26,0.6)'; for(const x of [4,7,10,12]) P(x,6,g,1,4); const w='rgba(185,222,255,0.55)'; P(2,11,w,3,1); P(5,12,w,3,1); P(8,11,w,3,1); P(11,12,w,3,1); break; }
+      case 'rocks':         { const r='rgba(58,54,48,0.6)', rl='rgba(150,146,138,0.55)'; P(4,7,r,4,3); P(5,6,r,2,1); P(4,7,rl,1,1); P(9,8,r,4,3); P(10,7,r,2,1); P(9,8,rl,1,1); break; }
+      case 'dirt':          { const p='rgba(66,48,28,0.6)', l='rgba(152,122,82,0.5)'; for(const [x,y] of [[4,6],[9,5],[6,9],[11,10],[8,12]]){ P(x,y,p,1,1); P(x+1,y,l,1,1);} break; }
+      case 'desert':        { const d='rgba(150,110,40,0.45)'; P(2,8,d,5,1); P(6,9,d,5,1); P(2,11,d,6,1); P(9,11,d,5,1); const ca='rgba(60,120,50,0.85)'; P(12,5,ca,1,5); P(11,6,ca,1,1); P(13,7,ca,1,1); break; }
+      case 'tundra':        { P(3,7,'rgba(240,248,255,0.7)',3,2); P(10,9,'rgba(240,248,255,0.7)',3,2); const s='rgba(70,96,82,0.6)'; P(7,6,s,1,3); P(8,11,s,1,3); break; }
+      case 'glacier':       { const cr='rgba(120,170,210,0.65)'; for(let i=0;i<6;i++) P(4+i,4+i,cr,1,1); for(let i=0;i<5;i++) P(11-i,5+i,cr,1,1); P(7,9,cr,2,1); break; }
+      case 'spaceport':     {
+        const pad='rgba(64,72,86,0.8)', line='rgba(224,232,244,0.9)', lt='rgba(255,210,80,0.97)';
+        P(3,3,pad,10,10);
+        P(5,4,line,6,1); P(5,11,line,6,1); P(4,5,line,1,6); P(11,5,line,1,6);   // pad ring
+        P(6,6,line,1,4); P(9,6,line,1,4); P(6,8,line,4,1);                       // 'H' marking
+        P(3,3,lt,1,1); P(12,3,lt,1,1); P(3,12,lt,1,1); P(12,12,lt,1,1);          // corner lights
         break;
       }
-      case 'mountain': case 'ridge': {
-        c.fillStyle = dark; c.beginPath(); c.moveTo(SZ*0.2,SZ*0.72); c.lineTo(SZ*0.42,SZ*0.34); c.lineTo(SZ*0.6,SZ*0.72); c.closePath(); c.fill();
-        c.fillStyle = light; c.beginPath(); c.moveTo(SZ*0.42,SZ*0.34); c.lineTo(SZ*0.5,SZ*0.5); c.lineTo(SZ*0.34,SZ*0.5); c.closePath(); c.fill();
-        c.fillStyle = dark; c.beginPath(); c.moveTo(SZ*0.5,SZ*0.74); c.lineTo(SZ*0.66,SZ*0.46); c.lineTo(SZ*0.82,SZ*0.74); c.closePath(); c.fill();
-        break;
+      case 'settlement':    {
+        const wall='rgba(186,156,116,0.92)', roof='rgba(154,72,56,0.94)', door='rgba(78,52,32,0.92)', win='rgba(150,200,232,0.85)';
+        const house = (x, y, w, h) => { P(x-1,y,roof,w+2,1); P(x,y-1,roof,w,1); P(x,y+1,wall,w,h); P(x+1,y+2,door,1,h-1); P(x+w-2,y+2,win,1,1); };
+        house(3,6,4,4); house(9,8,3,3); break;
       }
-      case 'grassland': case 'valley': {
-        c.strokeStyle = light; c.lineWidth = 1.2;
-        for(let i=0;i<5;i++){ const x=SZ*0.2+i*SZ*0.15; c.beginPath(); c.moveTo(x,SZ*0.66); c.lineTo(x,SZ*0.5); c.stroke(); }
-        break;
-      }
-      case 'rocks': { dot(SZ*0.35,SZ*0.42,3,dark); dot(SZ*0.6,SZ*0.58,4,dark); dot(SZ*0.5,SZ*0.3,2,dark); break; }
-      case 'dirt': { dot(SZ*0.3,SZ*0.4,1.5,dark); dot(SZ*0.62,SZ*0.5,1.5,dark); dot(SZ*0.45,SZ*0.62,1.5,dark); break; }
-      case 'desert': { c.strokeStyle = dark; c.lineWidth=1; for(let i=0;i<2;i++){const yy=SZ*0.45+i*SZ*0.18; c.beginPath(); c.moveTo(SZ*0.2,yy); c.quadraticCurveTo(SZ*0.5,yy+4,SZ*0.8,yy); c.stroke();} break; }
-      case 'glacier': { c.strokeStyle = light; c.lineWidth=1; c.beginPath(); c.moveTo(SZ*0.3,SZ*0.3); c.lineTo(SZ*0.6,SZ*0.6); c.moveTo(SZ*0.62,SZ*0.32); c.lineTo(SZ*0.4,SZ*0.62); c.stroke(); break; }
-      case 'tundra': { dot(SZ*0.4,SZ*0.5,2,light); dot(SZ*0.6,SZ*0.45,1.5,dark); break; }
-      case 'coast': { c.strokeStyle='rgba(40,120,180,0.5)'; c.lineWidth=1.5; c.beginPath(); c.moveTo(SZ*0.2,SZ*0.6); c.quadraticCurveTo(SZ*0.5,SZ*0.5,SZ*0.8,SZ*0.62); c.stroke(); break; }
     }
   },
 };
@@ -660,4 +878,5 @@ G.TERRAIN_LABEL = {
   deep_water:'Deep Water', ocean:'Ocean', shallow_water:'Shallow Water', coast:'Coastline', river:'River',
   dirt:'Dirt', rocks:'Rocks', grassland:'Grassland', mountain:'Mountains', desert:'Desert',
   tundra:'Tundra', glacier:'Glacier', valley:'Valley', ridge:'Ridge', liquid:'Liquid',
+  hills:'Hills', forest:'Forest', jungle:'Jungle', spaceport:'Spaceport', settlement:'Settlement',
 };

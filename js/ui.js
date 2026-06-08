@@ -424,6 +424,26 @@ G.UI = class {
       btn.addEventListener('contextmenu', e=>e.preventDefault());
     });
 
+    // Zoom +/- buttons — tap = one step, hold = repeat.
+    root.querySelectorAll('.mzbtn').forEach(btn=>{
+      const dir = btn.dataset.zoom === 'in' ? 1 : -1;
+      let rep = null;
+      const stop = e=>{ if(e) e.preventDefault(); btn.classList.remove('held'); if(rep){ clearInterval(rep); rep=null; } };
+      const start = e=>{
+        e.preventDefault();
+        try { btn.setPointerCapture(e.pointerId); } catch(_){}
+        btn.classList.add('held');
+        G.game?.zoomStep(dir);
+        if(rep) clearInterval(rep);
+        rep = setInterval(()=>G.game?.zoomStep(dir), 140);
+      };
+      btn.addEventListener('pointerdown', start);
+      btn.addEventListener('pointerup', stop);
+      btn.addEventListener('pointercancel', stop);
+      btn.addEventListener('pointerleave', stop);
+      btn.addEventListener('contextmenu', e=>e.preventDefault());
+    });
+
     // Virtual joystick
     const joy = document.getElementById('mc-joystick');
     if(joy){
@@ -1498,8 +1518,58 @@ G.UI = class {
       slotsDiv.appendChild(wrap);
     }
 
+    this._buildCharGear();
+
     document.getElementById('char-screen-overlay').classList.remove('hidden');
     document.getElementById('char-screen-close').onclick = () => this.hideCharScreen();
+  }
+
+  // Equipment paper-doll + hp/mana/energy/armor stats + gear inventory (ship cargo).
+  _buildCharGear() {
+    const host = document.getElementById('char-screen-gear'); if(!host) return;
+    const g = G.game, pc = g?.playerCharacter?.(), cargo = g?.player?.cargo || {};
+    if(!pc) { host.innerHTML = ''; return; }
+    G.charRecompute(pc);
+    const bar = (label, cur, max, col) => {
+      const pct = max ? Math.max(0, Math.min(100, Math.round(cur / max * 100))) : 0;
+      return `<div style="margin-bottom:4px">
+        <div style="display:flex;justify-content:space-between;font-size:5px;color:#8899aa;margin-bottom:1px"><span>${label}</span><span>${Math.round(cur)}/${max}</span></div>
+        <div style="background:#0a1a2a;border:1px solid #1a4a6a;height:5px;border-radius:1px;overflow:hidden"><div style="width:${pct}%;height:100%;background:${col}"></div></div>
+      </div>`;
+    };
+    const stats = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;margin-bottom:10px;text-align:left">
+      ${bar('HP', pc.hp, pc.maxHp, 'linear-gradient(90deg,#ff4455,#ff8866)')}
+      ${bar('MANA', pc.mana, pc.maxMana, 'linear-gradient(90deg,#3366ff,#33aaff)')}
+      ${bar('ENERGY', pc.energy, pc.maxEnergy, 'linear-gradient(90deg,#ffcc00,#ffee66)')}
+      <div style="display:flex;align-items:center;font-size:6px"><span style="color:#8899aa;margin-right:6px">ARMOR</span><span style="color:#ccddff">🛡 ${pc.armor}</span></div>
+    </div>`;
+    const slotCell = (s) => {
+      const id = pc.equip[s], it = id && G.ITEMS[id], lbl = G.EQUIP_LABELS[s] || s;
+      return `<div data-eslot="${s}" title="${it ? it.name + ' — click to remove' : lbl}"
+        style="aspect-ratio:1;background:rgba(0,10,20,0.9);border:1px solid ${it ? (it.color || '#33aa66') : '#1a4a6a'};border-radius:2px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:${it ? 'pointer' : 'default'};position:relative">
+        ${it ? `<div style="font-size:15px;line-height:1">${it.icon || '▪'}</div>` : `<div style="font-size:4px;color:#445566">${lbl}</div>`}
+      </div>`;
+    };
+    const order = ['helm','necklace','shoulders','chest','bracers','belt','leggings','boots','ring1','ring2','backpack','lefthand','righthand'];
+    const doll = `<div style="font-size:5px;color:#556677;margin-bottom:4px;letter-spacing:2px;text-align:left">EQUIPMENT</div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:3px">${order.map(slotCell).join('')}</div>`;
+    const gearIds = Object.keys(cargo).filter(id => cargo[id] > 0 && G.ITEMS[id]?.equipSlot);
+    const inv = `<div style="font-size:5px;color:#556677;margin:8px 0 4px;letter-spacing:2px;text-align:left">INVENTORY · GEAR (ship cargo)</div>
+      ${gearIds.length
+        ? `<div style="display:flex;flex-wrap:wrap;gap:3px">${gearIds.map(id => { const it = G.ITEMS[id]; return `<div data-equip="${id}" title="${(it.desc || '').replace(/"/g,'')}" style="background:rgba(0,20,40,0.9);border:1px solid ${(it.color || '#4466aa')}66;padding:3px 5px;font-size:5px;cursor:pointer"><span style="color:${it.color || '#99aabb'}">${it.icon || '▪'} ${it.name}</span> <span style="color:#556677">×${cargo[id]}</span></div>`; }).join('')}</div>`
+        : `<div style="font-size:5px;color:#445566;text-align:left">No spare gear in cargo.</div>`}`;
+    host.innerHTML = stats + doll + inv;
+    host.querySelectorAll('[data-eslot]').forEach(el => {
+      el.addEventListener('click', () => { const s = el.dataset.eslot; if(pc.equip[s] && G.charUnequip(pc, s, cargo)) this.showCharScreen(); });
+    });
+    host.querySelectorAll('[data-equip]').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = el.dataset.equip, it = G.ITEMS[id]; if(!it) return;
+        let target = G.EQUIP_SLOTS.find(s => G.slotAccepts(s, it.equipSlot) && !pc.equip[s])
+                  || G.EQUIP_SLOTS.find(s => G.slotAccepts(s, it.equipSlot));
+        if(target && G.charEquip(pc, target, id, cargo)) this.showCharScreen();
+      });
+    });
   }
 
   hideCharScreen() {
@@ -3921,7 +3991,18 @@ G.UI = class {
     html += '<input type="checkbox" id="debug-godmode-toggle" '+(godmodeEnabled?'checked':'')+' style="accent-color:#ff44ff;width:13px;height:13px">';
     html += '<span id="debug-godmode-label" style="font-size:6px;color:#ff44ff;font-family:\'Press Start 2P\',monospace">'+(godmodeEnabled?'ON':'OFF')+'</span>';
     html += '</label></div>';
+    html += '<div style="margin-top:14px;border-top:1px solid #334;padding-top:12px">';
+    html += '<button id="debug-clear-cache" style="font-family:\'Press Start 2P\',monospace;font-size:6px;color:#ff5544;background:rgba(40,12,12,0.9);border:2px solid #ff5544;padding:8px 10px;cursor:pointer;letter-spacing:1px">CLEAR CACHE &amp; RESTART</button>';
+    html += '</div>';
     list.innerHTML = html;
+
+    document.getElementById('debug-clear-cache')?.addEventListener('click', () => {
+      if(!confirm('Clear all saved data and restart the game?')) return;
+      try { localStorage.clear(); } catch(_) {}
+      try { sessionStorage.clear(); } catch(_) {}
+      if('caches' in window) { caches.keys().then(ks => Promise.all(ks.map(k => caches.delete(k)))).finally(() => location.reload()); }
+      else location.reload();
+    });
 
     document.getElementById('debug-collisions-toggle')?.addEventListener('change', e => {
       const enabled = e.target.checked;
@@ -3990,6 +4071,26 @@ G.UI = class {
     html += '<span id="cam-hex-maxzoom-val" style="color:#00ddff;min-width:40px">'+((game?.hexmapcam_maxZoom||3.5).toFixed(2))+'</span>';
     html += '</div>';
 
+    // Planet camera
+    html += '<div style="color:#88ddff;margin-bottom:8px;margin-top:12px;font-size:6px;letter-spacing:1px">PLANET VIEW</div>';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:6px">';
+    html += '<span style="color:#aabbcc;min-width:100px">MIN ZOOM</span>';
+    html += '<input type="range" id="cam-planet-minzoom" min="0.1" max="1.0" step="0.05" value="'+(game?.planetcam_minZoom||0.4)+'" style="flex:1;accent-color:#00ddff">';
+    html += '<span id="cam-planet-minzoom-val" style="color:#00ddff;min-width:40px">'+((game?.planetcam_minZoom||0.4).toFixed(2))+'</span>';
+    html += '</div>';
+
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:6px">';
+    html += '<span style="color:#aabbcc;min-width:100px">MAX ZOOM</span>';
+    html += '<input type="range" id="cam-planet-maxzoom" min="1.0" max="6.0" step="0.1" value="'+(game?.planetcam_maxZoom||3.0)+'" style="flex:1;accent-color:#00ddff">';
+    html += '<span id="cam-planet-maxzoom-val" style="color:#00ddff;min-width:40px">'+((game?.planetcam_maxZoom||3.0).toFixed(2))+'</span>';
+    html += '</div>';
+
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:6px">';
+    html += '<span style="color:#aabbcc;min-width:100px">SENSITIVITY</span>';
+    html += '<input type="range" id="cam-planet-sens" min="0.0001" max="0.005" step="0.0001" value="'+(game?.planetcam_sensitivity||0.0008)+'" style="flex:1;accent-color:#00ddff">';
+    html += '<span id="cam-planet-sens-val" style="color:#00ddff;min-width:50px">'+((game?.planetcam_sensitivity||0.0008).toFixed(4))+'</span>';
+    html += '</div>';
+
     list.innerHTML = html;
 
     // Event listeners
@@ -4017,6 +4118,21 @@ G.UI = class {
       const val = parseFloat(e.target.value);
       if(game) game.hexmapcam_maxZoom = val;
       document.getElementById('cam-hex-maxzoom-val').textContent = val.toFixed(2);
+    });
+    document.getElementById('cam-planet-minzoom')?.addEventListener('input', e => {
+      const val = parseFloat(e.target.value);
+      if(game) game.planetcam_minZoom = val;
+      document.getElementById('cam-planet-minzoom-val').textContent = val.toFixed(2);
+    });
+    document.getElementById('cam-planet-maxzoom')?.addEventListener('input', e => {
+      const val = parseFloat(e.target.value);
+      if(game) game.planetcam_maxZoom = val;
+      document.getElementById('cam-planet-maxzoom-val').textContent = val.toFixed(2);
+    });
+    document.getElementById('cam-planet-sens')?.addEventListener('input', e => {
+      const val = parseFloat(e.target.value);
+      if(game) game.planetcam_sensitivity = val;
+      document.getElementById('cam-planet-sens-val').textContent = val.toFixed(4);
     });
 
     overlay.classList.remove('hidden');

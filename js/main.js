@@ -441,49 +441,89 @@ G.Renderer = class {
     return ({ pilot:'#66ccff', gunner:'#ff8844', engineer:'#ffcc44', medic:'#66ff99',
               navigator:'#cc88ff', marine:'#ff6688' })[role] || '#ddddee';
   }
+  _crewPhase(cr) {
+    if(cr._phase == null) { const s = (cr.ref?.id || cr.id || cr.ref?.name || 'x') + ''; let h = 0; for(let i=0;i<s.length;i++) h = (h*31 + s.charCodeAt(i)) | 0; cr._phase = (h % 628) / 100; }
+    return cr._phase;
+  }
+  // Animated 2-D astronaut sprite, centred at (0,0) in the current transform.
+  // rad = body radius in px; walking toggles the walk cycle; helmeted for EVA.
+  _drawCrewSprite(rad, role, walking, t, phase, helmet) {
+    const ctx = this.ctx, col = this._crewColor(role);
+    const swing = walking ? Math.sin(t*11 + phase) : 0;
+    const bob = (walking ? Math.abs(Math.sin(t*11 + phase)) * 0.16 : Math.sin(t*2.5 + phase) * 0.06) * rad;
+    ctx.save(); ctx.translate(0, -bob);
+    // drop shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.ellipse(0, rad*1.05 + bob, rad*0.7, rad*0.26, 0, 0, Math.PI*2); ctx.fill();
+    // soft glow so the figure pops off terrain
+    const gg = ctx.createRadialGradient(0, 0, rad*0.4, 0, 0, rad*1.9);
+    gg.addColorStop(0, col + '55'); gg.addColorStop(1, col + '00');
+    ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(0, 0, rad*1.9, 0, Math.PI*2); ctx.fill();
+    const lw = Math.max(1, rad*0.16);
+    // legs (swing opposite each other while walking)
+    ctx.strokeStyle = '#16202c'; ctx.lineCap = 'round'; ctx.lineWidth = rad*0.36;
+    ctx.beginPath();
+    ctx.moveTo(-rad*0.22, rad*0.35); ctx.lineTo(-rad*0.22 + swing*rad*0.45, rad*1.0);
+    ctx.moveTo( rad*0.22, rad*0.35); ctx.lineTo( rad*0.22 - swing*rad*0.45, rad*1.0);
+    ctx.stroke();
+    // arms
+    ctx.strokeStyle = col; ctx.lineWidth = rad*0.28;
+    ctx.beginPath();
+    ctx.moveTo(-rad*0.5, -rad*0.05); ctx.lineTo(-rad*0.78, rad*0.35 - swing*rad*0.35);
+    ctx.moveTo( rad*0.5, -rad*0.05); ctx.lineTo( rad*0.78, rad*0.35 + swing*rad*0.35);
+    ctx.stroke();
+    // torso (suit)
+    ctx.fillStyle = col; ctx.strokeStyle = '#0a0f16'; ctx.lineWidth = lw;
+    this._roundRectPath(-rad*0.52, -rad*0.4, rad*1.04, rad*0.92, rad*0.32);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.18)'; this._roundRectPath(-rad*0.42, -rad*0.34, rad*0.5, rad*0.7, rad*0.24); ctx.fill();
+    // head / helmet
+    ctx.fillStyle = '#eef3fa'; ctx.strokeStyle = '#0a0f16'; ctx.lineWidth = lw*0.8;
+    ctx.beginPath(); ctx.arc(0, -rad*0.72, rad*0.46, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    // visor (role-tinted)
+    ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(rad*0.05, -rad*0.72, rad*0.26, rad*0.2, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.beginPath(); ctx.arc(rad*0.16, -rad*0.8, rad*0.07, 0, Math.PI*2); ctx.fill();
+    if(helmet) { ctx.strokeStyle = '#cfe6ff'; ctx.lineWidth = lw*0.6; ctx.beginPath(); ctx.arc(0, -rad*0.72, rad*0.52, 0, Math.PI*2); ctx.stroke(); }
+    ctx.restore();
+  }
+  _roundRectPath(x, y, w, h, r) {
+    const ctx = this.ctx;
+    ctx.beginPath();
+    ctx.moveTo(x+r, y); ctx.arcTo(x+w, y, x+w, y+h, r); ctx.arcTo(x+w, y+h, x, y+h, r);
+    ctx.arcTo(x, y+h, x, y, r); ctx.arcTo(x, y, x+w, y, r); ctx.closePath();
+  }
 
   // Draw aboard crew on the player ship grid + selection + order target.
   drawCrew(player, selected) {
-    const ctx = this.ctx, z = G.game?.camZoom || 1;
+    const ctx = this.ctx, z = G.game?.camZoom || 1, t = Date.now()/1000;
     const ca = Math.cos(player.angle), sa = Math.sin(player.angle);
     const cellWorld = (q, r) => { const p = G.hexToPixel(q, r, G.HEX_R); return { x: player.x + p.x*ca - p.y*sa, y: player.y + p.x*sa + p.y*ca }; };
-    // Order target highlight for the selected crew.
-    if(selected && selected.order && !selected.eva) {
-      const o = selected.order;
-      if(o.q != null) {
-        const t = cellWorld(o.q, o.r);
-        ctx.save(); ctx.strokeStyle = o.type==='repair' ? '#44ff88' : '#ffff66';
-        ctx.lineWidth = 1.2/z; ctx.globalAlpha = 0.8;
-        ctx.beginPath(); ctx.arc(t.x, t.y, G.HEX_R*0.8, 0, Math.PI*2); ctx.stroke();
-        ctx.restore();
-      }
+    if(selected && selected.order && !selected.eva && selected.order.q != null) {
+      const tt = cellWorld(selected.order.q, selected.order.r);
+      ctx.save(); ctx.strokeStyle = selected.order.type==='repair' ? '#44ff88' : '#ffff66';
+      ctx.lineWidth = 1.2/z; ctx.globalAlpha = 0.8;
+      ctx.beginPath(); ctx.arc(tt.x, tt.y, G.HEX_R*0.8, 0, Math.PI*2); ctx.stroke(); ctx.restore();
     }
+    const rad = Math.max(5, G.HEX_R*0.62);
     for(const cr of player.crew) {
       if(cr.eva) continue;
       const w = player._crewWorld(cr);
       ctx.save(); ctx.translate(w.x, w.y);
-      if(cr === selected) {
-        ctx.beginPath(); ctx.arc(0,0,6.5,0,Math.PI*2);
-        ctx.strokeStyle='#ffff66'; ctx.lineWidth=1.5/z; ctx.stroke();
-      }
-      ctx.beginPath(); ctx.arc(0,0,3.4,0,Math.PI*2);
-      ctx.fillStyle=this._crewColor(cr.role); ctx.fill();
-      ctx.strokeStyle='#0a0a12'; ctx.lineWidth=0.9/z; ctx.stroke();
+      if(cr === selected) { ctx.beginPath(); ctx.arc(0,0,rad*1.7,0,Math.PI*2); ctx.strokeStyle='#ffff66'; ctx.lineWidth=2/z; ctx.stroke(); }
+      this._drawCrewSprite(rad, cr.role, !!(cr.path && cr.path.length), t, this._crewPhase(cr), false);
       ctx.restore();
     }
   }
 
   // Draw EVA (disembarked) crew floating in space — always visible.
   drawEvaCrew(player) {
-    const ctx = this.ctx, z = G.game?.camZoom || 1;
+    const ctx = this.ctx, z = G.game?.camZoom || 1, t = Date.now()/1000;
+    const rad = Math.max(5, G.HEX_R*0.62);
     for(const cr of (player.crew||[])) {
       if(!cr.eva) continue;
       ctx.save(); ctx.translate(cr.ex||0, cr.ey||0);
-      if(cr === G.game?._selectedCrew) {
-        ctx.beginPath(); ctx.arc(0,0,7,0,Math.PI*2); ctx.strokeStyle='#ffff66'; ctx.lineWidth=1.5/z; ctx.stroke();
-      }
-      ctx.beginPath(); ctx.arc(0,0,3,0,Math.PI*2); ctx.fillStyle=this._crewColor(cr.role); ctx.fill();
-      ctx.strokeStyle='#cfe6ff'; ctx.lineWidth=1/z; ctx.stroke();   // suit ring
+      if(cr === G.game?._selectedCrew) { ctx.beginPath(); ctx.arc(0,0,rad*1.8,0,Math.PI*2); ctx.strokeStyle='#ffff66'; ctx.lineWidth=2/z; ctx.stroke(); }
+      this._drawCrewSprite(rad, cr.role, true, t, this._crewPhase(cr), true);
       ctx.restore();
     }
   }
@@ -1942,6 +1982,18 @@ G.Renderer = class {
       ctx.lineWidth = s.size * (0.5 + speedMult * 0.08);
       ctx.stroke();
     }
+
+    // Solid black 30px-wide hex at the exact centre of the screen (pointy-top).
+    const hexR = 30 / Math.sqrt(3);   // width = √3·R = 30
+    ctx.beginPath();
+    for(let i = 0; i < 6; i++) {
+      const a = Math.PI/6 + i*Math.PI/3;
+      const hx = cx + hexR*Math.cos(a), hy = cy + hexR*Math.sin(a);
+      i ? ctx.lineTo(hx, hy) : ctx.moveTo(hx, hy);
+    }
+    ctx.closePath();
+    ctx.fillStyle = '#000000';
+    ctx.fill();
   }
 
   // Assign system bodies to hex grid slots by orbital distance + world angle
@@ -1983,45 +2035,220 @@ G.Renderer = class {
     return result;
   }
 
-  // ── Planet surface scene (procedural hex terrain) ────────────────────────
+  // ── Planet surface scene (infinite wrapping hex terrain) ─────────────────
+  // The surface is a torus: a finite WxH hex block repeated forever, so there
+  // is no map edge — the camera scrolls and the field simply repeats. Tiles in
+  // view are drawn each frame: pointy-top fills + motif + pixel-art relief.
   renderPlanet(game) {
     const ctx = this.ctx, pl = game._planet; if(!pl) return;
     ctx.fillStyle = '#05080f'; ctx.fillRect(0, 0, G.CANVAS_W, G.CANVAS_H);
-    const T = pl.terrain.tiles;
-    // Fit the whole map to the screen (unit-hex bbox -> scale S, origin ox,oy).
-    let mnx=Infinity,mxx=-Infinity,mny=Infinity,mxy=-Infinity;
-    for(const t of T.values()) { const u = G.hexToPixel(t.q, t.r, 1); if(u.x<mnx)mnx=u.x; if(u.x>mxx)mxx=u.x; if(u.y<mny)mny=u.y; if(u.y>mxy)mxy=u.y; }
-    const w = (mxx-mnx)||1, h = (mxy-mny)||1;
-    const S = Math.min((G.CANVAS_W*0.94)/(w+2), (G.CANVAS_H*0.80)/(h+2));
-    const ox = G.CANVAS_W/2 - (mnx+mxx)/2*S, oy = (G.CANVAS_H/2 - (mny+mxy)/2*S) - 6;
+    const ter = pl.terrain, baseS = pl.S, zoom = 1.0 + (game._planetZoom || 0), S = baseS * zoom;
+    const cam = pl.cam;
+    const ox = G.CANVAS_W/2 - cam.x*S, oy = G.CANVAS_H/2 - cam.y*S;
     pl.layout = { ox, oy, S };
     ctx.imageSmoothingEnabled = false;
-    const sz = Math.ceil(S * 1.20);
-    for(const t of T.values()) {
-      const u = G.hexToPixel(t.q, t.r, 1);
-      ctx.drawImage(G.TerrainTiles.get(t.biome), (ox + u.x*S - sz/2)|0, (oy + u.y*S - sz/2)|0, sz, sz);
+    const SQ3 = G.HEX_SQRT3;
+    const WATER = new Set(['deep_water','ocean','shallow_water','river','liquid','coast']);
+    const R = S * 1.02, motifSz = S * 1.2;
+    const PX = Math.max(2, Math.round(S * 0.14));   // chunky relief pixel unit
+    const LIFT = Math.max(2, Math.round(S * 0.18)); // screen-px height per tier
+    const apo = R * Math.cos(Math.PI/6);            // hex apothem (centre→edge)
+    const levelOf = t => (t && !WATER.has(t.biome)) ? (t.level||0) : 0;
+    const hexPath = (x, y) => { ctx.beginPath(); for(let i=0;i<6;i++){ const a=Math.PI/6+i*Math.PI/3; const hx=x+R*Math.cos(a), hy=y+R*Math.sin(a); i?ctx.lineTo(hx,hy):ctx.moveTo(hx,hy); } ctx.closePath(); };
+    // Visible (q,r) window from camera + screen extent (+margin for lift).
+    const halfW = G.CANVAS_W/(2*S), halfH = G.CANVAS_H/(2*S);
+    const rMin = Math.floor((cam.y - halfH)/1.5) - 1, rMax = Math.ceil((cam.y + halfH)/1.5) + 3;
+    const qSpan = r => [Math.floor((cam.x - halfW)/SQ3 - r/2) - 1, Math.ceil((cam.x + halfW)/SQ3 - r/2) + 1];
+    // Single back-to-front pass: higher tiles are lifted up the screen for 2.5D
+    // perspective; each draws its downhill side-wall columns (cliffs/ramps) first,
+    // then its lifted top face + motif. Walls toward back/side edges are hidden by
+    // the tile's own face; only exposed downhill faces remain visible.
+    for(let r = rMin; r <= rMax; r++) {
+      const [qMin, qMax] = qSpan(r);
+      for(let q = qMin; q <= qMax; q++) {
+        const t = G.wrapTile(ter, q, r); if(!t) continue;
+        const L = levelOf(t);
+        const x = ox + SQ3*(q + r/2)*S, y = oy + 1.5*r*S - L*LIFT;
+        const pal = G.TERRAIN_COLORS[t.biome] || ['#888','#555'];
+        // Side-wall columns toward lower, downward-facing neighbours.
+        for(const [dq, dr] of G.HEX_DIRS) {
+          const dpx = SQ3*(dq + dr/2), dpy = 1.5*dr;
+          if(dpy <= 0) continue;                       // only front (downhill-on-screen) edges
+          const diff = L - levelOf(G.wrapTile(ter, q+dq, r+dr));
+          if(diff <= 0) continue;
+          const dl = Math.hypot(dpx, dpy), ux = dpx/dl, uy = dpy/dl, prx = -uy, pry = ux;
+          const emx = x + ux*apo, emy = y + uy*apo, half = R*0.52;
+          const a1x = emx+prx*half, a1y = emy+pry*half, a2x = emx-prx*half, a2y = emy-pry*half;
+          const drop = diff*LIFT;
+          ctx.fillStyle = G._shadeHex(pal[1], Math.max(0.32, 0.52 - diff*0.05));
+          ctx.beginPath(); ctx.moveTo(a1x,a1y); ctx.lineTo(a2x,a2y);
+          ctx.lineTo(a2x, a2y+drop); ctx.lineTo(a1x, a1y+drop); ctx.closePath(); ctx.fill();
+          // darker lower band + lit top lip = pixel-art relief
+          ctx.fillStyle = 'rgba(0,0,0,0.3)';
+          ctx.beginPath(); ctx.moveTo(a1x, a1y+drop*0.5); ctx.lineTo(a2x, a2y+drop*0.5);
+          ctx.lineTo(a2x, a2y+drop); ctx.lineTo(a1x, a1y+drop); ctx.closePath(); ctx.fill();
+          ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = Math.max(1, PX*0.4);
+          ctx.beginPath(); ctx.moveTo(a1x,a1y); ctx.lineTo(a2x,a2y); ctx.stroke();
+        }
+        // Lifted hex top face + motif.
+        const f = WATER.has(t.biome) ? 1.0 : (0.86 + L*0.06);
+        hexPath(x, y);
+        ctx.fillStyle = G._mixShade(pal[0], pal[1], f);
+        ctx.fill(); ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 1; ctx.stroke();
+        ctx.drawImage(G.TerrainTiles.motif(t.biome), (x - motifSz/2)|0, (y - motifSz/2)|0, Math.ceil(motifSz), Math.ceil(motifSz));
+        // Mineable ore deposit: a small cluster of mineral crystals on the tile.
+        if(t.ore && t.oreHp > 0) {
+          const mat = G.ASTEROID_MAT[t.ore] || G.ASTEROID_MAT.rock;
+          const gr = Math.max(2, S * 0.13);
+          const gems = [[-0.22, 0.10], [0.20, 0.16], [0.02, -0.16], [0.26, -0.06]];
+          for(let gi = 0; gi < gems.length; gi++) {
+            const gx = x + gems[gi][0] * S, gy = y + gems[gi][1] * S, gs = gr * (gi === 2 ? 1.25 : 1);
+            ctx.beginPath();
+            ctx.moveTo(gx, gy - gs); ctx.lineTo(gx + gs*0.7, gy); ctx.lineTo(gx, gy + gs); ctx.lineTo(gx - gs*0.7, gy); ctx.closePath();
+            ctx.fillStyle = mat.base; ctx.fill();
+            ctx.strokeStyle = mat.spec; ctx.lineWidth = 1; ctx.stroke();
+          }
+          ctx.fillStyle = mat.spec; ctx.globalAlpha = 0.9;
+          ctx.fillRect((x + 0.02*S - gr*0.3)|0, (y - 0.16*S - gr*0.3)|0, Math.max(1, gr*0.5), Math.max(1, gr*0.5));
+          ctx.globalAlpha = 1;
+        }
+      }
     }
-    // Player ship parked on its landing cell.
-    const su = G.hexToPixel(pl.ship.q, pl.ship.r, 1);
-    const sx = ox + su.x*S, sy = oy + su.y*S;
-    const shapeId = G.SHIPS[game.player.templateId]?.shape || 'shuttle';
-    const shipCol = G.SHIPS[game.player.templateId]?.color || '#8899bb';
-    this.drawShip(sx, sy, 0, shapeId, shipCol, Math.max(0.7, S/20));
-    ctx.beginPath(); ctx.arc(sx, sy, S*0.5, 0, Math.PI*2); ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.lineWidth=1; ctx.stroke();
-    // Crew + selection + order target.
-    for(const c of pl.crew) {
-      const x = ox + c.px*S, y = oy + c.py*S;
+    // Player ship: its FULL module-hex layout laid onto the terrain — one module
+    // per planet tile, each following that tile's elevation. So the ship occupies
+    // a footprint of tiles instead of fitting inside one. Back-to-front for overlap.
+    const Rt = R, Tt = Rt*2;
+    const cellOf = e => {
+      const q2 = pl.ship.q + e.q, r2 = pl.ship.r + e.r, u = G.hexToPixel(q2, r2, 1);
+      const lift = levelOf(G.wrapTile(ter, q2, r2)) * LIFT;
+      return { x: ox + u.x*S, y: oy + u.y*S - lift, r2 };
+    };
+    const shipCells = this._playerTileEntries(game.player).map(e => ({ e, c: cellOf(e) })).sort((a,b) => a.c.r2 - b.c.r2);
+    for(const { c } of shipCells) { ctx.beginPath(); ctx.ellipse(c.x, c.y + Rt*0.35, Rt*0.85, Rt*0.5, 0, 0, Math.PI*2); ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fill(); }
+    for(const { e, c } of shipCells) {
+      let tile, rot = 0;
+      if(e.slot === 'hull') tile = G.Sprites.getHexTile('hull', e.color || '#667799', false);
+      else { tile = G.Sprites.getHexTile(e.visual || 'special', G.SLOT_RING[e.slot]?.color || '#334455', e.broken); rot = (e.rot || 0) % 4; }
+      if(rot) { ctx.save(); ctx.translate(c.x|0, c.y|0); ctx.rotate(rot*Math.PI/2); ctx.drawImage(tile, -Rt, -Rt, Tt, Tt); ctx.restore(); }
+      else ctx.drawImage(tile, (c.x-Rt)|0, (c.y-Rt)|0, Tt, Tt);
+    }
+    // Crew + NPCs + selection + order target (animated sprites). NPCs draw a
+    // disposition-coloured ring; airborne characters (jump/jetpack) lift up the
+    // screen with a ground shadow that stays put.
+    const tnow = Date.now()/1000, crad = Math.max(7, S*0.44);
+    const units = pl.npcs ? pl.crew.concat(pl.npcs) : pl.crew;
+    units.sort((a, b) => (a.r + (a.py - oy)) - (b.r + (b.py - oy)));
+    for(const c of units) {
+      const cLift = levelOf(G.wrapTile(ter, c.q, c.r)) * LIFT;
+      const gx = ox + c.px*S, gy = oy + c.py*S - cLift;   // ground point
+      const zPx = (c._z || 0) * S;
+      const x = gx, y = gy - zPx;                         // sprite point (lifted)
       if(c === pl.selected && c.path && c.path.length) {
         const last = c.path[c.path.length-1], lu = G.hexToPixel(last.q, last.r, 1);
+        const lLift = levelOf(G.wrapTile(ter, last.q, last.r)) * LIFT;
         ctx.save(); ctx.globalAlpha=0.6; ctx.strokeStyle='#ffff66'; ctx.lineWidth=1.5;
-        ctx.beginPath(); ctx.arc(ox+lu.x*S, oy+lu.y*S, S*0.4, 0, Math.PI*2); ctx.stroke(); ctx.restore();
+        ctx.beginPath(); ctx.arc(ox+lu.x*S, oy+lu.y*S - lLift, S*0.4, 0, Math.PI*2); ctx.stroke(); ctx.restore();
       }
+      // Ground shadow (shrinks with altitude).
+      if(zPx > 1) {
+        const sc = Math.max(0.35, 1 - zPx / (S * 4));
+        ctx.save(); ctx.globalAlpha = 0.25 * sc;
+        ctx.beginPath(); ctx.ellipse(gx, gy + crad*0.4, crad*0.8*sc, crad*0.45*sc, 0, 0, Math.PI*2);
+        ctx.fillStyle = '#000'; ctx.fill(); ctx.restore();
+      }
+      const walking = !!(c.path && c.path.length) || (c === pl.selected && pl._charMoving);
       ctx.save(); ctx.translate(x, y);
-      if(c === pl.selected) { ctx.beginPath(); ctx.arc(0,0,S*0.34,0,Math.PI*2); ctx.strokeStyle='#ffff66'; ctx.lineWidth=2; ctx.stroke(); }
-      ctx.beginPath(); ctx.arc(0,0,Math.max(2.5,S*0.18),0,Math.PI*2); ctx.fillStyle=this._crewColor(c.ref.role); ctx.fill();
-      ctx.strokeStyle='#0a0a12'; ctx.lineWidth=1; ctx.stroke(); ctx.restore();
+      const disp = c.ref.disposition ? G.DISPOSITIONS[c.ref.disposition] : null;
+      if(c === pl.selected) {
+        ctx.beginPath(); ctx.arc(0,0,crad*1.7,0,Math.PI*2);
+        ctx.strokeStyle = (c._dodgeT > 0) ? '#66ddff' : '#ffff66'; ctx.lineWidth=2; ctx.stroke();
+      } else if(disp) {
+        ctx.beginPath(); ctx.arc(0, crad*0.4, crad*1.3, 0, Math.PI*2);
+        ctx.strokeStyle = disp.color; ctx.globalAlpha = 0.7; ctx.lineWidth=1.5; ctx.stroke(); ctx.globalAlpha = 1;
+      }
+      if(c._jetActive) {   // jetpack exhaust flare under the feet
+        ctx.fillStyle = '#ffaa33'; ctx.globalAlpha = 0.8;
+        ctx.beginPath(); ctx.moveTo(-crad*0.3, crad*0.5); ctx.lineTo(crad*0.3, crad*0.5);
+        ctx.lineTo(0, crad*0.5 + crad*(0.8 + Math.random()*0.5)); ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
+      }
+      this._drawCrewSprite(crad, c.ref.role, walking, tnow, this._crewPhase(c), false);
+      ctx.restore();
     }
+    this._drawPlanetMinimap(game, pl);
     this._drawPlanetHUD(game, pl);
+    this._drawPlanetTooltip(game, pl, ox, oy, S, LIFT, levelOf);
+  }
+
+  // Tooltip for the terrain hex under the cursor: biome, elevation tier, footing.
+  _drawPlanetTooltip(game, pl, ox, oy, S, LIFT, levelOf) {
+    const mx = game.input?.mouseX || 0, my = game.input?.mouseY || 0;
+    // Skip when hovering the minimap (top-right), buttons (bottom) or title strip.
+    if(my < 56 || my > G.CANVAS_H - 64) return;
+    if(mx > G.CANVAS_W - 172 && my < 176) return;
+    const ter = pl.terrain, W = ter.W, H = ter.H;
+    // Pick under cursor; refine once for the elevation lift so raised tiles hit.
+    let cw = G.pixelToHex((mx - ox) / S, (my - oy) / S, 1);
+    let t = G.wrapTile(ter, cw.q, cw.r);
+    if(t) {
+      const lift = levelOf(t) * LIFT;
+      if(lift) { const cw2 = G.pixelToHex((mx - ox) / S, (my - oy + lift) / S, 1); const t2 = G.wrapTile(ter, cw2.q, cw2.r); if(t2) t = t2; }
+    }
+    if(!t) return;
+    const lvl = t.level || 0;
+    const oreName = (t.ore && t.oreHp > 0) ? (G.ITEMS[G.ASTEROID_MAT[t.ore]?.drop || t.ore]?.name || t.ore) : null;
+    const lines = [
+      (G.TERRAIN_LABEL[t.biome] || t.biome).toUpperCase(),
+      'Elevation ' + (lvl > 0 ? '+' + lvl : lvl),
+      t.walkable ? 'On foot: walkable' : 'On foot: impassable',
+    ];
+    if(oreName) lines.push('⛏ ' + oreName.toUpperCase() + ' ×' + t.oreHp);
+    const ctx = this.ctx;
+    ctx.font = '6px "Press Start 2P",monospace'; ctx.textAlign = 'left';
+    let bw = 0; for(const l of lines) bw = Math.max(bw, ctx.measureText(l).width);
+    bw += 14; const bh = 10 + lines.length * 11;
+    let bx = mx + 14, by = my + 14;
+    if(bx + bw > G.CANVAS_W - 4) bx = mx - bw - 14;
+    if(by + bh > G.CANVAS_H - 4) by = my - bh - 14;
+    ctx.fillStyle = 'rgba(8,14,24,0.92)'; ctx.fillRect(bx, by, bw, bh);
+    ctx.strokeStyle = '#2a4a66'; ctx.lineWidth = 1; ctx.strokeRect(bx, by, bw, bh);
+    const pal = G.TERRAIN_COLORS[t.biome] || ['#888','#555'];
+    ctx.fillStyle = pal[0]; ctx.fillText(lines[0], bx + 7, by + 13);
+    ctx.fillStyle = '#9fb3c8'; ctx.fillText(lines[1], bx + 7, by + 24);
+    ctx.fillStyle = t.walkable ? '#7fd49a' : '#e08a6a'; ctx.fillText(lines[2], bx + 7, by + 35);
+    if(lines[3]) { ctx.fillStyle = '#ffcc66'; ctx.fillText(lines[3], bx + 7, by + 46); }
+  }
+
+  // Whole-block (one period) minimap, upper-right, with ship/crew + view rect.
+  _drawPlanetMinimap(game, pl) {
+    const ctx = this.ctx, ter = pl.terrain;
+    const MW = 150, pad = 10;
+    if(!pl._miniCanvas || pl._miniSeed !== ter.seed) {
+      const cell = Math.max(2, Math.floor(MW / ter.W));
+      const cv = document.createElement('canvas'); cv.width = ter.W*cell; cv.height = ter.H*cell;
+      const mc = cv.getContext('2d');
+      for(const t of ter.tiles.values()) {
+        const pal = G.TERRAIN_COLORS[t.biome] || ['#888','#555'];
+        mc.fillStyle = pal[0]; mc.fillRect(t.q*cell, t.r*cell, cell, cell);
+      }
+      pl._miniCanvas = cv; pl._miniSeed = ter.seed;
+    }
+    const cv = pl._miniCanvas;
+    const dw = MW, dh = cv.height/cv.width*MW;
+    const dx = G.CANVAS_W - dw - pad, dy = pad;
+    ctx.save();
+    ctx.fillStyle = 'rgba(5,10,20,0.85)'; ctx.fillRect(dx-3, dy-3, dw+6, dh+6);
+    ctx.imageSmoothingEnabled = false; ctx.drawImage(cv, dx, dy, dw, dh);
+    ctx.strokeStyle = '#2a4a66'; ctx.lineWidth = 1; ctx.strokeRect(dx-3, dy-3, dw+6, dh+6);
+    const m = (q, r) => ({ x: dx + ((((q%ter.W)+ter.W)%ter.W)+0.5)/ter.W*dw, y: dy + ((((r%ter.H)+ter.H)%ter.H)+0.5)/ter.H*dh });
+    let p = m(pl.ship.q, pl.ship.r); ctx.fillStyle = '#ffffff'; ctx.fillRect(p.x-2, p.y-2, 4, 4);
+    ctx.fillStyle = '#ffdd44'; for(const c of pl.crew) { p = m(c.q, c.r); ctx.fillRect(p.x-1, p.y-1, 3, 3); }
+    // Camera view rectangle (coverage in hex cells, clamped to the block).
+    const cc = G.pixelToHex(pl.cam.x, pl.cam.y, 1), ctr = m(cc.q, cc.r);
+    const rw = Math.min(dw, G.CANVAS_W/(pl.S*G.HEX_SQRT3)/ter.W*dw);
+    const rh = Math.min(dh, G.CANVAS_H/(pl.S*1.5)/ter.H*dh);
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 1;
+    ctx.strokeRect(ctr.x - rw/2, ctr.y - rh/2, rw, rh);
+    ctx.restore();
   }
 
   _drawPlanetHUD(game, pl) {
@@ -2052,15 +2279,16 @@ G.Renderer = class {
     let ly = 70;
     ctx.font = '6px "Press Start 2P",monospace';
     for(const bm of present) {
-      const pal = G.TERRAIN_COLORS[bm] || ['#888'];
-      ctx.fillStyle = pal[0]; ctx.fillRect(12, ly-6, 8, 8);
-      ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth=1; ctx.strokeRect(12, ly-6, 8, 8);
-      ctx.fillStyle = '#9fb3c8'; ctx.fillText(G.TERRAIN_LABEL[bm] || bm, 24, ly);
-      ly += 11;
+      ctx.drawImage(G.TerrainTiles.swatch(bm, 7), 10, ly-9, 14, 14);
+      ctx.fillStyle = '#9fb3c8'; ctx.fillText(G.TERRAIN_LABEL[bm] || bm, 28, ly);
+      ly += 13;
     }
     ctx.textAlign = 'left';
     ctx.fillStyle = '#557'; ctx.font = '6px "Press Start 2P",monospace';
-    ctx.fillText('Click a crew member, then a tile to move • click the ship to board', 12, G.CANVAS_H - 16);
+    const hint = pl.selected
+      ? 'WASD move • Shift sprint • SPACE jump/jetpack • C character • stand on ⛏ ore to mine • click tile to path • click ship to board'
+      : 'Click a crew member to control • WASD/arrows pan camera • C character';
+    ctx.fillText(hint, 12, G.CANVAS_H - 16);
   }
 
   // Full hex-map view: tactical sector overlay between space flight and galaxy map
@@ -2386,6 +2614,10 @@ G.Game = class {
     // hex-map's most-zoomed-in scale (HEX_PX*hexmapMaxZoom/HEX_WORLD) so the two
     // views cross at an identical scale → no zoom jump when toggling.
     this.spacecam_minZoom = G.HEX_PX * this.hexmapcam_maxZoom / G.HEX_WORLD;
+    this.planetcam_minZoom = 0.4;
+    this.planetcam_maxZoom = 3.0;
+    this.planetcam_sensitivity = 0.0008;
+    this._planetZoom = 0;
     this._interactPromptTarget = null;
     this._sunGlowAlpha = 0;
     this._escapePodFollowing = null;
@@ -2639,6 +2871,17 @@ G.Game = class {
         }
         return;
       }
+      if(this.state === 'landed') {
+        e.preventDefault();
+        const nz = (this._planetZoom || 0) - e.deltaY * this.planetcam_sensitivity;
+        // Zooming out past planet's minZoom → return to space.
+        if(1.0 + nz < this.planetcam_minZoom) {
+          this._exitPlanet();
+        } else {
+          this._planetZoom = G.clamp(nz, this.planetcam_minZoom - 1.0, this.planetcam_maxZoom - 1.0);
+        }
+        return;
+      }
       if(this.state !== 'space') return;
       e.preventDefault();
       const nz = (this._zoomManual || 0) - e.deltaY * this.spacecam_sensitivity;
@@ -2830,6 +3073,12 @@ G.Game = class {
     this.player._generateHexLayout();
     this.player._recompute();
     this.player._assignCrewCells();   // place crew on the (possibly migrated) grid
+    this.player.ensureCrewChars();    // migrate crew into the unified character shape
+    // Tag a player character for saves that predate the unified model.
+    if(!this.player.crew.some(c => c.isPlayer)) {
+      const pc = this.player.crew[0];
+      if(pc) { pc.isPlayer = true; pc.classId = this.playerClassId; pc.name = this.playerName; G.charRecompute(pc); }
+    }
     this.player.hull    = sd.hull    || this.player.maxHull;
     this.player.shields = sd.shields || 0;
     this.player.energy  = sd.energy  || this.player.maxEnergy;
@@ -2917,6 +3166,7 @@ G.Game = class {
     // Re-derive module-granted abilities (scan / optical_target_lock / radar_scan)
     // that the line above wiped — e.g. a Targeting Pod's Optical Target Lock.
     this.player._recompute();
+    this._initPlayerCharacter(charData);
     this.space = new G.Space();
     this.space.loadSystem('sol');
     const earth = this.space.bodies.find(b => b.name === 'Earth');
@@ -2951,6 +3201,44 @@ G.Game = class {
     if(this.ui.els['system-label']) this.ui.els['system-label'].textContent=sys?.name||'Sol';
     this.ui.addMsg(`Welcome, ${charData.name}. Earn your way to the stars.`,'#00ffee');
     this.ui.addMsg('WASD:fly  SHIFT:boost(energy)  SPACE:fire  M:map  M+hold J:jump','#556677');
+  }
+
+  // The player IS a character — the pilot in their ship's crew. Tag it, sync its
+  // identity/class, then spawn starter personal gear into ship cargo and equip it.
+  _initPlayerCharacter(charData) {
+    const pc = this.playerCharacter();
+    if(pc) {
+      pc.isPlayer = true;
+      pc.name     = (charData?.name) || pc.name;
+      pc.classId  = this.playerClassId;
+      pc.faction  = this.playerFactionId || pc.faction;
+      G.charRecompute(pc);
+    }
+    // Starter kit (unified cargo items): 1 pistol, 1 sword, 1 shield, 1 jetpack.
+    const cargo = this.player.cargo;
+    for(const id of ['pistol', 'sword', 'shield', 'jetpack']) cargo[id] = (cargo[id] || 0) + 1;
+    if(pc) {
+      G.charEquip(pc, 'righthand', 'pistol',  cargo);
+      G.charEquip(pc, 'lefthand',  'sword',   cargo);
+      G.charEquip(pc, 'backpack',  'jetpack', cargo);
+      // Shield stays in cargo (both hands occupied) — swap it in from the C screen.
+    }
+  }
+
+  // The player's own character object (the pilot crew member), or null.
+  playerCharacter() {
+    const crew = this.player?.crew || [];
+    return crew.find(c => c.isPlayer) || crew[0] || null;
+  }
+
+  // Toggle the character screen (closing an open skill tree first). Works in both
+  // space flight and the planet surface scene.
+  _toggleCharScreen() {
+    const st = document.getElementById('skill-tree-overlay');
+    if(st && !st.classList.contains('hidden')) { this.ui.hideSkillTree(); return; }
+    const cs = document.getElementById('char-screen-overlay');
+    if(cs?.classList.contains('hidden')) this.ui.showCharScreen();
+    else this.ui.hideCharScreen();
   }
 
   restart() { this.start(); }
@@ -3260,15 +3548,7 @@ G.Game = class {
     }
 
     // C: character screen (or close skill tree if open)
-    if(this.input.pressed('KeyC')) {
-      const st=document.getElementById('skill-tree-overlay');
-      if(st && !st.classList.contains('hidden')) { this.ui.hideSkillTree(); }
-      else {
-        const cs=document.getElementById('char-screen-overlay');
-        if(cs?.classList.contains('hidden')) this.ui.showCharScreen();
-        else this.ui.hideCharScreen();
-      }
-    }
+    if(this.input.pressed('KeyC')) this._toggleCharScreen();
 
     // T: next target  Y: prev target  R: nearest target
     if(this.input.pressed('KeyT')) this._cycleTarget(1);
@@ -3775,6 +4055,15 @@ G.Game = class {
   // Both views centre on the player and cross at one shared scale
   // (space minZoom == hexmap maxZoom scale), so the ship stays at the same screen
   // spot at the same size — no zoom jump.
+  _exitPlanet() {
+    this.state = 'space';
+    this._planet = null;
+    this._planetZoom = 0;
+    this.camZoom = 1.0;
+    this.ui.hideSpaceport();
+    this._showHUD();
+  }
+
   _enterHexmapFromSpace() {
     this.state = 'hexmap';
     // Snap the (hidden) space zoom to its min so a later return matches exactly.
@@ -3794,6 +4083,25 @@ G.Game = class {
     this._hexMapOffX = 0; this._hexMapOffY = 0; this._hexMapZoom = 1;
     document.getElementById('minimap-wrap')?.classList.remove('hidden');
     document.getElementById('hexmap-controls')?.classList.add('hidden');
+  }
+
+  // One discrete zoom step (mobile +/- buttons). dir>0 = zoom in. Mirrors the
+  // mouse-wheel logic, including crossing the space<->hex-map boundary.
+  zoomStep(dir) {
+    if(this.state === 'hexmap') {
+      if(dir > 0) {
+        const nz = (this._hexMapZoom || 1) * this.hexmapcam_zoomIn;
+        if(nz > this.hexmapcam_maxZoom) this._enterSpaceFromHexmap();
+        else this._hexMapZoom = nz;
+      } else {
+        this._hexMapZoom = Math.max(this.hexmapcam_minZoom, (this._hexMapZoom || 1) * this.hexmapcam_zoomOut);
+      }
+      return;
+    }
+    if(this.state !== 'space') return;
+    const nz = (this._zoomManual || 0) + dir * 0.35;
+    if(1.0 + nz < this.spacecam_minZoom) this._enterHexmapFromSpace();
+    else this._zoomManual = G.clamp(nz, this.spacecam_minZoom - 1.0, this.spacecam_maxZoom - 1.0);
   }
 
   ejectEscapePods() {
@@ -3934,23 +4242,46 @@ G.Game = class {
   }
 
   // ── Planet surface scene ─────────────────────────────────────────────────
+  // Shortest hex distance on the WxH torus (min over the 3×3 wrap copies).
+  _torusHexDist(ter, aq, ar, bq, br) {
+    let best = Infinity;
+    for(let kq = -1; kq <= 1; kq++) for(let kr = -1; kr <= 1; kr++) {
+      const d = G.hexDist(aq, ar, bq + kq*ter.W, br + kr*ter.H);
+      if(d < best) best = d;
+    }
+    return best;
+  }
+
   _enterPlanet(body) {
     const terrain = G.genPlanetTerrain(body);
-    // Landing cell: walkable tile nearest the centre.
-    let ship = null, bd = Infinity;
-    for(const t of terrain.tiles.values()) {
-      if(!t.walkable) continue;
-      const d = Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(-t.q - t.r));
-      if(d < bd) { bd = d; ship = { q: t.q, r: t.r }; }
+    const W = terrain.W, H = terrain.H;
+    let ship = null;
+    // Spaceport world: park right next to the landing pad.
+    if(terrain.port) {
+      const p = terrain.port;
+      for(const nb of G.hexNeighbors(p.q, p.r)) {
+        const w = G.wrapHex(W, H, nb.q, nb.r), t = terrain.tiles.get(G.hexKey(w.q, w.r));
+        if(t && t.walkable && t.biome !== 'spaceport') { ship = { q: w.q, r: w.r }; break; }
+      }
+      ship = ship || { q: p.q, r: p.r };
+    } else {
+      // Otherwise: walkable tile nearest the block centre (torus).
+      const c0q = W >> 1, c0r = H >> 1;
+      let bd = Infinity;
+      for(const t of terrain.tiles.values()) {
+        if(!t.walkable) continue;
+        const d = this._torusHexDist(terrain, c0q, c0r, t.q, t.r);
+        if(d < bd) { bd = d; ship = { q: t.q, r: t.r }; }
+      }
+      ship = ship || { q: c0q, r: c0r };
     }
-    if(!ship) ship = { q: 0, r: 0 };
     // Place crew on nearby walkable cells.
     const used = new Set([G.hexKey(ship.q, ship.r)]);
     const crew = [];
     for(const ref of this.player.crew) {
       let cell = null;
-      for(let rad = 1; rad <= 4 && !cell; rad++) {
-        const ring = [...terrain.tiles.values()].filter(t => t.walkable && !used.has(G.hexKey(t.q, t.r)) && G.hexDist(ship.q, ship.r, t.q, t.r) === rad);
+      for(let rad = 1; rad <= 5 && !cell; rad++) {
+        const ring = [...terrain.tiles.values()].filter(t => t.walkable && !used.has(G.hexKey(t.q, t.r)) && this._torusHexDist(terrain, ship.q, ship.r, t.q, t.r) === rad);
         if(ring.length) cell = ring[(Math.random() * ring.length) | 0];
       }
       cell = cell || ship;
@@ -3958,22 +4289,56 @@ G.Game = class {
       const u = G.hexToPixel(cell.q, cell.r, 1);
       crew.push({ ref, q: cell.q, r: cell.r, px: u.x, py: u.y, path: null });
     }
-    this._planet = { body, terrain, ship, crew, selected: null, buttons: [], layout: null };
-    this.ui.addMsg('Landed on ' + body.name + (body.hasSpaceport ? '' : ' — barren surface'), '#88ddaa');
+    // Spawn surface characters — count + disposition tied to system danger/faction.
+    const sys = G.SYSTEMS.find(s => s.id === this.currentSysId) || {};
+    const dangerN = G.clamp((sys.danger || 0) / 10, 0, 1);
+    const statBody = { danger: dangerN, security: 1 - dangerN };
+    const nNpc = Math.min(9, (body.hasSpaceport ? 3 : 0) + G.randInt(0, 2 + Math.round(dangerN * 5)));
+    const walkCells = [...terrain.tiles.values()].filter(t => t.walkable && t.biome !== 'spaceport');
+    const npcs = [];
+    for(let i = 0; i < nNpc && walkCells.length; i++) {
+      let cell = null;
+      for(let tries = 0; tries < 12 && !cell; tries++) {
+        const cand = walkCells[(Math.random() * walkCells.length) | 0];
+        if(!used.has(G.hexKey(cand.q, cand.r))) cell = cand;
+      }
+      if(!cell) break;
+      used.add(G.hexKey(cell.q, cell.r));
+      const disp = G.rollDisposition(statBody);
+      const fac = disp === 'faction' ? (body.faction || sys.faction || 'independent') : 'independent';
+      const role = (disp === 'hostile') ? 'marine' : (disp === 'faction' ? 'gunner' : 'pilot');
+      const ch = G.makeCharacter({ faction: fac, disposition: disp, role });
+      if(disp === 'hostile' || disp === 'faction') { ch.equip.righthand = Math.random() < 0.5 ? 'pistol' : 'sword'; G.charRecompute(ch); }
+      const u = G.hexToPixel(cell.q, cell.r, 1);
+      npcs.push({ ref: ch, q: cell.q, r: cell.r, px: u.x, py: u.y, path: null, _wanderT: Math.random() * 4 });
+    }
+    const su = G.hexToPixel(ship.q, ship.r, 1);
+    this._planet = { body, terrain, ship, crew, npcs, selected: null, buttons: [], layout: null,
+                     S: 46, cam: { x: su.x, y: su.y }, panX: 0, panY: 0 };
+    const dispCounts = npcs.reduce((m, n) => (m[n.ref.disposition] = (m[n.ref.disposition] || 0) + 1, m), {});
+    const hostiles = dispCounts.hostile || 0;
+    this.ui.addMsg('Landed on ' + body.name + (body.hasSpaceport ? '' : ' — barren surface') +
+      (npcs.length ? ` — ${npcs.length} life sign${npcs.length > 1 ? 's' : ''}${hostiles ? ', ' + hostiles + ' hostile' : ''}` : ''), '#88ddaa');
   }
 
+  // BFS shortest path on the torus; from/to are canonical [0,W)×[0,H) cells.
+  // Cliffs (elevation-tier diff ≥ 2 between adjacent tiles) cannot be crossed —
+  // only ramps/slopes (diff ≤ 1) are walkable.
   _planetPath(from, to) {
-    const T = this._planet?.terrain.tiles; if(!T) return null;
-    const walk = k => { const t = T.get(k); return t && t.walkable; };
+    const pl = this._planet, ter = pl?.terrain, T = ter?.tiles; if(!T) return null;
+    const W = ter.W, H = ter.H;
     const sK = G.hexKey(from.q, from.r), gK = G.hexKey(to.q, to.r);
-    if(!walk(gK)) return null;
-    const prev = new Map([[sK, null]]), q = [sK];
-    while(q.length) {
-      const ck = q.shift(); if(ck === gK) break;
+    const goal = T.get(gK);
+    if(!goal || !goal.walkable) return null;
+    const prev = new Map([[sK, null]]), queue = [sK];
+    while(queue.length) {
+      const ck = queue.shift(); if(ck === gK) break;
       const { q: cq, r: cr } = G.hexFromKey(ck);
+      const curLvl = T.get(ck)?.level || 0;
       for(const nb of G.hexNeighbors(cq, cr)) {
-        const nk = G.hexKey(nb.q, nb.r);
-        if(walk(nk) && !prev.has(nk)) { prev.set(nk, ck); q.push(nk); }
+        const w = G.wrapHex(W, H, nb.q, nb.r), nk = G.hexKey(w.q, w.r);
+        const nt = T.get(nk);
+        if(nt && nt.walkable && Math.abs((nt.level||0) - curLvl) <= 1 && !prev.has(nk)) { prev.set(nk, ck); queue.push(nk); }
       }
     }
     if(!prev.has(gK)) return null;
@@ -3982,14 +4347,160 @@ G.Game = class {
     return path;
   }
 
+  // Camera: locked on the controlled character when one is selected; otherwise
+  // WASD / arrows free-pan around the ship.
+  updatePlanetCamera(dt) {
+    const pl = this._planet; if(!pl) return;
+    if(pl.selected) {
+      pl.panX = 0; pl.panY = 0;
+      const k = Math.min(1, 12 * dt);
+      pl.cam.x += (pl.selected.px - pl.cam.x) * k;
+      pl.cam.y += (pl.selected.py - pl.cam.y) * k;
+      return;
+    }
+    const inp = this.input;
+    let dx = 0, dy = 0;
+    if(inp.is('KeyA') || inp.is('ArrowLeft'))  dx -= 1;
+    if(inp.is('KeyD') || inp.is('ArrowRight')) dx += 1;
+    if(inp.is('KeyW') || inp.is('ArrowUp'))    dy -= 1;
+    if(inp.is('KeyS') || inp.is('ArrowDown'))  dy += 1;
+    const panSpd = 10 * dt;
+    pl.panX += dx * panSpd; pl.panY += dy * panSpd;
+    const base = G.hexToPixel(pl.ship.q, pl.ship.r, 1);
+    const tx = base.x + pl.panX, ty = base.y + pl.panY, k = Math.min(1, 8 * dt);
+    pl.cam.x += (tx - pl.cam.x) * k; pl.cam.y += (ty - pl.cam.y) * k;
+  }
+
+  // Direct WASD control of the selected character. Shift = sprint, double-tap
+  // Shift = a quick dodge. Movement respects walkability + the cliff rule (can't
+  // step to a tile ≥2 elevation tiers away). Sets pl._charMoving for the walk anim.
+  updatePlanetCrewControl(dt) {
+    const pl = this._planet; if(!pl) return;
+    pl._charMoving = false;
+    const c = pl.selected; if(!c) return;
+    const ter = pl.terrain, W = ter.W, H = ter.H, inp = this.input;
+    c._dodgeT = Math.max(0, (c._dodgeT || 0) - dt);
+    c._dodgeCd = Math.max(0, (c._dodgeCd || 0) - dt);
+    let dx = 0, dy = 0;
+    if(inp.is('KeyA') || inp.is('ArrowLeft'))  dx -= 1;
+    if(inp.is('KeyD') || inp.is('ArrowRight')) dx += 1;
+    if(inp.is('KeyW') || inp.is('ArrowUp'))    dy -= 1;
+    if(inp.is('KeyS') || inp.is('ArrowDown'))  dy += 1;
+    // Double-tap Shift → dodge burst in the move / facing direction.
+    if(inp.pressed('ShiftLeft') || inp.pressed('ShiftRight')) {
+      const now = performance.now() / 1000;
+      if(pl._lastShift != null && now - pl._lastShift < 0.3 && c._dodgeCd <= 0) {
+        let fx = dx, fy = dy; if(!(fx || fy)) { fx = c._faceX || 0; fy = c._faceY || 1; }
+        const l = Math.hypot(fx, fy) || 1;
+        c._dodgeX = fx / l; c._dodgeY = fy / l; c._dodgeT = 0.22; c._dodgeCd = 0.7;
+        pl._lastShift = null; G.sound?.uiClick?.();
+      } else pl._lastShift = now;
+    }
+    // ── Vertical: jump (innate) + jetpack (equipped, sustained) ──────────────
+    // c._z is height in unit-hex; airborne characters ignore the cliff rule so a
+    // jump/jetpack clears ledges. Jetpack holds altitude while energy lasts.
+    const ch = c.ref;
+    c._z = c._z || 0; c._vz = c._vz || 0;
+    const grounded = c._z <= 0.001;
+    const jetDef = ch ? G.charGearOfKind(ch, 'jetpack') : null;
+    c._jetActive = false;
+    if(inp.pressed('Space') && grounded) { c._vz = 6.5; G.sound?.uiClick?.(); }   // hop
+    if(jetDef && inp.is('Space') && ch.energy > 0 && (!grounded || c._vz > 0)) {
+      c._vz = Math.min((jetDef.lift || 5.5), c._vz + (jetDef.thrust || 9) * dt);
+      ch.energy = Math.max(0, ch.energy - (jetDef.drain || 18) * dt);
+      c._jetActive = true;
+    }
+    c._vz -= 16 * dt;                       // gravity
+    c._z = Math.max(0, c._z + c._vz * dt);
+    if(c._z <= 0 && c._vz < 0) c._vz = 0;
+    const airborne = c._z > 0.05;
+    if(ch && !c._jetActive) ch.energy = Math.min(ch.maxEnergy, ch.energy + 14 * dt);  // ground regen
+
+    let vx = 0, vy = 0; const base = 3.2;
+    if(c._dodgeT > 0) { vx = c._dodgeX * 11; vy = c._dodgeY * 11; }   // dodge lunge
+    else if(dx || dy) {
+      const l = Math.hypot(dx, dy);
+      const sprint = (c._jetActive ? 2.1 : (inp.is('ShiftLeft') || inp.is('ShiftRight')) ? 1.9 : 1);
+      vx = dx / l * base * sprint; vy = dy / l * base * sprint;
+      c._faceX = dx / l; c._faceY = dy / l;
+      c.path = null;                       // WASD overrides any click-move path
+    } else if(!airborne) return;           // idle on ground → let path-follow handle it
+    // Integrate with collision: block entering non-walkable tiles; airborne skips
+    // the cliff-height rule so you can fly/leap over ledges; slide on block.
+    const cur = G.wrapTile(ter, c.q, c.r) || { level: 0 };
+    const can = (px, py) => {
+      const h = G.pixelToHex(px, py, 1), w = G.wrapHex(W, H, h.q, h.r);
+      const t = ter.tiles.get(G.hexKey(w.q, w.r));
+      if(!t || !t.walkable) return null;
+      if(airborne) return w;               // mid-air: ignore the elevation-tier gate
+      return Math.abs((t.level || 0) - (cur.level || 0)) <= 1 ? w : null;
+    };
+    const nx = c.px + vx * dt, ny = c.py + vy * dt;
+    let w = can(nx, ny);
+    if(w) { c.px = nx; c.py = ny; }
+    else { const wx = can(nx, c.py); if(wx) { c.px = nx; w = wx; } const wy = can(c.px, ny); if(wy) { c.py = ny; w = wy; } }
+    if(w) { c.q = w.q; c.r = w.r; pl._charMoving = !!(vx || vy); }
+  }
+
+  // Wandering surface NPCs: idle, then path to a nearby walkable cell.
+  updatePlanetNpcs(dt) {
+    const pl = this._planet; if(!pl || !pl.npcs) return;
+    const ter = pl.terrain, W = ter.W, H = ter.H;
+    for(const n of pl.npcs) {
+      n._wanderT = (n._wanderT || 0) - dt;
+      if(n._wanderT > 0 || (n.path && n.path.length)) continue;
+      n._wanderT = 2 + Math.random() * 4;
+      const opts = [];
+      for(let k = 0; k < 8; k++) {
+        const w = G.wrapHex(W, H, n.q + G.randInt(-3, 3), n.r + G.randInt(-3, 3));
+        const t = ter.tiles.get(G.hexKey(w.q, w.r));
+        if(t && t.walkable) opts.push(w);
+      }
+      if(!opts.length) continue;
+      const path = this._planetPath({ q: n.q, r: n.r }, opts[(Math.random() * opts.length) | 0]);
+      if(path && path.length) n.path = path;
+    }
+  }
+
+  // Surface mining: any of the player's crew standing (grounded, not pathing) on
+  // an ore tile chips it out into ship cargo — same drops as asteroid mining.
+  updatePlanetMining(dt) {
+    const pl = this._planet; if(!pl) return;
+    const ter = pl.terrain, RATE = 0.8;   // seconds per unit
+    for(const c of pl.crew) {
+      const busy = (c.path && c.path.length) || (c._z || 0) > 0.05;
+      const t = busy ? null : G.wrapTile(ter, c.q, c.r);
+      if(!t || !t.ore || t.oreHp <= 0) { c._mineT = 0; c._mineTile = null; continue; }
+      const mat = G.ASTEROID_MAT[t.ore] || G.ASTEROID_MAT.rock;
+      const drop = mat.drop || t.ore;
+      if(c._mineTile !== t) { c._mineTile = t; this.ui.addMsg(`${c.ref.name} mining ${G.ITEMS[drop]?.name || drop}…`, '#ffcc66'); }
+      c._mineT = (c._mineT || 0) + dt;
+      while(c._mineT >= RATE && t.oreHp > 0) {
+        c._mineT -= RATE;
+        this.player.addCargo(drop, 1);
+        t.oreHp -= 1;
+      }
+      if(t.oreHp <= 0) { this.ui.addMsg(`${G.ITEMS[drop]?.name || drop} deposit depleted`, '#aa8855'); t.ore = null; c._mineTile = null; }
+    }
+  }
+
   updatePlanetCrew(dt) {
     const pl = this._planet; if(!pl) return;
-    const spd = 2.4;   // unit-hex/sec
-    for(const c of pl.crew) {
+    const ter = pl.terrain, W = ter.W, H = ter.H, spd = 2.4;   // unit-hex/sec
+    const P1x = G.HEX_SQRT3 * W, P2x = G.HEX_SQRT3 * 0.5 * H, P2y = 1.5 * H;
+    for(const c of (pl.npcs ? pl.crew.concat(pl.npcs) : pl.crew)) {
       if(!(c.path && c.path.length)) continue;
-      const n = c.path[0], u = G.hexToPixel(n.q, n.r, 1);
-      const dx = u.x - c.px, dy = u.y - c.py, d = Math.hypot(dx, dy), step = spd * dt;
-      if(d <= step) { c.px = u.x; c.py = u.y; c.q = n.q; c.r = n.r; c.path.shift(); }
+      const n = c.path[0], base = G.hexToPixel(n.q, n.r, 1);
+      // Move toward the wrap-copy of the next cell nearest the current pixel pos,
+      // so stepping across the torus seam stays smooth instead of teleporting.
+      let tx = base.x, ty = base.y, bestD = Infinity;
+      for(let kk = -1; kk <= 1; kk++) for(let ll = -1; ll <= 1; ll++) {
+        const cxp = base.x + kk*P1x + ll*P2x, cyp = base.y + ll*P2y;
+        const d = (cxp - c.px)**2 + (cyp - c.py)**2;
+        if(d < bestD) { bestD = d; tx = cxp; ty = cyp; }
+      }
+      const dx = tx - c.px, dy = ty - c.py, d = Math.hypot(dx, dy), step = spd * dt;
+      if(d <= step) { c.px = tx; c.py = ty; c.q = n.q; c.r = n.r; c.path.shift(); }
       else { c.px += dx / d * step; c.py += dy / d * step; }
     }
   }
@@ -3999,17 +4510,19 @@ G.Game = class {
     const pl = this._planet; if(!pl) return false;
     for(const b of pl.buttons) if(sx >= b.x && sx <= b.x + b.w && sy >= b.y && sy <= b.y + b.h) { b.action(); G.sound?.uiClick?.(); return true; }
     const lay = pl.layout; if(!lay) return false;
+    const ter = pl.terrain, W = ter.W, H = ter.H;
     let pick = null, pd = 18;
     for(const c of pl.crew) { const x = lay.ox + c.px * lay.S, y = lay.oy + c.py * lay.S; const d = Math.hypot(x - sx, y - sy); if(d < pd) { pd = d; pick = c; } }
-    if(pick) { pl.selected = (pl.selected === pick) ? null : pick; G.sound?.uiClick?.(); return true; }
+    if(pick) { pl.selected = (pl.selected === pick) ? null : pick; pl.panX = 0; pl.panY = 0; G.sound?.uiClick?.(); return true; }
     const c = pl.selected; if(!c) return false;
-    const cell = G.pixelToHex((sx - lay.ox) / lay.S, (sy - lay.oy) / lay.S, 1);
+    const cw = G.pixelToHex((sx - lay.ox) / lay.S, (sy - lay.oy) / lay.S, 1);
+    const cell = G.wrapHex(W, H, cw.q, cw.r);
     if(cell.q === pl.ship.q && cell.r === pl.ship.r) {
       const path = this._planetPath({ q: c.q, r: c.r }, pl.ship);
       if(path) { c.path = path; this.ui.addMsg(c.ref.name + ' → board ship', '#88ccff'); }
       return true;
     }
-    const t = pl.terrain.tiles.get(G.hexKey(cell.q, cell.r));
+    const t = ter.tiles.get(G.hexKey(cell.q, cell.r));
     if(t && t.walkable) {
       const path = this._planetPath({ q: c.q, r: c.r }, cell);
       if(path) { c.path = path; this.ui.addMsg(c.ref.name + ' → move', '#88ccff'); }
@@ -4478,7 +4991,7 @@ G.Game = class {
     const el = document.getElementById('mobile-controls');
     if(!el) return;
     const show = this._mobileControls && !this.input._menuOpen()
-              && (this.state==='space' || this.state==='galaxy');
+              && (this.state==='space' || this.state==='galaxy' || this.state==='hexmap');
     el.classList.toggle('hidden', !show);
     document.getElementById('mc-joystick')?.classList.toggle('hidden', !show || !this._joystickMode);
     document.querySelector('.mc-move')?.classList.toggle('hidden', !show || !!this._joystickMode);
@@ -4624,8 +5137,13 @@ G.Game.prototype._loop = function(ts) {
       this.renderer.renderSpace(this);   // menu sits over the system view as before
     } else if(this._planet) {
       if(this.input.pressed('KeyL')) { this.launch(); }
+      if(this.input.pressed('KeyC')) this._toggleCharScreen();
       this.player?._regenPassive?.(dt, 0.5);
+      this.updatePlanetCrewControl(dt);
+      this.updatePlanetNpcs(dt);
       this.updatePlanetCrew(dt);
+      this.updatePlanetMining(dt);
+      this.updatePlanetCamera(dt);
       this.renderer.renderPlanet(this);
     } else {
       if(this.input.pressed('KeyL')) this.launch();

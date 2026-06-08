@@ -133,17 +133,24 @@ G.Ship = class extends G.ShipEntity {
     for(let i = 0; i < this.maxCrew; i++) {
       const roleId = roleOrder[Math.min(i, roleOrder.length - 1)];
       const role = G.CREW_ROLES[roleId];
-      this.crew.push({
+      const cr = {
         id: 'c' + (Math.random() * 1e9 | 0),
         name: names[ni++ % names.length],
         role: roleId, roleName: role.name,
         faction: fac,
-        skill: 2, hp: 100, maxHp: 100,
+        skill: 2,
         wage: role.wage * 2,
         hireCost: role.wage * 20,
         desc: role.desc,
-      });
+      };
+      G.ensureCharFields(cr);   // hp/mana/energy pools + equip paper-doll
+      this.crew.push(cr);
     }
+  }
+
+  // Migrate any crew (e.g. from an old save) into the unified character shape.
+  ensureCrewChars() {
+    for(const cr of (this.crew || [])) { G.ensureCharFields(cr); G.charRecompute(cr); }
   }
 
   // ── Crew positions / stations (crew-view mode) ───────────────────────────
