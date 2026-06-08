@@ -4099,14 +4099,6 @@ G.Game = class {
   // Both views centre on the player and cross at one shared scale
   // (space minZoom == hexmap maxZoom scale), so the ship stays at the same screen
   // spot at the same size — no zoom jump.
-  _exitPlanet() {
-    this.state = 'space';
-    this._planet = null;
-    this._planetZoom = 0;
-    this.camZoom = 1.0;
-    this.ui.hideSpaceport();
-    this._showHUD();
-  }
 
   _enterHexmapFromSpace() {
     this.state = 'hexmap';

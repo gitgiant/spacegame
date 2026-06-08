@@ -316,3 +316,6 @@ planet atmosphere..sound noises etc
 
 right now its civilization, but space above is RTS.  need to make RTS.
 
+planet day/night simulation/ weather/ events/ enemies/
+
+neutral/hostile npc/creatures
