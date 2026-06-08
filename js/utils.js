@@ -548,10 +548,11 @@ G.generateLocalSystem = function(sys) {
     const dustCell = G.hexRing(3).find(h => !used.has(tkey(h.q,h.r)));
     if(dustCell) { setTile(dustCell.q,dustCell.r,'dust'); occupy(dustCell.q,dustCell.r); }
   } else {
-    // Generic: each body on its own unique ring starting at 2 (innermost).
+    // Generic: each body on its own unique ring with 1-2 empty rings between them.
     const mains = bodies.filter(b => !b.orbitParent && (b.type==='planet'||b.type==='station'))
                         .sort((a,b)=>(a.orbitR||0)-(b.orbitR||0));
-    mains.forEach((b, i) => placeBody(b, 2 + i));
+    const ringGap = 2 + Math.floor(envRng() * 2);
+    mains.forEach((b, i) => placeBody(b, 2 + i * ringGap));
     // Asteroid tiles: a far ring (dense), or a few scattered cells (mixed).
     if(asteroidRingMode) {
       const rr = 4 + Math.floor(envRng()*3);
