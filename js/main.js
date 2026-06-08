@@ -4626,6 +4626,20 @@ G.Game = class {
       let hit = false;
       const pool = s.team === 'player' ? pl.npcs : pl.crew;
       for(const u of pool) { if(u.ref.hp <= 0) continue; const d = this._planetDelta(pl, s.x, s.y, u.px, u.py); if(d.dist < 0.55) { this._applyFootDamage(pl, u, s.dmg, s.src); hit = true; break; } }
+      // Damage ore deposits
+      if(!hit && s.team === 'player') {
+        const hc = G.pixelToHex(s.x, s.y, 1);
+        const t = G.wrapTile(pl.terrain, hc.q, hc.r);
+        if(t && t.ore && t.oreHp > 0) {
+          t.oreHp = Math.max(0, t.oreHp - Math.ceil(s.dmg / 5));
+          if(t.oreHp <= 0) {
+            const drop = G.ASTEROID_MAT[t.ore]?.drop || t.ore;
+            pl.loot.push({ x: s.x, y: s.y, item: drop, qty: 1, life: 40 });
+            this.ui.addMsg(`${G.ITEMS[drop]?.name || drop} deposit depleted`, '#ffcc66');
+          }
+          hit = true;
+        }
+      }
       if(hit || s.life <= 0) pl.shots.splice(i, 1);
     }
     // Ground loot pickup.
@@ -4731,6 +4745,19 @@ G.Game = class {
         if(n.ref.hp <= 0) continue;
         if(targets.some(t => t.q === n.q && t.r === n.r)) {
           this._applyFootDamage(pl, n, wpn.dmg || 18, c);
+        }
+      }
+      // Damage ore in swept hexes
+      for(const hex of targets) {
+        const t = G.wrapTile(pl.terrain, hex.q, hex.r);
+        if(t && t.ore && t.oreHp > 0) {
+          t.oreHp = Math.max(0, t.oreHp - Math.ceil((wpn.dmg || 18) / 3));
+          if(t.oreHp <= 0) {
+            const drop = G.ASTEROID_MAT[t.ore]?.drop || t.ore;
+            const u = G.hexToPixel(hex.q, hex.r, 1);
+            pl.loot.push({ x: u.x, y: u.y, item: drop, qty: 1, life: 40 });
+            this.ui.addMsg(`${G.ITEMS[drop]?.name || drop} deposit depleted`, '#ffcc66');
+          }
         }
       }
       c._swingT = 0.18;

@@ -611,27 +611,79 @@ function _classifyBiome(elev, temp, moist, cfg) {
 G.wrapHex = (W, H, q, r) => ({ q: ((q % W) + W) % W, r: ((r % H) + H) % H });
 G.wrapTile = (ter, q, r) => ter.tiles.get(G.hexKey(((q % ter.W) + ter.W) % ter.W, ((r % ter.H) + ter.H) % ter.H));
 
-function _traceRivers(tiles, W, H, rng, srcElev) {
-  const land = [...tiles.values()].filter(t => !['deep_water','ocean','shallow_water','liquid','coast'].includes(t.biome));
+const _WATER_BIOMES = new Set(['deep_water', 'ocean', 'shallow_water', 'liquid']);
+
+// Rivers spring from the highest peaks and run downhill to the sea via steepest
+// descent, escaping local pits by carving to the lowest unvisited neighbour so
+// they actually reach open water. River banks turn fertile (arid → grassland).
+function _traceRivers(tiles, W, H, rng) {
+  const at = (q, r) => { const w = G.wrapHex(W, H, q, r); return tiles.get(G.hexKey(w.q, w.r)); };
+  const land = [...tiles.values()].filter(t => !_WATER_BIOMES.has(t.biome) && t.biome !== 'coast');
   if(!land.length) return;
-  const sources = land.filter(t => t.elev > srcElev);
-  const nRivers = Math.min(sources.length, 2 + ((W * H) / 220 | 0));
-  for(let i = 0; i < nRivers; i++) {
-    let cur = sources[(rng() * sources.length) | 0];
-    let steps = 0;
-    while(cur && steps++ < W + H) {
-      if(['deep_water','ocean','shallow_water','liquid'].includes(cur.biome)) break;
-      if(cur.biome !== 'mountain' && cur.biome !== 'glacier') cur.biome = 'river', cur.walkable = true;
-      // step to lowest neighbour (torus-wrapped)
-      let best = null, bestE = cur.elev;
+  // Candidate springs: the highest ground (peaks/ridges), highest first.
+  const peaks = land.slice().sort((a, b) => b.elev - a.elev);
+  const nRivers = G.clamp(3 + ((W * H) / 600 | 0), 4, 26);
+  const minSpring = Math.max(5, (W / 12) | 0);   // spread sources apart
+  const tdist = (a, b) => { let best = Infinity; for(let kq = -1; kq <= 1; kq++) for(let kr = -1; kr <= 1; kr++) { const d = G.hexDist(a.q, a.r, b.q + kq*W, b.r + kr*H); if(d < best) best = d; } return best; };
+  const springs = [];
+  let made = 0;
+  for(let i = 0; i < peaks.length && made < nRivers; i++) {
+    const src = peaks[i];
+    if(springs.some(s => tdist(s, src) < minSpring)) continue;
+    // Walk downhill to the sea.
+    const path = []; const seen = new Set(); let cur = src, reachedSea = false, steps = 0;
+    while(cur && steps++ < (W + H) * 2) {
+      const k = G.hexKey(cur.q, cur.r);
+      if(_WATER_BIOMES.has(cur.biome)) { reachedSea = true; break; }
+      if(seen.has(k)) break;
+      seen.add(k); path.push(cur);
+      let best = null, bestE = Infinity;
       for(const nb of G.hexNeighbors(cur.q, cur.r)) {
-        const w = G.wrapHex(W, H, nb.q, nb.r);
-        const t = tiles.get(G.hexKey(w.q, w.r));
-        if(t && t.elev < bestE) { bestE = t.elev; best = t; }
+        const t = at(nb.q, nb.r); if(!t || seen.has(G.hexKey(t.q, t.r))) continue;
+        if(t.elev < bestE) { bestE = t.elev; best = t; }
       }
       if(!best) break;
       cur = best;
     }
+    if(path.length < 4 || (!reachedSea && path.length < 8)) continue;
+    springs.push(src); made++;
+    for(const t of path) {
+      if(t.biome === 'mountain' || t.biome === 'glacier') continue;   // river skirts peaks
+      t.biome = 'river'; t.walkable = true; t._river = true;
+      for(const nb of G.hexNeighbors(t.q, t.r)) {                     // fertile banks
+        const b = at(nb.q, nb.r);
+        if(b && !_WATER_BIOMES.has(b.biome) && !['river', 'mountain', 'glacier', 'spaceport'].includes(b.biome)
+           && ['desert', 'dirt', 'rocks', 'tundra'].includes(b.biome)) { b.biome = 'grassland'; b.walkable = true; }
+      }
+    }
+  }
+}
+
+// Scatter villages where people actually live: river banks, river mouths, and
+// coasts. Small clusters, spaced out, kept clear of the spaceport.
+function _placeSettlements(tiles, W, H, rng, port) {
+  const at = (q, r) => { const w = G.wrapHex(W, H, q, r); return tiles.get(G.hexKey(w.q, w.r)); };
+  const near = (t, pred) => G.hexNeighbors(t.q, t.r).some(nb => { const x = at(nb.q, nb.r); return x && pred(x); });
+  const tdist = (a, b) => { let best = Infinity; for(let kq = -1; kq <= 1; kq++) for(let kr = -1; kr <= 1; kr++) { const d = G.hexDist(a.q, a.r, b.q + kq*W, b.r + kr*H); if(d < best) best = d; } return best; };
+  // Water-adjacent walkable land (coast tiles, or land touching river/sea).
+  const cand = [...tiles.values()].filter(t => t.walkable
+    && !['spaceport', 'settlement', 'river'].includes(t.biome)
+    && (t.biome === 'coast' || near(t, x => x.biome === 'river') || near(t, x => x.biome === 'shallow_water' || x.biome === 'ocean')));
+  if(!cand.length) return;
+  for(let i = cand.length - 1; i > 0; i--) { const j = (rng() * (i + 1)) | 0; [cand[i], cand[j]] = [cand[j], cand[i]]; }
+  const target = G.clamp(3 + ((W * H) / 800 | 0) + (port ? 2 : 0), 3, 18);
+  const minD = Math.max(4, (W / 14) | 0);
+  const placed = [];
+  for(const t of cand) {
+    if(placed.length >= target) break;
+    if(port && tdist(t, { q: port.q, r: port.r }) < minD) continue;
+    if(placed.some(p => tdist(t, p) < minD)) continue;
+    t.biome = 'settlement'; t.walkable = true; placed.push(t);
+    // Grow a 1–2 tile hamlet on adjacent dry land.
+    const nbs = G.hexNeighbors(t.q, t.r).map(nb => at(nb.q, nb.r))
+      .filter(x => x && x.walkable && !_WATER_BIOMES.has(x.biome) && !['river', 'spaceport', 'settlement'].includes(x.biome));
+    const extra = 1 + (rng() * 2 | 0);
+    for(let k = 0; k < extra && nbs.length; k++) { const x = nbs.splice((rng() * nbs.length) | 0, 1)[0]; if(x) { x.biome = 'settlement'; x.walkable = true; } }
   }
 }
 
@@ -639,7 +691,7 @@ G.genPlanetTerrain = function(body) {
   if(body._terrain) return body._terrain;
   const ptype = body.ptype || 'rocky';
   const cfg = G.PTYPE_TERRAIN[ptype] || G.PTYPE_TERRAIN.rocky;
-  const seed = (body.name || 'planet') + '|' + ptype + '|v2';   // bump to regenerate all worlds
+  const seed = (body.name || 'planet') + '|' + ptype + '|v3';   // bump to regenerate all worlds
   // Wrapping rectangular hex field (torus) — no map edge. Very large surface
   // (~10x the previous tile count) so there's lots of room to roam; only the
   // visible tiles are drawn each frame, so size is cheap at render time.
@@ -686,11 +738,12 @@ G.genPlanetTerrain = function(body) {
       tiles.set(G.hexKey(q, r), { q, r, elev, level, moist, temp, biome, walkable: !G.TERRAIN_IMPASSABLE.has(biome) });
     }
   }
-  _traceRivers(tiles, W, H, rng, cfg.sea + 0.22);
   for(const t of tiles.values()) t.walkable = !G.TERRAIN_IMPASSABLE.has(t.biome);
+  _traceRivers(tiles, W, H, rng);
   // Spaceport worlds get a built-up site: a landing pad surrounded by a small
   // settlement, stamped onto a flat dry-land patch near the block centre.
   const port = body.hasSpaceport ? _placeSpaceport(tiles, W, H, rng) : null;
+  _placeSettlements(tiles, W, H, rng, port);   // riverside + coastal villages
   _seedDeposits(tiles, W, H, rng);
   body._terrain = { W, H, tiles, ptype, seed, name: body.name, hasSpaceport: !!body.hasSpaceport, port };
   return body._terrain;
