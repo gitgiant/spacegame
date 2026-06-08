@@ -591,8 +591,10 @@ function _classifyBiome(elev, temp, moist, cfg) {
   if(elev < sea - 0.02) return cfg.liquid === 'lava' ? 'liquid' : 'shallow_water';
   if(elev < sea + 0.015) return 'coast';
   // ── land ──
-  if(elev > cfg.mtn + 0.08) return temp < 0.32 ? 'glacier' : 'mountain';   // snow-capped peaks
-  if(elev > cfg.mtn)        return temp < 0.30 ? 'glacier' : 'ridge';
+  // Only the very highest peaks become impassable mountain; a wide walkable
+  // 'ridge' highland band sits below, so mountains are far less common.
+  if(elev > cfg.mtn + 0.22) return temp < 0.32 ? 'glacier' : 'mountain';   // snow-capped peaks
+  if(elev > cfg.mtn - 0.04) return temp < 0.30 ? 'glacier' : 'ridge';
   if(cfg.liquid === 'lava') return moist < cfg.arid ? 'rocks' : 'dirt';
   if(temp < 0.22) return 'glacier';
   if(temp < 0.34) return 'tundra';
@@ -637,7 +639,7 @@ G.genPlanetTerrain = function(body) {
   if(body._terrain) return body._terrain;
   const ptype = body.ptype || 'rocky';
   const cfg = G.PTYPE_TERRAIN[ptype] || G.PTYPE_TERRAIN.rocky;
-  const seed = (body.name || 'planet') + '|' + ptype;
+  const seed = (body.name || 'planet') + '|' + ptype + '|v2';   // bump to regenerate all worlds
   // Wrapping rectangular hex field (torus) — no map edge. Very large surface
   // (~10x the previous tile count) so there's lots of room to roam; only the
   // visible tiles are drawn each frame, so size is cheap at render time.
@@ -679,8 +681,8 @@ G.genPlanetTerrain = function(body) {
       let moist = moistN(nx - 9, ny - 9);
       moist = G.clamp(moist * 0.9 + tband * 0.12, 0, 1);       // mild equatorial wet bias
       const biome = _classifyBiome(elev, temp, moist, cfg);
-      // Discrete elevation tier -3..+3, anchored at sea level (water = negative).
-      const level = G.clamp(Math.round((elev - cfg.sea) * 7), -3, 3);
+      // Discrete elevation tier -5..+5, anchored at sea level (water = negative).
+      const level = G.clamp(Math.round((elev - cfg.sea) * 10), -5, 5);
       tiles.set(G.hexKey(q, r), { q, r, elev, level, moist, temp, biome, walkable: !G.TERRAIN_IMPASSABLE.has(biome) });
     }
   }

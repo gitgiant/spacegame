@@ -328,12 +328,6 @@ G.UI = class {
       this._voiceVolume = parseInt(e.target.value) / 100;
       document.getElementById('opt-voice-vol-val').textContent = e.target.value + '%';
     });
-    document.getElementById('opt-bg-enabled')?.addEventListener('change', e=>{
-      const on = e.target.checked;
-      document.getElementById('opt-bg-label').textContent = on ? 'ON' : 'OFF';
-      if(G.game) G.game._bgEnabled = on;
-      e.target.blur();
-    });
     document.querySelectorAll('#opt-control-scheme .scheme-btn').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         G.game?.setControlScheme(btn.dataset.scheme);
@@ -4073,6 +4067,12 @@ G.UI = class {
     html += '<input type="checkbox" id="debug-godmode-toggle" '+(godmodeEnabled?'checked':'')+' style="accent-color:#ff44ff;width:13px;height:13px">';
     html += '<span id="debug-godmode-label" style="font-size:6px;color:#ff44ff;font-family:\'Press Start 2P\',monospace">'+(godmodeEnabled?'ON':'OFF')+'</span>';
     html += '</label></div>';
+    html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:6px">';
+    html += '<span style="color:#aabbcc;min-width:80px">BG</span>';
+    html += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer">';
+    html += '<input type="checkbox" id="debug-bg-toggle" '+(game?._bgEnabled!==false?'checked':'')+' style="accent-color:#88ccff;width:13px;height:13px">';
+    html += '<span id="debug-bg-label" style="font-size:6px;color:#88ccff;font-family:\'Press Start 2P\',monospace">'+(game?._bgEnabled!==false?'ON':'OFF')+'</span>';
+    html += '</label></div>';
     html += '<div style="margin-top:14px;border-top:1px solid #334;padding-top:12px">';
     html += '<button id="debug-clear-cache" style="font-family:\'Press Start 2P\',monospace;font-size:6px;color:#ff5544;background:rgba(40,12,12,0.9);border:2px solid #ff5544;padding:8px 10px;cursor:pointer;letter-spacing:1px">CLEAR CACHE &amp; RESTART</button>';
     html += '</div>';
@@ -4106,6 +4106,12 @@ G.UI = class {
       const enabled = e.target.checked;
       if(game) game._godMode = enabled;
       document.getElementById('debug-godmode-label').textContent = enabled ? 'ON' : 'OFF';
+    });
+
+    document.getElementById('debug-bg-toggle')?.addEventListener('change', e => {
+      const enabled = e.target.checked;
+      if(game) game._bgEnabled = enabled;
+      document.getElementById('debug-bg-label').textContent = enabled ? 'ON' : 'OFF';
     });
 
     overlay.classList.remove('hidden');
