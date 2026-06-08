@@ -2134,26 +2134,6 @@ G.Renderer = class {
       if(rot) { ctx.save(); ctx.translate(c.x|0, c.y|0); ctx.rotate(rot*Math.PI/2); ctx.drawImage(tile, -Rt, -Rt, Tt, Tt); ctx.restore(); }
       else ctx.drawImage(tile, (c.x-Rt)|0, (c.y-Rt)|0, Tt, Tt);
     }
-    // Sword sweep visualization (1-hex forward arc)
-    if(pl.selected && pl.selected._sweptHexes && pl.selected._swingT > 0) {
-      const hexPath = (q, r) => {
-        const u = G.hexToPixel(q, r, 1);
-        const R = S * 1.02;
-        const x = ox + u.x * S, y = oy + u.y * S;
-        ctx.beginPath();
-        for(let i=0;i<6;i++) {
-          const a = Math.PI/6 + i*Math.PI/3;
-          const hx = x + R*Math.cos(a), hy = y + R*Math.sin(a);
-          i ? ctx.lineTo(hx, hy) : ctx.moveTo(hx, hy);
-        }
-        ctx.closePath();
-      };
-      for(const hex of pl.selected._sweptHexes) {
-        hexPath(hex.q, hex.r);
-        ctx.fillStyle = 'rgba(255,200,100,0.3)'; ctx.fill();
-        ctx.strokeStyle = '#ffcc44'; ctx.globalAlpha = 0.6; ctx.lineWidth = 1.5; ctx.stroke(); ctx.globalAlpha = 1;
-      }
-    }
     // Landing pad ring + spaceport service buildings.
     if(pl.pad) {
       const pl0 = levelOf(G.wrapTile(ter, pl.pad.q, pl.pad.r)) * LIFT;
@@ -2205,10 +2185,7 @@ G.Renderer = class {
         const st = game._npcStance(c);
         ringCol = st === 'hostile' ? '#ff3333' : st === 'flee' ? '#ffcc44' : (G.DISPOSITIONS[c.ref.disposition]?.color);
       }
-      if(c === pl.selected) {
-        ctx.beginPath(); ctx.arc(0,0,crad*1.7,0,Math.PI*2);
-        ctx.strokeStyle = (c._dodgeT > 0) ? '#66ddff' : '#ffff66'; ctx.lineWidth=2; ctx.stroke();
-      } else if(ringCol) {
+      if(ringCol && c !== pl.selected) {   // hostile/disposition marker on NPCs only
         ctx.beginPath(); ctx.arc(0, crad*0.4, crad*1.3, 0, Math.PI*2);
         ctx.strokeStyle = ringCol; ctx.globalAlpha = 0.7; ctx.lineWidth=1.5; ctx.stroke(); ctx.globalAlpha = 1;
       }
@@ -2223,21 +2200,34 @@ G.Renderer = class {
         ctx.beginPath(); ctx.moveTo(-crad*0.3, crad*0.5); ctx.lineTo(crad*0.3, crad*0.5);
         ctx.lineTo(0, crad*0.5 + crad*(0.8 + Math.random()*0.5)); ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
       }
-      // Melee swing arc.
+      // Sword swing — a crescent slash that sweeps through the facing arc with a
+      // bright leading blade edge and a fading trail.
       if(c._swingT > 0) {
-        const baseAngle = Math.atan2(c._faceY || 1, c._faceX || 0);
-        const progress = 1 - (c._swingT / 0.18);  // 0 (start) to 1 (end)
-        const swingStart = baseAngle - 1.2;
-        const swingEnd = baseAngle + 0.5;
-        const currentAngle = swingStart + (swingEnd - swingStart) * progress;
-        ctx.strokeStyle = '#ffff88'; ctx.globalAlpha = Math.min(1, c._swingT * 5); ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.arc(0, 0, crad * 1.6, currentAngle - 0.6, currentAngle + 0.6); ctx.stroke(); ctx.globalAlpha = 1;
+        const dur = c._swingDur || 0.18, prog = G.clamp(1 - c._swingT / dur, 0, 1);
+        const base = Math.atan2(c._faceY || 1, c._faceX || 0);
+        const a = (base - 1.15) + 2.3 * prog;            // leading edge sweeps front
+        const r1 = crad * 1.1, r2 = crad * 2.3;
+        ctx.save();
+        // crescent fill trailing the blade
+        ctx.globalAlpha = (1 - prog) * 0.5 + 0.15;
+        ctx.beginPath(); ctx.arc(0, 0, r2, a - 1.0, a); ctx.arc(0, 0, r1, a, a - 1.0, true); ctx.closePath();
+        ctx.fillStyle = '#cfe6ff'; ctx.fill();
+        // bright leading blade
+        ctx.globalAlpha = Math.min(1, c._swingT / dur * 1.6);
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(2, crad * 0.18); ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(Math.cos(a) * r1, Math.sin(a) * r1); ctx.lineTo(Math.cos(a) * r2, Math.sin(a) * r2); ctx.stroke();
+        ctx.restore(); ctx.globalAlpha = 1;
       }
-      // Shield barrier (1 hex radius).
-      if(G.charHasKind(c.ref, 'shield')) {
-        const shieldRad = crad * 2.2;
-        ctx.strokeStyle = '#4488ff'; ctx.globalAlpha = 0.4; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(0, 0, shieldRad, 0, Math.PI*2); ctx.stroke(); ctx.globalAlpha = 1;
+      // Raised hex shield bubble (hold).
+      if(c._shieldActive) {
+        const sr = crad * 2.2, pulse = 0.22 + 0.14 * Math.sin(tnow * 9) + (c._shieldFlash > 0 ? 0.4 : 0);
+        ctx.save();
+        ctx.beginPath();
+        for(let i = 0; i < 6; i++) { const a = Math.PI/6 + i*Math.PI/3, hx = Math.cos(a)*sr, hy = Math.sin(a)*sr; i ? ctx.lineTo(hx, hy) : ctx.moveTo(hx, hy); }
+        ctx.closePath();
+        ctx.globalAlpha = Math.min(0.6, pulse); ctx.fillStyle = '#4488ff'; ctx.fill();
+        ctx.globalAlpha = Math.min(1, 0.6 + pulse); ctx.strokeStyle = '#aaccff'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.restore(); ctx.globalAlpha = 1;
       }
       this._drawCrewSprite(crad * (c._size || 1), c.ref.role, walking, tnow, this._crewPhase(c), false, (c._faceX < -0.01) ? -1 : 1);
       // Hit flash.
@@ -2288,6 +2278,20 @@ G.Renderer = class {
       ctx.strokeStyle = fx.color; ctx.lineWidth = Math.max(2, S*0.12);
       ctx.beginPath(); ctx.arc(fxx, fxy, fx.r * S * prog, 0, Math.PI*2); ctx.stroke();
       ctx.globalAlpha = 1;
+      pl._novaFx.t -= dt; if(pl._novaFx.t <= 0) pl._novaFx = null;
+    }
+    // Grenade explosion FX
+    if(pl._grenadeExplosion) {
+      const fx = pl._grenadeExplosion, prog = 1 - fx.t / 0.3;
+      const glift = levelOf(G.wrapTile(ter, Math.round(fx.x), Math.round(fx.y))) * LIFT;
+      const gxx = ox + fx.x*S, gxy = oy + fx.y*S - glift;
+      ctx.globalAlpha = Math.max(0, fx.t / 0.3) * 0.6;
+      ctx.fillStyle = fx.color;
+      ctx.beginPath(); ctx.arc(gxx, gxy, fx.r * prog, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = fx.color; ctx.lineWidth = Math.max(1, S*0.08);
+      ctx.beginPath(); ctx.arc(gxx, gxy, fx.r * prog, 0, Math.PI*2); ctx.stroke();
+      ctx.globalAlpha = 1;
+      pl._grenadeExplosion.t -= dt; if(pl._grenadeExplosion.t <= 0) pl._grenadeExplosion = null;
     }
     this._drawPlanetMinimap(game, pl);
     this._drawPlanetHUD(game, pl);
@@ -2413,7 +2417,7 @@ G.Renderer = class {
     ctx.textAlign = 'left';
     ctx.fillStyle = '#557'; ctx.font = '6px "Press Start 2P",monospace';
     const hint = pl.selected
-      ? 'WASD move • Shift sprint • SPACE jump/jetpack • L/R-click attack • 1-4 skills • Q/E flasks • C character • G use building'
+      ? 'WASD move • SPACE jump • L-click attack • R-click shield/2nd • X swap loadout • 1-4 skills • Q/E flasks • C character • G building'
       : 'Click a crew member to control • WASD/arrows pan camera • C character';
     ctx.fillText(hint, 12, G.CANVAS_H - 16);
     // Building interaction prompt.
@@ -4886,11 +4890,24 @@ G.Game = class {
     // Projectiles.
     for(let i = pl.shots.length - 1; i >= 0; i--) {
       const s = pl.shots[i]; s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
-      let hit = false;
-      const pool = s.team === 'player' ? pl.npcs : pl.crew;
-      for(const u of pool) { if(u.ref.hp <= 0) continue; const d = this._planetDelta(pl, s.x, s.y, u.px, u.py); if(d.dist < 0.55) { this._applyFootDamage(pl, u, s.dmg, s.src); hit = true; break; } }
+      let hit = false, explode = false;
+      // Grenade: detonate on proximity or timeout
+      if(s.isGrenade) {
+        const d = this._planetDelta(pl, s.x, s.y, s.tgtx, s.tgty);
+        if(d.dist < 0.6 || s.life <= 0) explode = true;
+      }
+      // Enemy shots are stopped by a raised hex shield bubble.
+      if(!hit && !s.isGrenade && s.team === 'enemy') {
+        for(const u of pl.crew) { if(!u._shieldActive || u.ref.hp <= 0 || u.ref.energy <= 0) continue;
+          const d = this._planetDelta(pl, s.x, s.y, u.px, u.py);
+          if(d.dist < (u._shieldR || 1.15)) { u.ref.energy = Math.max(0, u.ref.energy - s.dmg * 0.5); u._shieldFlash = 0.2; if(u.ref.energy <= 0) this._deactivateShield(u); hit = true; break; } }
+      }
+      if(!hit && !s.isGrenade) {
+        const pool = s.team === 'player' ? pl.npcs : pl.crew;
+        for(const u of pool) { if(u.ref.hp <= 0) continue; const d = this._planetDelta(pl, s.x, s.y, u.px, u.py); if(d.dist < 0.55) { this._applyFootDamage(pl, u, s.dmg, s.src); hit = true; break; } }
+      }
       // Damage ore deposits
-      if(!hit && s.team === 'player') {
+      if(!hit && s.team === 'player' && !s.isGrenade) {
         const hc = G.pixelToHex(s.x, s.y, 1);
         const t = G.wrapTile(pl.terrain, hc.q, hc.r);
         if(t && t.ore && t.oreHp > 0) {
@@ -4902,6 +4919,28 @@ G.Game = class {
           }
           hit = true;
         }
+      }
+      if(explode) {
+        // Grenade explosion: area damage
+        const exR = s.rng || 3;
+        const pool = s.team === 'player' ? pl.npcs : pl.crew;
+        for(const u of pool) { if(u.ref.hp <= 0) continue; const d = this._planetDelta(pl, s.x, s.y, u.px, u.py); if(d.dist <= exR) this._applyFootDamage(pl, u, s.dmg, s.src); }
+        // Damage ore in blast radius
+        if(s.team === 'player') {
+          for(const tile of pl.terrain.tiles.values()) {
+            const u = G.hexToPixel(tile.q, tile.r, 1);
+            const d = this._planetDelta(pl, s.x, s.y, u.x, u.y);
+            if(d.dist <= exR && tile.ore && tile.oreHp > 0) {
+              tile.oreHp = Math.max(0, tile.oreHp - Math.ceil(s.dmg / 3));
+              if(tile.oreHp <= 0) {
+                const drop = G.ASTEROID_MAT[tile.ore]?.drop || tile.ore;
+                pl.loot.push({ x: u.x, y: u.y, item: drop, qty: 1, life: 40 });
+              }
+            }
+          }
+        }
+        pl._grenadeExplosion = { x: s.x, y: s.y, r: exR * G.HEX_WORLD * 0.5, t: 0.3, color: s.color };
+        hit = true;
       }
       if(hit || s.life <= 0) pl.shots.splice(i, 1);
     }
@@ -4921,6 +4960,7 @@ G.Game = class {
       const ch = c.ref;
       c._noRegenT = Math.max(0, (c._noRegenT || 0) - dt);
       c._swingT   = Math.max(0, (c._swingT   || 0) - dt);
+      c._shieldFlash = Math.max(0, (c._shieldFlash || 0) - dt);
       if(c._swingT <= 0) c._sweptHexes = null;  // Clear swept hexes after swing ends
       c._hurtT    = Math.max(0, (c._hurtT    || 0) - dt);
       c._slowT    = Math.max(0, (c._slowT    || 0) - dt);
@@ -4974,16 +5014,16 @@ G.Game = class {
 
   // Fire the weapon in `hand` ('righthand' = main / left-click, 'lefthand' =
   // secondary / right-click), aimed at the mouse cursor. Pistol → ranged bolt,
-  // sword → melee arc, shield/empty → no-op. Per-hand cooldown gates auto-fire.
+  // sword → melee arc, grenade → explosive, shield/empty → no-op. Per-hand cooldown gates auto-fire.
   _planetPlayerAttack(c, hand) {
     const pl = this._planet, ch = c.ref;
     const cdKey = hand === 'lefthand' ? '_atkCdL' : '_atkCdR';
     if((c[cdKey] || 0) > 0) return;
     const wpn = G.gearResolve(ch.equip?.[hand]);
-    if(!wpn || (wpn.kind !== 'pistol' && wpn.kind !== 'sword')) return;   // nothing fireable
+    if(!wpn || (wpn.kind !== 'pistol' && wpn.kind !== 'sword' && wpn.kind !== 'grenade')) return;   // nothing fireable
     c[cdKey] = 1 / (wpn.rof || 1.5);
     // Rolled weapon damage scaled by attribute (str melee / dex ranged) + crit.
-    const mul = wpn.kind === 'pistol' ? (ch.rangedMul || 1) : (ch.meleeMul || 1);
+    const mul = (wpn.kind === 'pistol' || wpn.kind === 'grenade') ? (ch.rangedMul || 1) : (ch.meleeMul || 1);
     const crit = Math.random() < (ch.critChance || 0.05);
     const dmg = Math.max(1, Math.round((wpn.dmg || 12) * mul * (crit ? 2 : 1)));
     // Aim toward the cursor in world (unit-hex) space, torus-wrapped.
@@ -4999,6 +5039,13 @@ G.Game = class {
       this._spawnFootShot(pl, c, aimx, aimy, dmg, 'player', wpn.color || '#ffcc44');
       ch.energy = Math.max(0, ch.energy - 2);
       G.sound?.weapon?.('laser');
+    } else if(wpn.kind === 'grenade') {
+      const sp = 8;
+      const tgtx = c.px + aimx * (wpn.range || 5) * G.HEX_WORLD * 0.5;
+      const tgty = c.py + aimy * (wpn.range || 5) * G.HEX_WORLD * 0.5;
+      pl.shots.push({ x: c.px, y: c.py, vx: aimx * sp, vy: aimy * sp, dmg, team: 'player', color: wpn.color || '#dd5544', life: 2.5, src: c, isGrenade: true, tgtx, tgty, rng: wpn.range || 5 });
+      ch.energy = Math.max(0, ch.energy - 4);
+      G.sound?.explosion?.();
     } else {
       const baseAngle = Math.atan2(aimy, aimx);
       c._swingBaseAngle = baseAngle;
@@ -5055,17 +5102,16 @@ G.Game = class {
   _applyFootDamage(pl, unit, dmg, src) {
     const ch = unit.ref; if(ch.hp <= 0) return;
     let dealt = Math.max(1, dmg - (ch.armor || 0) * 0.5);
-    if(G.charHasKind(ch, 'shield')) { const sh = G.charGearOfKind(ch, 'shield'); if(Math.random() < (sh.block || 0)) dealt *= 0.3; }
-
-    // Check if unit is protected by an active shield
-    const protector = pl.crew.find(c => c._shieldHex && c._shieldHex.q === unit.q && c._shieldHex.r === unit.r && c.ref.energy > 0);
-    if(protector) {
-      // Shield absorbs damage as energy cost
-      protector.ref.energy = Math.max(0, protector.ref.energy - dealt);
-      if(protector.ref.energy <= 0) this._deactivateShield(protector);
-      return;  // No damage to unit
+    // Active hex shield (hold) absorbs most incoming damage as energy.
+    if(unit._shieldActive && ch.energy > 0) {
+      const sh = G.charGearOfKind(ch, 'shield');
+      const blockFrac = G.clamp(0.6 + (sh?.block || 0), 0.5, 0.92);
+      const absorbed = dealt * blockFrac;
+      ch.energy = Math.max(0, ch.energy - absorbed);
+      dealt -= absorbed; unit._shieldFlash = 0.18;
+      if(ch.energy <= 0) this._deactivateShield(unit);
+      if(dealt < 1) return;
     }
-
     ch.hp -= dealt; unit._hurtT = 0.22; unit._noRegenT = 4;
     // Life-on-hit leech for the attacking player crew.
     if(src && pl.crew.includes(src) && src.ref.lifeOnHit) src.ref.hp = Math.min(src.ref.maxHp, src.ref.hp + src.ref.lifeOnHit);
@@ -5223,6 +5269,22 @@ G.Game = class {
     G.sound?.uiClick?.();
   }
 
+  // X: swap the selected character's two weapon loadouts (e.g. sword+shield ↔
+  // pistol+grenade). Hands return to / pull from the ship gear pool.
+  _swapPlayerLoadout() {
+    const c = this._planet?.selected, pc = c?.ref, gear = this.player.gear || (this.player.gear = []);
+    if(!pc?._equipSets) return;
+    if(pc.equip.righthand) G.charUnequip(pc, 'righthand', gear);
+    if(pc.equip.lefthand)  G.charUnequip(pc, 'lefthand', gear);
+    pc._activeSet = 1 - (pc._activeSet || 0);
+    const set = pc._equipSets[pc._activeSet] || {};
+    if(set.righthand) G.charEquip(pc, 'righthand', set.righthand, gear);
+    if(set.lefthand)  G.charEquip(pc, 'lefthand',  set.lefthand,  gear);
+    G.charRecompute(pc);
+    this.ui.addMsg('Loadout ' + (pc._activeSet + 1) + ': ' + [G.gearName(set.righthand), G.gearName(set.lefthand)].filter(Boolean).join(' / '), '#88ccff');
+    G.sound?.uiClick?.();
+  }
+
   _planetMouse(dt) {
     const pl = this._planet; if(!pl) return;
     if(!this.ui.els['spaceport-overlay']?.classList.contains('hidden')) return;   // spaceport open
@@ -5247,41 +5309,21 @@ G.Game = class {
     }
   }
 
+  // Hold the shield: raise a hex barrier around the character. Drains energy
+  // while held; absorbs most incoming damage (see _applyFootDamage) and blocks
+  // enemy projectiles that touch the bubble (see updatePlanetCombat).
   _planetPlayerHoldShield(c, hand, dt) {
-    const pl = this._planet;
     const ch = c.ref;
     const wpn = G.gearResolve(ch.equip?.[hand]);
-    if(!wpn || wpn.kind !== 'shield') { this._deactivateShield(c); return; }
-
-    // Only activate shield if energy > 0
-    if(ch.energy <= 0) { this._deactivateShield(c); return; }
-
-    // Get aim direction
-    let aimx = c._faceX || 0, aimy = c._faceY || 1;
-    const lay = pl.layout;
-    if(lay) {
-      const wmx = (this.input.mouseX - lay.ox) / lay.S, wmy = (this.input.mouseY - lay.oy) / lay.S;
-      const d = this._planetDelta(pl, c.px, c.py, wmx, wmy), l = d.dist || 1;
-      aimx = d.dx / l; aimy = d.dy / l;
-    }
-    c._faceX = aimx; c._faceY = aimy;
-
-    // Determine shield hex in front
-    let bestDir = 0, bestDot = -Infinity;
-    for(let i = 0; i < 6; i++) {
-      const [dq, dr] = G.HEX_DIRS[i];
-      const dp = G.hexToPixel(dq, dr, 1);
-      const dot = dp.x * aimx + dp.y * aimy;
-      if(dot > bestDot) { bestDot = dot; bestDir = i; }
-    }
-    const [fdq, fdr] = G.HEX_DIRS[bestDir];
-    const W = pl.terrain.W, H = pl.terrain.H;
-    const shield = G.wrapHex(W, H, c.q + fdq, c.r + fdr);
-    c._shieldHex = shield;
+    if(!wpn || wpn.kind !== 'shield' || ch.energy <= 0) { this._deactivateShield(c); return; }
+    c._shieldActive = true;
+    c._shieldR = 1.15;                                  // bubble radius (unit-hex)
+    ch.energy = Math.max(0, ch.energy - 6 * dt);        // idle hold drain
+    if(ch.energy <= 0) this._deactivateShield(c);
   }
 
   _deactivateShield(c) {
-    c._shieldHex = null;
+    c._shieldActive = false;
   }
 
   _useAbility(abilityId, ship) {
@@ -5896,6 +5938,7 @@ G.Game.prototype._loop = function(ts) {
       }
       if(this.input.pressed('KeyL')) { this.launch(); }
       if(this.input.pressed('KeyC')) this._toggleCharScreen();
+      if(this.input.pressed('KeyX')) this._swapPlayerLoadout();
       this.player?._regenPassive?.(dt, 0.5);
       this.updatePlanetCrewControl(dt);
       this.updatePlanetNpcs(dt);
