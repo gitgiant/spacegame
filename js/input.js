@@ -17,6 +17,11 @@ G.Input = class {
     // `keys` so the controller never clobbers physical keyboard state.
     this.padKeys = {};
     this.gamepadIndex = null;
+    // Gamepad analog: raw axis values for camera control
+    this.rightStickX = 0;
+    this.rightStickY = 0;
+    this.cameraZoomIn = false;
+    this.cameraZoomOut = false;
 
     // Key mapping: action -> [keys]
     this.keymap = this._defaultKeymap();
@@ -225,19 +230,19 @@ G.Input = class {
   // `active` gates application so an unplugged-but-present pad (or a player
   // who chose keyboard/touch) is ignored. Standard mapping layout assumed.
   pollGamepad(active) {
-    if(!active){ this._releaseAllPad(); return; }
+    if(!active){ this._releaseAllPad(); this.rightStickX = 0; this.rightStickY = 0; this.cameraZoomIn = false; this.cameraZoomOut = false; return; }
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     let gp = (this.gamepadIndex != null) ? pads[this.gamepadIndex] : null;
     if(!gp || !gp.connected){
       gp = null;
       for(const p of pads){ if(p && p.connected){ gp = p; this.gamepadIndex = p.index; break; } }
     }
-    if(!gp){ this._releaseAllPad(); return; }
+    if(!gp){ this._releaseAllPad(); this.rightStickX = 0; this.rightStickY = 0; this.cameraZoomIn = false; this.cameraZoomOut = false; return; }
 
     const DZ = 0.30;
     const btn = i => !!(gp.buttons[i] && gp.buttons[i].pressed);
     const ax  = i => gp.axes[i] || 0;
-    const lx = ax(0), ly = ax(1), rx = ax(2);
+    const lx = ax(0), ly = ax(1), rx = ax(2), ry = ax(3);
 
     // Movement — left stick or D-pad (rotate-to-turn flight model).
     this._padSet('KeyW', ly < -DZ || btn(12));  // thrust
@@ -246,15 +251,25 @@ G.Input = class {
     this._padSet('KeyD', lx >  DZ || btn(15));  // turn right
     this._padSet('KeyQ', rx < -DZ);             // strafe left  (right stick)
     this._padSet('KeyE', rx >  DZ);             // strafe right (right stick)
+    // Right stick analog for camera control (pan). Apply deadzone to magnitude.
+    const rightMag = Math.hypot(rx, ry);
+    if(rightMag > DZ) {
+      this.rightStickX = rx;
+      this.rightStickY = ry;
+    } else {
+      this.rightStickX = 0;
+      this.rightStickY = 0;
+    }
     // Combat — triggers/bumpers + face buttons.
     this._padSet('Space',        btn(7));       // RT  → fire
     this._padSet('ShiftLeft',    btn(6));       // LT  → boost
-    this._padSet('BracketRight', btn(5));       // RB  → cycle weapon
-    this._padSet('KeyX',         btn(4));       // LB  → missile
     this._padSet('KeyL',         btn(0));       // A   → land / board
     this._padSet('KeyR',         btn(1));       // B   → target nearest
     this._padSet('KeyV',         btn(2));       // X   → comms
     this._padSet('KeyJ',         btn(3));       // Y   → hyperspace jump (hold)
+    // Camera zoom — RB/LB are now camera controls instead of combat actions
+    this.cameraZoomIn = btn(5);                 // RB  → camera zoom in
+    this.cameraZoomOut = btn(4);                // LB  → camera zoom out
     // Menus / misc.
     this._padSet('KeyM',  btn(8));              // Back/Select → galaxy map
     this._padSet('Escape',btn(9));              // Start       → options menu

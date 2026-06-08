@@ -4747,6 +4747,39 @@ G.Game = class {
     pl.cam.x += (tx - pl.cam.x) * k; pl.cam.y += (ty - pl.cam.y) * k;
   }
 
+  updateControllerCamera(dt) {
+    const inp = this.input;
+    if(!inp.hasGamepad()) return;
+    const sensitivity = 80;
+    const zoomSensitivity = 1.8;
+    if(this.state === 'landed') {
+      const pl = this._planet; if(!pl) return;
+      const maxPan = 200;
+      pl.panX = G.clamp(pl.panX + inp.rightStickX * sensitivity * dt, -maxPan, maxPan);
+      pl.panY = G.clamp(pl.panY + inp.rightStickY * sensitivity * dt, -maxPan, maxPan);
+      const nz = (this._planetZoom || 0) - (inp.cameraZoomIn ? 1 : 0) * zoomSensitivity * dt + (inp.cameraZoomOut ? 1 : 0) * zoomSensitivity * dt;
+      this._planetZoom = G.clamp(nz, this.planetcam_minZoom - 1.0, this.planetcam_maxZoom - 1.0);
+    } else if(this.state === 'hexmap') {
+      if(inp.cameraZoomIn) {
+        const nz = (this._hexMapZoom || 1) * this.hexmapcam_zoomIn;
+        if(nz <= this.hexmapcam_maxZoom) {
+          this._hexMapZoom = nz;
+        } else {
+          this._enterSpaceFromHexmap();
+        }
+      } else if(inp.cameraZoomOut) {
+        this._hexMapZoom = Math.max(this.hexmapcam_minZoom, (this._hexMapZoom || 1) * this.hexmapcam_zoomOut);
+      }
+    } else if(this.state === 'space' || this.state === 'dead') {
+      const nz = (this._zoomManual || 0) - (inp.cameraZoomIn ? 1 : 0) * zoomSensitivity + (inp.cameraZoomOut ? 1 : 0) * zoomSensitivity;
+      if(1.0 + nz < this.spacecam_minZoom) {
+        this._enterHexmapFromSpace();
+      } else {
+        this._zoomManual = G.clamp(nz, this.spacecam_minZoom - 1.0, this.spacecam_maxZoom - 1.0);
+      }
+    }
+  }
+
   // Direct WASD control of the selected character. Shift = sprint, double-tap
   // Shift = a quick dodge. Movement respects walkability + the cliff rule (can't
   // step to a tile ≥2 elevation tiers away). Sets pl._charMoving for the walk anim.
@@ -5866,6 +5899,7 @@ G.Game.prototype._loop = function(ts) {
   // the controller is the active scheme so keyboard/touch players aren't
   // affected by a plugged-in pad.
   this.input.pollGamepad(this._effectiveScheme() === 'gamepad');
+  this.updateControllerCamera(dt);
 
   // FPS counter
   if(this._fpsEl) {
