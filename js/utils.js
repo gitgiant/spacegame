@@ -894,7 +894,7 @@ G.commsNoResponseChance = function(target) {
 G.makeCharacter = function(opts = {}) {
   const roleId = opts.role || 'marine';
   const role = G.CREW_ROLES[roleId] || {};
-  const b = G.CHAR_BASE;
+  const b = G.CHAR_BASE, A = G.CHAR_ATTRS;
   const c = {
     id: opts.id || ('c' + (Math.random() * 1e9 | 0)),
     name: opts.name || G.CREW_NAMES[(Math.random() * G.CREW_NAMES.length) | 0],
@@ -903,12 +903,15 @@ G.makeCharacter = function(opts = {}) {
     faction: opts.faction || 'neutral',
     disposition: opts.disposition || null,   // null = the player's own crew
     skill: opts.skill ?? 2,
-    level: opts.level ?? 1,
+    level: opts.level ?? 1, xp: 0,
+    // Diablo primary attributes (allocated base; gear adds on top in recompute).
+    baseStr: A.str, baseDex: A.dex, baseInt: A.int, baseVit: A.vit,
+    attrPoints: 0, skillPoints: 0,
     maxHp: b.hp, hp: b.hp,
     maxMana: b.mana, mana: b.mana,
     maxEnergy: b.energy, energy: b.energy,
     armor: 0,
-    equip: {},                  // paper-doll slot -> itemId
+    equip: {},                  // paper-doll slot -> gear INSTANCE (or null)
     isPlayer: !!opts.isPlayer,
   };
   for(const s of G.EQUIP_SLOTS) c.equip[s] = null;
@@ -917,10 +920,9 @@ G.makeCharacter = function(opts = {}) {
 };
 
 // Idempotently add any missing character fields to an existing crew object.
-// Used to migrate legacy crew (and saved games) into the unified shape.
 G.ensureCharFields = function(c) {
   if(!c) return c;
-  const b = G.CHAR_BASE;
+  const b = G.CHAR_BASE, A = G.CHAR_ATTRS;
   if(c.maxHp == null)     c.maxHp = (c.hp != null ? c.hp : b.hp);
   if(c.hp == null)        c.hp = c.maxHp;
   if(c.maxMana == null)   c.maxMana = b.mana;
@@ -929,45 +931,74 @@ G.ensureCharFields = function(c) {
   if(c.energy == null)    c.energy = c.maxEnergy;
   if(c.armor == null)     c.armor = 0;
   if(c.level == null)     c.level = 1;
+  if(c.xp == null)        c.xp = 0;
+  if(c.baseStr == null)   c.baseStr = A.str;
+  if(c.baseDex == null)   c.baseDex = A.dex;
+  if(c.baseInt == null)   c.baseInt = A.int;
+  if(c.baseVit == null)   c.baseVit = A.vit;
+  if(c.attrPoints == null)  c.attrPoints = 0;
+  if(c.skillPoints == null) c.skillPoints = 0;
   if(!c.equip || typeof c.equip !== 'object') c.equip = {};
   for(const s of G.EQUIP_SLOTS) if(!(s in c.equip)) c.equip[s] = null;
   return c;
 };
 
-// True if any equipped item has the given kind ('jetpack'|'pistol'|'sword'|...).
+// ── Gear value resolvers ─────────────────────────────────────────────────────
+// A slot/inventory entry is either a rolled INSTANCE ({base,rarity,ilvl,dmg,
+// mods,affixes,name}) or a plain base-item id string (used by quick NPC equips).
+// These resolve either form uniformly.
+G.gearBase  = (v) => !v ? null : (typeof v === 'string' ? G.ITEMS[v] : G.ITEMS[v.base]) || null;
+G.gearKind  = (v) => G.gearBase(v)?.kind || null;
+G.gearMods  = (v) => !v ? null : (typeof v === 'string' ? G.ITEMS[v]?.mods : v.mods) || null;
+G.gearDmg   = (v) => !v ? 0 : (typeof v === 'string' ? (G.ITEMS[v]?.dmg || 0) : (v.dmg ?? G.ITEMS[v.base]?.dmg ?? 0));
+G.gearName  = (v) => !v ? '' : (typeof v === 'string' ? (G.ITEMS[v]?.name || v) : (v.name || G.gearBase(v)?.name || v.base));
+G.gearIcon  = (v) => G.gearBase(v)?.icon || '▪';
+G.gearMass  = (v) => G.gearBase(v)?.mass || 1;
+G.gearEquipSlot = (v) => G.gearBase(v)?.equipSlot || null;
+G.gearRarity = (v) => (typeof v === 'object' && v?.rarity) ? v.rarity : 'common';
+G.gearColor = (v) => (G.RARITIES?.[G.gearRarity(v)]?.color) || G.gearBase(v)?.color || '#cfd6e0';
+// Combat-facing def: base stats (range/rof/lift/...) merged with the rolled dmg.
+G.gearResolve = (v) => { const base = G.gearBase(v); if(!base) return null; return (typeof v === 'string') ? base : Object.assign({}, base, { dmg: v.dmg ?? base.dmg, _inst: v }); };
+
 G.charHasKind = function(c, kind) {
   if(!c?.equip) return false;
-  for(const s of G.EQUIP_SLOTS) { const id = c.equip[s]; if(id && G.ITEMS[id]?.kind === kind) return true; }
+  for(const s of G.EQUIP_SLOTS) if(G.gearKind(c.equip[s]) === kind) return true;
   return false;
 };
-// The equipped item def for a kind, or null.
 G.charGearOfKind = function(c, kind) {
   if(!c?.equip) return null;
-  for(const s of G.EQUIP_SLOTS) { const id = c.equip[s]; const it = id && G.ITEMS[id]; if(it && it.kind === kind) return it; }
+  for(const s of G.EQUIP_SLOTS) if(G.gearKind(c.equip[s]) === kind) return G.gearResolve(c.equip[s]);
   return null;
 };
 
-// Recompute derived pools/armor from equipped gear + level. Clamps current
-// pools to their new maxima. Call after any equip change or level up.
+// Recompute derived pools / attributes / combat stats from equipped gear + level.
 G.charRecompute = function(c) {
   G.ensureCharFields(c);
   const b = G.CHAR_BASE;
   let hp = b.hp, mana = b.mana, energy = b.energy, armor = 0, carry = 0;
+  let str = c.baseStr, dex = c.baseDex, intl = c.baseInt, vit = c.baseVit;
+  let crit = 0, resAll = 0, lifeOnHit = 0, moveSpeed = 0;
   for(const s of G.EQUIP_SLOTS) {
-    const id = c.equip[s]; if(!id) continue;
-    const m = G.ITEMS[id]?.mods; if(!m) continue;
-    if(m.hp)     hp += m.hp;
-    if(m.mana)   mana += m.mana;
-    if(m.energy) energy += m.energy;
-    if(m.armor)  armor += m.armor;
-    if(m.carry)  carry += m.carry;
+    const m = G.gearMods(c.equip[s]); if(!m) continue;
+    if(m.hp) hp += m.hp; if(m.mana) mana += m.mana; if(m.energy) energy += m.energy;
+    if(m.armor) armor += m.armor; if(m.carry) carry += m.carry;
+    if(m.str) str += m.str; if(m.dex) dex += m.dex; if(m.int) intl += m.int; if(m.vit) vit += m.vit;
+    if(m.crit) crit += m.crit; if(m.resAll) resAll += m.resAll;
+    if(m.lifeOnHit) lifeOnHit += m.lifeOnHit; if(m.moveSpeed) moveSpeed += m.moveSpeed;
   }
+  c.str = str; c.dex = dex; c.int = intl; c.vit = vit;
   const lvlMul = 1 + (Math.max(1, c.level) - 1) * 0.05;
-  c.maxHp     = Math.round(hp * lvlMul);
-  c.maxMana   = Math.round(mana * lvlMul);
-  c.maxEnergy = Math.round(energy * lvlMul);
+  c.maxHp     = Math.round((hp + vit * 4) * lvlMul);
+  c.maxMana   = Math.round(mana + intl * 2);
+  c.maxEnergy = Math.round(energy);
   c.armor     = armor;
-  c.carryBonus = carry;
+  c.carryBonus  = carry;
+  c.critChance  = 0.05 + crit / 100 + dex * 0.002;
+  c.resAll      = resAll;
+  c.lifeOnHit   = lifeOnHit;
+  c.moveBonus   = moveSpeed / 100;
+  c.meleeMul    = 1 + str * 0.01;
+  c.rangedMul   = 1 + dex * 0.01;
   c.hp     = Math.min(c.hp, c.maxHp);
   c.mana   = Math.min(c.mana, c.maxMana);
   c.energy = Math.min(c.energy, c.maxEnergy);
@@ -975,43 +1006,90 @@ G.charRecompute = function(c) {
   return c;
 };
 
-// How many paper-doll slots currently hold itemId.
-G.charEquippedCount = function(c, itemId) {
-  let n = 0; for(const s of G.EQUIP_SLOTS) if(c.equip?.[s] === itemId) n++; return n;
-};
-
-// Equip itemId into paper-doll `slot`. Worn gear STAYS in ship cargo (so it keeps
-// counting against cargo mass/space) — the slot just references it. Requires a
-// free (un-equipped) copy in `cargo`. Returns true on success.
-G.charEquip = function(c, slot, itemId, cargo) {
-  const it = G.ITEMS[itemId];
-  if(!it || !it.equipSlot || !G.slotAccepts(slot, it.equipSlot)) return false;
-  const owned = cargo ? (cargo[itemId] || 0) : 0;
-  const equippedElsewhere = G.charEquippedCount(c, itemId) - (c.equip[slot] === itemId ? 1 : 0);
-  if(owned - equippedElsewhere < 1) return false;     // no spare copy to wear
-  c.equip[slot] = itemId;
+// Equip a gear instance into `slot`, pulling it from `gearList` (the ship's loose
+// gear pool); any item already worn returns to the pool. Returns true on success.
+G.charEquip = function(c, slot, inst, gearList) {
+  const es = G.gearEquipSlot(inst);
+  if(!es || !G.slotAccepts(slot, es)) return false;
+  if(gearList) { const i = gearList.indexOf(inst); if(i < 0) return false; gearList.splice(i, 1); }
+  const prev = c.equip[slot];
+  c.equip[slot] = inst;
+  if(prev && gearList) gearList.push(prev);
   G.charRecompute(c);
   return true;
 };
 
-// Clear a paper-doll slot (item remains in cargo). Returns true if something moved.
-G.charUnequip = function(c, slot) {
-  if(!c.equip?.[slot]) return false;
+// Unequip `slot` back into `gearList`. Returns true if something moved.
+G.charUnequip = function(c, slot, gearList) {
+  const v = c.equip[slot]; if(!v) return false;
   c.equip[slot] = null;
+  if(gearList && typeof v === 'object') gearList.push(v);
   G.charRecompute(c);
   return true;
 };
 
-// Drop equips that no longer have backing copies in `cargo` (e.g. after selling).
-G.charSyncEquip = function(c, cargo) {
-  if(!c?.equip) return;
-  const seen = {};
-  for(const s of G.EQUIP_SLOTS) {
-    const id = c.equip[s]; if(!id) continue;
-    seen[id] = (seen[id] || 0) + 1;
-    if((cargo?.[id] || 0) < seen[id]) { c.equip[s] = null; seen[id]--; }
+// ── ARPG loot: roll a gear instance ──────────────────────────────────────────
+G._rollRarity = function(mf = 0) {
+  const ord = G.RARITY_ORDER;
+  const w = (r) => G.RARITIES[r].weight * (r === 'common' ? 1 : (1 + mf));
+  let tot = 0; for(const r of ord) tot += w(r);
+  let x = Math.random() * tot;
+  for(const r of ord) { x -= w(r); if(x <= 0) return r; }
+  return 'common';
+};
+G._affixPool = function(base) {
+  const isWeapon = base.equipSlot === 'hand' && (base.kind === 'pistol' || base.kind === 'sword');
+  return G.AFFIXES.filter(a => a.slot === 'any' || (a.slot === 'weapon' && isWeapon) || (a.slot === 'armor' && !isWeapon));
+};
+G._rollAffixVal = function(a, ilvl) {
+  const f = 1 + (Math.max(1, ilvl) - 1) * 0.06;
+  return Math.max(1, G.randInt(Math.round(a.min * f), Math.round(a.max * f)));
+};
+G._RARE_A = ['Gloom', 'Storm', 'Blood', 'Doom', 'Void', 'Wraith', 'Iron', 'Hex', 'Grim', 'Ember', 'Frost', 'Vile'];
+G._RARE_B = ['bite', 'fang', 'ward', 'song', 'bane', 'reaver', 'shard', 'call', 'rend', 'veil', 'maw', 'grasp'];
+G._itemName = function(base, rarity, affixes) {
+  if(rarity === 'common') return base.name;
+  if(rarity === 'magic') {
+    const pre = affixes.find(a => a.kind === 'prefix'), suf = affixes.find(a => a.kind === 'suffix');
+    return (pre ? pre.title + ' ' : '') + base.name + (suf ? ' ' + suf.word : '');
   }
-  G.charRecompute(c);
+  const a = G._RARE_A[(Math.random() * G._RARE_A.length) | 0], b = G._RARE_B[(Math.random() * G._RARE_B.length) | 0];
+  return a + b + ' ' + base.name;
+};
+// Roll a gear instance from base item `baseId` at item level `ilvl`.
+G.rollItem = function(baseId, ilvl = 1, opts = {}) {
+  const base = G.ITEMS[baseId]; if(!base || !base.equipSlot) return null;
+  ilvl = Math.max(1, ilvl | 0);
+  const rarity = opts.rarity || G._rollRarity(opts.magicFind || 0);
+  const rd = G.RARITIES[rarity];
+  const mods = {};
+  for(const k in (base.mods || {})) mods[k] = Math.round(base.mods[k] * rd.mult);
+  let dmg = base.dmg != null ? Math.round(base.dmg * (1 + (ilvl - 1) * 0.04) * rd.mult) : null;
+  const n = rd.affixes[1] ? G.randInt(rd.affixes[0], rd.affixes[1]) : 0;
+  const pool = G._affixPool(base).slice(), chosen = [];
+  for(let i = 0; i < n && pool.length; i++) {
+    const a = pool.splice((Math.random() * pool.length) | 0, 1)[0];
+    const val = G._rollAffixVal(a, ilvl);
+    chosen.push({ id: a.id, kind: a.kind, title: a.title, word: a.word, stat: a.stat, value: val });
+    if(a.stat === 'dmg') dmg = (dmg || 0) + val; else mods[a.stat] = (mods[a.stat] || 0) + val;
+  }
+  return { uid: 'g' + Date.now().toString(36) + ((Math.random() * 1e6) | 0).toString(36),
+           base: baseId, rarity, ilvl, name: G._itemName(base, rarity, chosen), dmg, affixes: chosen, mods };
+};
+
+// Tooltip line list for a gear value (instance or base id).
+G.gearTooltip = function(v) {
+  const base = G.gearBase(v); if(!base) return [];
+  const inst = (typeof v === 'object') ? v : null, rarity = G.gearRarity(v);
+  const lines = [{ t: G.gearName(v), c: G.gearColor(v), head: true },
+                 { t: (base.equipSlot || '').toUpperCase() + (inst ? '  ilvl ' + inst.ilvl : ''), c: '#8899aa' }];
+  const dmg = G.gearDmg(v); if(dmg) lines.push({ t: 'Damage ' + dmg, c: '#ffbbaa' });
+  const lbl = { armor:'Armor', hp:'Life', mana:'Mana', energy:'Energy', str:'Strength', dex:'Dexterity',
+                int:'Intellect', vit:'Vitality', crit:'Crit %', resAll:'All Res %', lifeOnHit:'Life on Hit',
+                moveSpeed:'Move Speed %', carry:'Cargo' };
+  const m = G.gearMods(v) || {};
+  for(const k in m) if(m[k]) lines.push({ t: '+' + m[k] + ' ' + (lbl[k] || k), c: '#88bbff' });
+  return lines;
 };
 
 // Pick a planet character disposition from body stats. Higher danger → more

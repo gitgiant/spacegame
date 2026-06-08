@@ -1306,6 +1306,40 @@ G.CREW_NAMES = ['Alex','Sam','Jordan','Casey','Morgan','Riley','Drew','Jamie','Q
 // A character is a plain serializable object built by G.makeCharacter (utils.js).
 // Base pools every character starts from before gear/level mods are applied.
 G.CHAR_BASE = { hp:100, mana:50, energy:100 };
+// Diablo-style primary attributes (start value before level points / gear).
+G.CHAR_ATTRS = { str:10, dex:10, int:10, vit:10 };
+
+// ── ARPG loot: rarity tiers + random affix pool (see G.rollItem in utils) ─────
+// Each dropped piece of gear is a rolled INSTANCE: a base item from G.ITEMS plus
+// rarity-scaled base mods and 0–6 random prefix/suffix affixes drawn by item level.
+G.RARITIES = {
+  common:    { id:'common',    name:'',          color:'#cfd6e0', affixes:[0,0], mult:1.00, weight:58 },
+  magic:     { id:'magic',     name:'Magic',     color:'#6ea8ff', affixes:[1,2], mult:1.15, weight:28 },
+  rare:      { id:'rare',      name:'Rare',      color:'#ffd34d', affixes:[3,4], mult:1.30, weight:11 },
+  legendary: { id:'legendary', name:'Legendary', color:'#ff8a3d', affixes:[4,6], mult:1.55, weight:3  },
+};
+G.RARITY_ORDER = ['common', 'magic', 'rare', 'legendary'];
+
+// Affix templates. kind prefix → `title` adjective; suffix → `word` ("of the …").
+// `slot`: 'any' | 'weapon' (hand pistol/sword) | 'armor' (everything wearable).
+// min/max are the level-1 range; G._rollAffixVal scales them up by item level.
+G.AFFIXES = [
+  // prefixes
+  { id:'p_armor',  kind:'prefix', title:'Plated',    stat:'armor',  slot:'armor',  min:3,  max:8  },
+  { id:'p_hp',     kind:'prefix', title:'Stalwart',  stat:'hp',     slot:'any',    min:8,  max:20 },
+  { id:'p_dmg',    kind:'prefix', title:'Vicious',   stat:'dmg',    slot:'weapon', min:3,  max:8  },
+  { id:'p_mana',   kind:'prefix', title:'Arcane',    stat:'mana',   slot:'any',    min:6,  max:16 },
+  { id:'p_energy', kind:'prefix', title:'Charged',   stat:'energy', slot:'any',    min:6,  max:16 },
+  { id:'p_crit',   kind:'prefix', title:'Keen',      stat:'crit',   slot:'weapon', min:2,  max:6  }, // % crit
+  // suffixes
+  { id:'s_str',    kind:'suffix', word:'of the Bear', stat:'str',       slot:'any',    min:2, max:6 },
+  { id:'s_dex',    kind:'suffix', word:'of the Fox',  stat:'dex',       slot:'any',    min:2, max:6 },
+  { id:'s_int',    kind:'suffix', word:'of the Owl',  stat:'int',       slot:'any',    min:2, max:6 },
+  { id:'s_vit',    kind:'suffix', word:'of the Bull', stat:'vit',       slot:'any',    min:2, max:6 },
+  { id:'s_res',    kind:'suffix', word:'of Warding',  stat:'resAll',    slot:'armor',  min:3, max:9 }, // % resist
+  { id:'s_leech',  kind:'suffix', word:'of Leeching', stat:'lifeOnHit', slot:'weapon', min:1, max:4 },
+  { id:'s_speed',  kind:'suffix', word:'of Swiftness',stat:'moveSpeed', slot:'armor',  min:3, max:8 }, // % move
+];
 
 // Equipment paper-doll slots. 'ring1'/'ring2' both accept equipSlot:'ring' gear;
 // 'lefthand'/'righthand' both accept equipSlot:'hand' gear (pistol/sword/shield).
@@ -1344,6 +1378,7 @@ Object.assign(G.ITEMS, {
   pistol:  { id:'pistol',  name:'Laser Pistol', cat:'gear', equipSlot:'hand', kind:'pistol', icon:'🔫', color:'#ff8844', base:260,  mass:2, rarity:'c', dmg:12, range:9,  rof:2.5, desc:'Sidearm. Ranged energy bolts.' },
   sword:   { id:'sword',   name:'Vibro-Sword',  cat:'gear', equipSlot:'hand', kind:'sword',  icon:'🗡', color:'#ccddff', base:220,  mass:3, rarity:'c', dmg:20, range:1.3, rof:1.6, desc:'Close-quarters melee blade.' },
   shield:  { id:'shield',  name:'Combat Shield',cat:'gear', equipSlot:'hand', kind:'shield', icon:'🛡', color:'#88aaff', base:240,  mass:4, rarity:'c', mods:{armor:10}, block:0.4, desc:'Off-hand guard. Blocks incoming hits.' },
+  grenade: { id:'grenade', name:'Frag Grenade', cat:'gear', equipSlot:'hand', kind:'grenade', icon:'💣', color:'#dd5544', base:150, mass:1, rarity:'c', dmg:30, range:5, rof:1.2, desc:'Explosive throwable. Area damage.' },
   // Backpack (equipSlot:'backpack') — jetpack OR storage
   jetpack: { id:'jetpack', name:'Jetpack',      cat:'gear', equipSlot:'backpack', kind:'jetpack', icon:'🚀', color:'#ffaa33', base:600,  mass:6, rarity:'u', thrust:9, lift:5.5, drain:18, desc:'Sustained flight on the surface. Drains energy.' },
   storage_pack:{ id:'storage_pack', name:'Storage Pack', cat:'gear', equipSlot:'backpack', kind:'pack', icon:'🎒', color:'#aa8855', base:150, mass:2, rarity:'c', mods:{carry:8}, desc:'Roomy pack. More cargo space when worn.' },

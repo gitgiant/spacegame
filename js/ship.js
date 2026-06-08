@@ -79,6 +79,9 @@ G.Ship = class extends G.ShipEntity {
 
     // Cargo hold
     this.cargo = {}; // itemId -> qty
+    // Loose ARPG gear instances (rolled, unique). Equipped pieces live on a
+    // character's equip map; these are the unequipped ones held aboard.
+    this.gear = []; // [ {uid,base,rarity,ilvl,dmg,mods,affixes,name} ]
 
     // Ammunition (rounds, not cargo units)
     this.ammo = {}; // ammoId -> count
@@ -150,7 +153,16 @@ G.Ship = class extends G.ShipEntity {
 
   // Migrate any crew (e.g. from an old save) into the unified character shape.
   ensureCrewChars() {
+    if(!Array.isArray(this.gear)) this.gear = [];
     for(const cr of (this.crew || [])) { G.ensureCharFields(cr); G.charRecompute(cr); }
+  }
+
+  // Total mass of carried gear: loose pool + every crew member's worn pieces.
+  gearMass() {
+    let m = 0;
+    for(const g of (this.gear || [])) m += G.gearMass(g);
+    for(const cr of (this.crew || [])) for(const s of G.EQUIP_SLOTS) { const v = cr.equip?.[s]; if(v) m += G.gearMass(v); }
+    return m;
   }
 
   // ── Crew positions / stations (crew-view mode) ───────────────────────────
@@ -949,6 +961,7 @@ G.Ship = class extends G.ShipEntity {
     // Cargo adds weight, reducing acceleration
     let cargoMass = 0;
     for(const [id, qty] of Object.entries(this.cargo)) cargoMass += (G.ITEMS[id]?.mass||1) * qty;
+    cargoMass += this.gearMass();
     const effectiveMass = this.mass + cargoMass;
 
     // Thrust — requires rear thrusters
@@ -1285,6 +1298,7 @@ G.Ship = class extends G.ShipEntity {
       const item = G.ITEMS[id];
       used += qty * (item ? item.mass||1 : 1);
     }
+    used += this.gearMass();
     return this.cargoSpace - used;
   }
 
@@ -1300,6 +1314,7 @@ G.Ship = class extends G.ShipEntity {
       cargo:           JSON.parse(JSON.stringify(this.cargo)),
       ammo:            JSON.parse(JSON.stringify(this.ammo)),
       crew:            JSON.parse(JSON.stringify(this.crew)),
+      gear:            JSON.parse(JSON.stringify(this.gear || [])),
       moduleInventory: [...(this.moduleInventory||[])],
       powerWeapons: this.powerWeapons,
       powerShields: this.powerShields,

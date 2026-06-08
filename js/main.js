@@ -2232,14 +2232,22 @@ G.Renderer = class {
       ctx.fillStyle = s.color || '#ffcc44';
       ctx.beginPath(); ctx.arc(sx, sy, Math.max(2, S*0.06), 0, Math.PI*2); ctx.fill();
     }
-    // Ground loot.
+    // Ground loot — rolled gear glows by rarity + a light beam so it reads as ARPG drop.
     for(const lt of pl.loot) {
       const llift = levelOf(G.wrapTile(ter, Math.round(lt.x), Math.round(lt.y))) * LIFT;
       const lx = ox + lt.x*S, ly = oy + lt.y*S - llift;
-      const it = G.ITEMS[lt.item]; const pulse = 0.6 + 0.4*Math.sin(tnow*5);
-      ctx.globalAlpha = pulse; ctx.fillStyle = it?.color || '#ffee88';
+      const col = lt.inst ? (G.RARITIES[lt.inst.rarity]?.color || '#ffee88') : (G.ITEMS[lt.item]?.color || '#ffee88');
+      const icon = lt.inst ? G.gearIcon(lt.inst) : G.ITEMS[lt.item]?.icon;
+      const pulse = 0.6 + 0.4*Math.sin(tnow*5);
+      if(lt.inst && lt.inst.rarity !== 'common') {   // loot beam for magic+
+        const grad = ctx.createLinearGradient(lx, ly - S*1.4, lx, ly);
+        grad.addColorStop(0, col + '00'); grad.addColorStop(1, col + 'cc');
+        ctx.fillStyle = grad; ctx.globalAlpha = 0.5 * pulse;
+        ctx.fillRect(lx - S*0.06, ly - S*1.4, S*0.12, S*1.4); ctx.globalAlpha = 1;
+      }
+      ctx.globalAlpha = pulse; ctx.fillStyle = col;
       ctx.beginPath(); ctx.arc(lx, ly, Math.max(3, S*0.12), 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1;
-      if(it?.icon) { ctx.font = `${Math.round(S*0.32)}px serif`; ctx.textAlign='center'; ctx.fillText(it.icon, lx, ly + S*0.12); }
+      if(icon) { ctx.font = `${Math.round(S*0.32)}px serif`; ctx.textAlign='center'; ctx.fillText(icon, lx, ly + S*0.12); }
     }
     this._drawPlanetMinimap(game, pl);
     this._drawPlanetHUD(game, pl);
@@ -2371,8 +2379,7 @@ G.Renderer = class {
     // Selected character vitals (bottom-left, above the hint).
     if(pl.selected?.ref) {
       const ch = pl.selected.ref;
-      const main = G.ITEMS[ch.equip?.righthand], sec = G.ITEMS[ch.equip?.lefthand];
-      const wlabel = 'L:' + (main?.icon || '∅') + '  R:' + (sec?.icon || '∅');
+      const wlabel = 'L:' + (ch.equip?.righthand ? G.gearIcon(ch.equip.righthand) : '∅') + '  R:' + (ch.equip?.lefthand ? G.gearIcon(ch.equip.lefthand) : '∅');
       const bar = (lbl, cur, max, col, yy) => {
         const w = 120, x0 = 12, frac = max ? Math.max(0, Math.min(1, cur/max)) : 0;
         ctx.fillStyle = '#8899aa'; ctx.font = '6px "Press Start 2P",monospace'; ctx.fillText(lbl, x0, yy - 3);
@@ -3141,6 +3148,7 @@ G.Game = class {
     this.player.cargo   = sd.cargo   || {};
     this.player.ammo    = sd.ammo    || {};
     this.player.crew    = sd.crew    || [];
+    this.player.gear    = sd.gear    || [];
     this.player.moduleInventory = sd.moduleInventory || [];
     this.player.powerWeapons = sd.powerWeapons || 0.33;
     this.player.powerShields = sd.powerShields || 0.33;
@@ -3299,16 +3307,23 @@ G.Game = class {
       pc.name     = (charData?.name) || pc.name;
       pc.classId  = this.playerClassId;
       pc.faction  = this.playerFactionId || pc.faction;
-      G.charRecompute(pc);
     }
-    // Starter kit (unified cargo items): 1 pistol, 1 sword, 1 shield, 1 jetpack.
-    const cargo = this.player.cargo;
-    for(const id of ['pistol', 'sword', 'shield', 'jetpack']) cargo[id] = (cargo[id] || 0) + 1;
+    // Starter kit as rolled (common) gear instances in the ship's gear pool.
+    const gear = this.player.gear || (this.player.gear = []);
+    const mk = id => { const inst = G.rollItem(id, 1, { rarity: 'common' }); if(inst) gear.push(inst); return inst; };
+    const sword = mk('sword'), shield = mk('shield'), jet = mk('jetpack'), pistol = mk('pistol'), grenade = mk('grenade');
     if(pc) {
-      G.charEquip(pc, 'righthand', 'sword',   cargo);
-      G.charEquip(pc, 'lefthand',  'shield',  cargo);
-      G.charEquip(pc, 'backpack',  'jetpack', cargo);
-      // Pistol stays in cargo — swap it in from the C screen if desired.
+      // Initialize equipment sets: [0] = sword/shield, [1] = pistol/grenade
+      pc._equipSets = [
+        { righthand: sword,   lefthand: shield },
+        { righthand: pistol,  lefthand: grenade }
+      ];
+      pc._activeSet = 0;
+      // Equip first set
+      if(sword)  G.charEquip(pc, 'righthand', sword,  gear);
+      if(shield) G.charEquip(pc, 'lefthand',  shield, gear);
+      if(jet)    G.charEquip(pc, 'backpack',  jet,    gear);
+      G.charRecompute(pc);
     }
   }
 
@@ -4372,7 +4387,7 @@ G.Game = class {
     const sys = G.SYSTEMS.find(s => s.id === this.currentSysId) || {};
     const dangerN = G.clamp((sys.danger || 0) / 10, 0, 1);
     const statBody = { danger: dangerN, security: 1 - dangerN };
-    const nNpc = Math.min(9, (body.hasSpaceport ? 3 : 0) + G.randInt(0, 2 + Math.round(dangerN * 5)));
+    const nNpc = Math.min(27, 3 * ((body.hasSpaceport ? 3 : 0) + G.randInt(0, 2 + Math.round(dangerN * 5))));
     const walkCells = [...terrain.tiles.values()].filter(t => t.walkable && t.biome !== 'spaceport');
     const npcs = [];
     for(let i = 0; i < nNpc && walkCells.length; i++) {
@@ -4484,7 +4499,9 @@ G.Game = class {
     const grounded = c._z <= 0.001;
     const jetDef = ch ? G.charGearOfKind(ch, 'jetpack') : null;
     c._jetActive = false;
-    if(inp.pressed('Space') && grounded) { c._vz = 6.5; G.sound?.uiClick?.(); }   // hop
+    c._jumpCount = c._jumpCount || 0;
+    if(inp.pressed('Space') && grounded) { c._vz = 6.5; c._jumpCount = 0; G.sound?.planetJump?.(); }   // first hop
+    else if(inp.pressed('Space') && jetDef && c._jumpCount === 0 && !grounded && c._vz < 0) { c._vz = 6.5; c._jumpCount = 1; G.sound?.planetJump?.(); }   // second jump (mid-air with jetpack)
     if(jetDef && inp.is('Space') && ch.energy > 0 && (!grounded || c._vz > 0)) {
       c._vz = Math.min((jetDef.lift || 5.5), c._vz + (jetDef.thrust || 9) * dt);
       ch.energy = Math.max(0, ch.energy - (jetDef.drain || 18) * dt);
@@ -4645,7 +4662,12 @@ G.Game = class {
     // Ground loot pickup.
     for(let i = pl.loot.length - 1; i >= 0; i--) {
       const lt = pl.loot[i]; lt.life = (lt.life || 30) - dt; let taken = false;
-      for(const c of live) { const d = this._planetDelta(pl, lt.x, lt.y, c.px, c.py); if(d.dist < 0.7) { this.player.addCargo(lt.item, lt.qty || 1); this.ui.addMsg('Picked up ' + (G.ITEMS[lt.item]?.name || lt.item), '#88ddaa'); taken = true; break; } }
+      for(const c of live) {
+        const d = this._planetDelta(pl, lt.x, lt.y, c.px, c.py); if(d.dist >= 0.7) continue;
+        if(lt.inst) { (this.player.gear || (this.player.gear = [])).push(lt.inst); this.ui.addMsg('Looted ' + lt.inst.name, G.RARITIES[lt.inst.rarity]?.color || '#88ddaa'); }
+        else { this.player.addCargo(lt.item, lt.qty || 1); this.ui.addMsg('Picked up ' + (G.ITEMS[lt.item]?.name || lt.item), '#88ddaa'); }
+        taken = true; break;
+      }
       if(taken || lt.life <= 0) pl.loot.splice(i, 1);
     }
     // Timers + out-of-combat HP regen.
@@ -4702,9 +4724,13 @@ G.Game = class {
     const pl = this._planet, ch = c.ref;
     const cdKey = hand === 'lefthand' ? '_atkCdL' : '_atkCdR';
     if((c[cdKey] || 0) > 0) return;
-    const wid = ch.equip?.[hand], wpn = wid && G.ITEMS[wid];
+    const wpn = G.gearResolve(ch.equip?.[hand]);
     if(!wpn || (wpn.kind !== 'pistol' && wpn.kind !== 'sword')) return;   // nothing fireable
     c[cdKey] = 1 / (wpn.rof || 1.5);
+    // Rolled weapon damage scaled by attribute (str melee / dex ranged) + crit.
+    const mul = wpn.kind === 'pistol' ? (ch.rangedMul || 1) : (ch.meleeMul || 1);
+    const crit = Math.random() < (ch.critChance || 0.05);
+    const dmg = Math.max(1, Math.round((wpn.dmg || 12) * mul * (crit ? 2 : 1)));
     // Aim toward the cursor in world (unit-hex) space, torus-wrapped.
     let aimx = c._faceX || 0, aimy = c._faceY || 1;
     const lay = pl.layout;
@@ -4715,7 +4741,7 @@ G.Game = class {
     }
     c._faceX = aimx; c._faceY = aimy;
     if(wpn.kind === 'pistol') {
-      this._spawnFootShot(pl, c, aimx, aimy, wpn.dmg || 12, 'player', wpn.color || '#ffcc44');
+      this._spawnFootShot(pl, c, aimx, aimy, dmg, 'player', wpn.color || '#ffcc44');
       ch.energy = Math.max(0, ch.energy - 2);
       G.sound?.weapon?.('laser');
     } else {
@@ -4744,7 +4770,7 @@ G.Game = class {
       for(const n of pl.npcs) {
         if(n.ref.hp <= 0) continue;
         if(targets.some(t => t.q === n.q && t.r === n.r)) {
-          this._applyFootDamage(pl, n, wpn.dmg || 18, c);
+          this._applyFootDamage(pl, n, dmg, c);
         }
       }
       // Damage ore in swept hexes
@@ -4786,6 +4812,8 @@ G.Game = class {
     }
 
     ch.hp -= dealt; unit._hurtT = 0.22; unit._noRegenT = 4;
+    // Life-on-hit leech for the attacking player crew.
+    if(src && pl.crew.includes(src) && src.ref.lifeOnHit) src.ref.hp = Math.min(src.ref.maxHp, src.ref.hp + src.ref.lifeOnHit);
     // Provoke: a non-hostile NPC struck by the player turns hostile.
     if(ch.disposition && ch.disposition !== 'hostile' && src && pl.crew.includes(src)) ch.disposition = 'hostile';
     // Faction rep loss for attacking faction units in their system
@@ -4817,10 +4845,54 @@ G.Game = class {
         this.setRel(sys.faction, this.getRel(sys.faction) + 3, 'killed enemy in system');
       }
       const idx = pl.npcs.indexOf(unit); if(idx >= 0) pl.npcs.splice(idx, 1);
-      const dropId = ch.equip?.righthand || (Math.random() < 0.3 ? 'food' : null);
-      if(dropId) pl.loot.push({ x: unit.px, y: unit.py, item: dropId, qty: 1, life: 40 });
+      // ARPG loot: roll drops by zone item level; XP to the player's crew.
+      for(const d of this._rollLootDrops(ch, this._zoneItemLevel())) {
+        pl.loot.push(Object.assign({ x: unit.px + (Math.random() - 0.5) * 0.5, y: unit.py + (Math.random() - 0.5) * 0.5, life: 60 }, d));
+      }
+      this._awardKillXp(ch);
       this.ui.addMsg((G.DISPOSITIONS[ch.disposition]?.name || 'Unit') + ' ' + ch.name + ' down', '#ffaa66');
       G.sound?.explosion?.();
+    }
+  }
+
+  // Item level for surface drops: system danger + the player character's level.
+  _zoneItemLevel() {
+    const sys = G.SYSTEMS.find(s => s.id === this.currentSysId);
+    return G.clamp(Math.round((sys?.danger || 1) + (this.playerCharacter()?.level || 1)), 1, 60);
+  }
+
+  // Roll a kill's loot: a chance at a rolled gear instance + a chance at a ration.
+  _rollLootDrops(ch, ilvl) {
+    const out = [];
+    const gearChance = ch.disposition === 'hostile' ? 0.45 : 0.30;
+    if(Math.random() < gearChance) {
+      const pool = ['pistol', 'sword', 'shield', 'combat_helm', 'flak_vest', 'pauldrons', 'bracers',
+                    'utility_belt', 'greaves', 'combat_boots', 'power_ring', 'vital_amulet', 'jetpack', 'storage_pack'];
+      const baseId = (typeof ch.equip?.righthand === 'string' && Math.random() < 0.5) ? ch.equip.righthand : pool[(Math.random() * pool.length) | 0];
+      const inst = G.rollItem(baseId, ilvl, { magicFind: 0 });
+      if(inst) out.push({ inst });
+    }
+    if(Math.random() < 0.22) out.push({ item: 'food', qty: 1 });
+    return out;
+  }
+
+  // Award kill XP to all living player crew on the surface; handle level-ups.
+  _awardKillXp(ch) {
+    const xp = 5 + (ch.level || 1) * 3;
+    for(const c of (this._planet?.crew || [])) {
+      const r = c.ref; if(!r || r.hp <= 0) continue;
+      r.xp = (r.xp || 0) + xp;
+      this._checkCharLevel(r);
+    }
+  }
+  _checkCharLevel(r) {
+    const need = lvl => 40 + (lvl - 1) * lvl * 12;
+    while(r.level < 60 && r.xp >= need(r.level)) {
+      r.xp -= need(r.level); r.level++;
+      r.attrPoints = (r.attrPoints || 0) + 5;
+      r.skillPoints = (r.skillPoints || 0) + 1;
+      G.charRecompute(r); r.hp = r.maxHp; r.mana = r.maxMana;
+      if(r.isPlayer) { this.ui.addMsg(r.name + ' reached level ' + r.level + '!  (+5 attr, +1 skill)', '#ffdd44'); G.sound?.levelUp?.(); }
     }
   }
 
@@ -4878,8 +4950,8 @@ G.Game = class {
       if(this.input.mouseDown && !this._planetFireBlock) this._planetPlayerAttack(sel, 'righthand');
       // Check which hand has the shield and activate on right-click
       const ch = sel.ref;
-      const shieldHand = (ch.equip?.lefthand && G.ITEMS[ch.equip.lefthand]?.kind === 'shield') ? 'lefthand'
-                       : (ch.equip?.righthand && G.ITEMS[ch.equip.righthand]?.kind === 'shield') ? 'righthand' : null;
+      const shieldHand = (G.gearKind(ch.equip?.lefthand) === 'shield') ? 'lefthand'
+                       : (G.gearKind(ch.equip?.righthand) === 'shield') ? 'righthand' : null;
       if(this.input.rightDown && shieldHand) this._planetPlayerHoldShield(sel, shieldHand, dt);
       else this._deactivateShield(sel);
       if(this.input.is('KeyF')) this._planetPlayerAttack(sel, 'righthand');
@@ -4889,7 +4961,7 @@ G.Game = class {
   _planetPlayerHoldShield(c, hand, dt) {
     const pl = this._planet;
     const ch = c.ref;
-    const wid = ch.equip?.[hand], wpn = wid && G.ITEMS[wid];
+    const wpn = G.gearResolve(ch.equip?.[hand]);
     if(!wpn || wpn.kind !== 'shield') { this._deactivateShield(c); return; }
 
     // Only activate shield if energy > 0
