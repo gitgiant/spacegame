@@ -5336,6 +5336,25 @@ G.Game = class {
     let pick = null, pd = 18;
     for(const c of pl.crew) { const x = lay.ox + c.px * lay.S, y = lay.oy + c.py * lay.S; const d = Math.hypot(x - sx, y - sy); if(d < pd) { pd = d; pick = c; } }
     if(pick && pick !== pl.selected) { pl.selected = pick; pl.panX = 0; pl.panY = 0; G.sound?.uiClick?.(); return true; }
+    // Double-click on building to open it
+    let clickedBuilding = null;
+    const bld = 1.2;
+    const clickWorldX = (sx - lay.ox) / lay.S, clickWorldY = (sy - lay.oy) / lay.S;
+    for(const b of (pl.buildings || [])) { const bp = G.hexToPixel(b.q, b.r, 1); const d = this._planetDelta(pl, clickWorldX, clickWorldY, bp.x, bp.y); if(d.dist < bld) { clickedBuilding = b; break; } }
+    if(clickedBuilding) {
+      const now = performance.now();
+      const sameBuilding = pl._lastClickBuilding === clickedBuilding;
+      const withinTime = pl._lastClickTime && (now - pl._lastClickTime) < 300;
+      if(sameBuilding && withinTime) {
+        this._openBuilding(clickedBuilding);
+        pl._lastClickBuilding = null;
+        pl._lastClickTime = null;
+        return true;
+      }
+      pl._lastClickBuilding = clickedBuilding;
+      pl._lastClickTime = now;
+      return true;
+    }
     return false;   // empty ground → let the weapon fire
   }
 
