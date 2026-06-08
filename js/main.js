@@ -2191,6 +2191,12 @@ G.Renderer = class {
         ctx.beginPath(); ctx.arc(0, crad*0.4, crad*1.3, 0, Math.PI*2);
         ctx.strokeStyle = ringCol; ctx.globalAlpha = 0.7; ctx.lineWidth=1.5; ctx.stroke(); ctx.globalAlpha = 1;
       }
+      // Elite / boss aura.
+      if(c._eliteCol) {
+        const aur = crad * (c._size || 1) * 1.85;
+        ctx.strokeStyle = c._eliteCol; ctx.globalAlpha = 0.45 + 0.3 * Math.sin(tnow * 4); ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(0, 0, aur, 0, Math.PI*2); ctx.stroke(); ctx.globalAlpha = 1;
+      }
       if(c._jetActive) {   // jetpack exhaust flare under the feet
         ctx.fillStyle = '#ffaa33'; ctx.globalAlpha = 0.8;
         ctx.beginPath(); ctx.moveTo(-crad*0.3, crad*0.5); ctx.lineTo(crad*0.3, crad*0.5);
@@ -2212,9 +2218,12 @@ G.Renderer = class {
         ctx.strokeStyle = '#4488ff'; ctx.globalAlpha = 0.4; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(0, 0, shieldRad, 0, Math.PI*2); ctx.stroke(); ctx.globalAlpha = 1;
       }
-      this._drawCrewSprite(crad, c.ref.role, walking, tnow, this._crewPhase(c), false, (c._faceX < -0.01) ? -1 : 1);
+      this._drawCrewSprite(crad * (c._size || 1), c.ref.role, walking, tnow, this._crewPhase(c), false, (c._faceX < -0.01) ? -1 : 1);
       // Hit flash.
-      if(c._hurtT > 0) { ctx.globalAlpha = Math.min(0.7, c._hurtT * 3); ctx.fillStyle = '#ff3333'; ctx.beginPath(); ctx.arc(0, 0, crad, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1; }
+      if(c._hurtT > 0) { ctx.globalAlpha = Math.min(0.7, c._hurtT * 3); ctx.fillStyle = '#ff3333'; ctx.beginPath(); ctx.arc(0, 0, crad*(c._size||1), 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1; }
+      // Boss / elite marker.
+      if(c.boss) { ctx.fillStyle = '#ff8833'; ctx.font = `${Math.round(crad*1.1)}px serif`; ctx.textAlign='center'; ctx.fillText('☠', 0, -crad*(c._size||1)*1.9); }
+      else if(c.elite?.length) { ctx.fillStyle = c._eliteCol || '#ffcc44'; ctx.font = `${Math.round(crad*0.85)}px serif`; ctx.textAlign='center'; ctx.fillText('✦', 0, -crad*(c._size||1)*1.8); }
       ctx.restore();
       // HP bar above wounded units.
       const ch = c.ref;
@@ -4510,21 +4519,94 @@ G.Game = class {
       if(!cell) break;
       used.add(G.hexKey(cell.q, cell.r));
       const disp = G.rollDisposition(statBody);
+      if(disp === 'hostile') continue;   // hostiles spawn as structured packs below
       const fac = disp === 'faction' ? (body.faction || sys.faction || 'independent') : 'independent';
-      const role = (disp === 'hostile') ? 'marine' : (disp === 'faction' ? 'gunner' : 'pilot');
+      const role = disp === 'faction' ? 'gunner' : 'pilot';
       const ch = G.makeCharacter({ faction: fac, disposition: disp, role });
-      if(disp === 'hostile' || disp === 'faction') { ch.equip.righthand = Math.random() < 0.5 ? 'pistol' : 'sword'; G.charRecompute(ch); }
+      if(disp === 'faction') { ch.equip.righthand = Math.random() < 0.5 ? 'pistol' : 'sword'; }
       const u = G.hexToPixel(cell.q, cell.r, 1);
       npcs.push({ ref: ch, q: cell.q, r: cell.r, px: u.x, py: u.y, path: null, _wanderT: Math.random() * 4 });
     }
+    // Hostile monster packs (with elites + a rare boss), scaled by zone level.
+    const zoneLvl = G.clamp(Math.round((sys.danger || 1) + (this.playerCharacter()?.level || 1)), 1, 60);
+    this._spawnPlanetEnemies(npcs, walkCells, used, sys.danger || 1, zoneLvl);
     const su = G.hexToPixel(ship.q, ship.r, 1);
     this._planet = { body, terrain, ship, crew, npcs, shots: [], loot: [], selected: null,
                      buttons: [], layout: null, S: 46, cam: { x: su.x, y: su.y }, panX: 0, panY: 0 };
     this._planet.selected = crew.find(c => c.ref?.isPlayer) || crew[0] || null;   // control + fire right away
-    const dispCounts = npcs.reduce((m, n) => (m[n.ref.disposition] = (m[n.ref.disposition] || 0) + 1, m), {});
-    const hostiles = dispCounts.hostile || 0;
+    const hostiles = npcs.filter(n => n.ref.disposition === 'hostile').length;
     this.ui.addMsg('Landed on ' + body.name + (body.hasSpaceport ? '' : ' — barren surface') +
       (npcs.length ? ` — ${npcs.length} life sign${npcs.length > 1 ? 's' : ''}${hostiles ? ', ' + hostiles + ' hostile' : ''}` : ''), '#88ddaa');
+  }
+
+  // Build one hostile monster wrapper from an archetype, scaled to monster level,
+  // optionally with elite affixes / boss multipliers.
+  _makeEnemyWrapper(archId, cell, lvl, elite = [], boss = false) {
+    const a = G.PLANET_ENEMIES[archId] || G.PLANET_ENEMIES.grunt;
+    const ref = G.makeCharacter({ faction: 'pirate', disposition: 'hostile', role: a.kind === 'ranged' ? 'gunner' : 'marine', name: a.name });
+    ref.equip.righthand = a.weapon;                     // string equip → AI reads base kind
+    let hp = a.hp * (1 + (lvl - 1) * 0.12), dmg = a.dmg * (1 + (lvl - 1) * 0.08), spd = a.speed;
+    for(const e of elite) { const ea = G.ELITE_AFFIXES[e]; if(ea.hpMul) hp *= ea.hpMul; if(ea.dmgMul) dmg *= ea.dmgMul; if(ea.speed) spd *= ea.speed; }
+    if(boss) { hp *= 6; dmg *= 1.8; }
+    ref.maxHp = ref.hp = Math.round(hp);                // set directly (no recompute clobber)
+    ref.armor = boss ? 12 : (elite.length ? 5 : 0);
+    ref.level = lvl;
+    const u = G.hexToPixel(cell.q, cell.r, 1);
+    return { ref, archetype: archId, elite, boss, _dmg: Math.round(dmg), _spdMul: spd, _kind: a.kind,
+             _size: (a.size || 1) * (boss ? 1.9 : (elite.length ? 1.25 : 1)), _color: a.color,
+             _eliteCol: elite[0] ? G.ELITE_AFFIXES[elite[0]].color : (boss ? '#ff3344' : null),
+             q: cell.q, r: cell.r, px: u.x, py: u.y, path: null, _wanderT: Math.random() * 3 };
+  }
+
+  // Spawn hostile packs (+ elites + a rare boss) across walkable ground.
+  _spawnPlanetEnemies(npcs, walkCells, used, danger, lvl) {
+    if(!walkCells.length) return;
+    const pickArch = () => {
+      const elig = G.PLANET_ENEMY_IDS.filter(id => danger >= G.PLANET_ENEMIES[id].minDanger);
+      let tot = 0; for(const id of elig) tot += G.PLANET_ENEMIES[id].weight;
+      let x = Math.random() * tot;
+      for(const id of elig) { x -= G.PLANET_ENEMIES[id].weight; if(x <= 0) return id; }
+      return 'grunt';
+    };
+    const freeNear = (c, rad) => {
+      for(let t = 0; t < 10; t++) {
+        const cand = walkCells[(Math.random() * walkCells.length) | 0];
+        if(used.has(G.hexKey(cand.q, cand.r))) continue;
+        if(!c || G.hexDist(c.q, c.r, cand.q, cand.r) <= rad) { used.add(G.hexKey(cand.q, cand.r)); return cand; }
+      }
+      return null;
+    };
+    const nPacks = G.clamp(1 + Math.round(danger * 0.7), 1, 8);
+    for(let p = 0; p < nPacks; p++) {
+      const center = freeNear(null, 0); if(!center) break;
+      const size = G.randInt(3, 5 + Math.round(danger / 3));
+      const eliteLed = Math.random() < 0.35;
+      if(eliteLed) {
+        const nAff = Math.random() < 0.4 ? 2 : 1;
+        const affs = []; const pool = G.ELITE_AFFIX_IDS.slice();
+        for(let k = 0; k < nAff && pool.length; k++) affs.push(pool.splice((Math.random() * pool.length) | 0, 1)[0]);
+        npcs.push(this._makeEnemyWrapper(pickArch(), center, lvl, affs, false));
+      } else {
+        npcs.push(this._makeEnemyWrapper(pickArch(), center, lvl));
+      }
+      for(let i = 0; i < size; i++) { const cell = freeNear(center, 4); if(cell) npcs.push(this._makeEnemyWrapper(pickArch(), cell, lvl)); }
+    }
+    // Rare surface boss in dangerous space.
+    if(danger >= 4 && Math.random() < 0.3) {
+      const cell = freeNear(null, 0);
+      if(cell) {
+        const affs = []; const pool = G.ELITE_AFFIX_IDS.slice();
+        for(let k = 0; k < 2 && pool.length; k++) affs.push(pool.splice((Math.random() * pool.length) | 0, 1)[0]);
+        npcs.push(this._makeEnemyWrapper('brute', cell, lvl + 2, affs, true));
+      }
+    }
+  }
+
+  // NPC outgoing damage: archetype-scaled for monsters, weapon base otherwise.
+  _npcDmg(n) {
+    if(n._dmg) return n._dmg;
+    const w = G.charGearOfKind(n.ref, 'pistol') || G.charGearOfKind(n.ref, 'sword');
+    return w?.dmg || 10;
   }
 
   // BFS shortest path on the torus; from/to are canonical [0,W)×[0,H) cells.
@@ -4735,6 +4817,13 @@ G.Game = class {
       const ranged = wpn && wpn.kind === 'pistol';
       const hasLOS = !ranged || this._planetLOS(pl, n, tgt);
       if(td > range * 0.9 || (ranged && !hasLOS)) {
+        // Phasing elites blink toward their target.
+        if(n.elite?.includes('phasing') && td > 3 && Math.random() < 0.02) {
+          const W = pl.terrain.W, H = pl.terrain.H, l = tdel.dist || 1;
+          const bx = tgt.px - (tdel.dx / l) * 2, by = tgt.py - (tdel.dy / l) * 2;
+          const h = G.pixelToHex(bx, by, 1), w = G.wrapHex(W, H, h.q, h.r), t = pl.terrain.tiles.get(G.hexKey(w.q, w.r));
+          if(t && t.walkable) { n.px = bx; n.py = by; n.q = w.q; n.r = w.r; n.path = null; }
+        }
         n._chaseT = (n._chaseT || 0) - dt;
         if(n._chaseT <= 0 || !(n.path && n.path.length)) { n._chaseT = 0.6; const p = this._planetPath({ q: n.q, r: n.r }, { q: tgt.q, r: tgt.r }); if(p && p.length) n.path = p; }
       } else {
@@ -4743,8 +4832,8 @@ G.Game = class {
           n._atkCd = wpn ? 1 / (wpn.rof || 1.2) : 1.2;
           const l = tdel.dist || 1, ux = tdel.dx / l, uy = tdel.dy / l;
           n._faceX = ux; n._faceY = uy;
-          if(ranged) this._spawnFootShot(pl, n, ux, uy, wpn.dmg || 10, 'enemy', wpn.color || '#ff5533');
-          else { this._applyFootDamage(pl, tgt, (wpn?.dmg || 12), n); n._swingT = 0.18; }
+          if(ranged) this._spawnFootShot(pl, n, ux, uy, this._npcDmg(n), 'enemy', wpn.color || '#ff5533');
+          else { this._applyFootDamage(pl, tgt, this._npcDmg(n), n); n._swingT = 0.18; }
         }
       }
     }
@@ -4791,6 +4880,13 @@ G.Game = class {
       c._slowT    = Math.max(0, (c._slowT    || 0) - dt);
       if(ch.hp > 0 && ch.hp < ch.maxHp && c._noRegenT <= 0) ch.hp = Math.min(ch.maxHp, ch.hp + 4 * dt);
       if(ch.maxMana && ch.mana < ch.maxMana) ch.mana = Math.min(ch.maxMana, ch.mana + 5 * dt);  // mana regen
+      // Elite auras: self-regen + pack heal.
+      if(c.elite?.length && ch.hp > 0) for(const e of c.elite) {
+        const ea = G.ELITE_AFFIXES[e];
+        if(ea.regen && ch.hp < ch.maxHp) ch.hp = Math.min(ch.maxHp, ch.hp + ea.regen * dt);
+        if(ea.healAura) for(const o of pl.npcs) { if(o === c || o.ref.hp <= 0 || o.ref.hp >= o.ref.maxHp) continue;
+          const d = this._planetDelta(pl, c.px, c.py, o.px, o.py); if(d.dist <= (ea.auraR || 4)) o.ref.hp = Math.min(o.ref.maxHp, o.ref.hp + ea.healAura * dt); }
+      }
     }
   }
 
@@ -4958,12 +5054,21 @@ G.Game = class {
         this.setRel(sys.faction, this.getRel(sys.faction) + 3, 'killed enemy in system');
       }
       const idx = pl.npcs.indexOf(unit); if(idx >= 0) pl.npcs.splice(idx, 1);
-      // ARPG loot: roll drops by zone item level; XP to the player's crew.
-      for(const d of this._rollLootDrops(ch, this._zoneItemLevel())) {
-        pl.loot.push(Object.assign({ x: unit.px + (Math.random() - 0.5) * 0.5, y: unit.py + (Math.random() - 0.5) * 0.5, life: 60 }, d));
+      // Explosive elites detonate on death.
+      if(unit.elite?.includes('explosive')) {
+        const ea = G.ELITE_AFFIXES.explosive;
+        for(const c2 of pl.crew) { if(c2.ref.hp <= 0) continue; const d = this._planetDelta(pl, unit.px, unit.py, c2.px, c2.py); if(d.dist <= ea.deathR) this._applyFootDamage(pl, c2, ea.deathDmg, null); }
+        pl._novaFx = { x: unit.px, y: unit.py, r: ea.deathR, t: 0.45, color: ea.color };
       }
-      this._awardKillXp(ch);
-      this.ui.addMsg((G.DISPOSITIONS[ch.disposition]?.name || 'Unit') + ' ' + ch.name + ' down', '#ffaa66');
+      // ARPG loot: elites/bosses drop more + higher rarity.
+      const mf = unit.boss ? 5 : (unit.elite?.length ? 1.5 * unit.elite.length : 0);
+      const bonus = unit.boss ? 3 : (unit.elite?.length ? 1 : 0);
+      for(const d of this._rollLootDrops(ch, this._zoneItemLevel(), { mf, bonus, force: unit.boss ? 'rare' : null })) {
+        pl.loot.push(Object.assign({ x: unit.px + (Math.random() - 0.5) * 0.6, y: unit.py + (Math.random() - 0.5) * 0.6, life: 90 }, d));
+      }
+      this._awardKillXp(ch, unit.boss ? 8 : (unit.elite?.length ? 3 : 1));
+      const tag = unit.boss ? ' [BOSS]' : (unit.elite?.length ? ' [' + unit.elite.map(e => G.ELITE_AFFIXES[e].name).join(' ') + ']' : '');
+      this.ui.addMsg((G.PLANET_ENEMIES[unit.archetype]?.name || ch.name) + tag + ' down', unit.boss ? '#ff8833' : (unit.elite?.length ? '#ffcc44' : '#ffaa66'));
       G.sound?.explosion?.();
     }
   }
@@ -4974,24 +5079,29 @@ G.Game = class {
     return G.clamp(Math.round((sys?.danger || 1) + (this.playerCharacter()?.level || 1)), 1, 60);
   }
 
-  // Roll a kill's loot: a chance at a rolled gear instance + a chance at a ration.
-  _rollLootDrops(ch, ilvl) {
+  // Roll a kill's loot: gear instance(s) + a chance at a ration. opts.mf boosts
+  // rarity (magic find), opts.bonus adds guaranteed extra rolls, opts.force pins
+  // a minimum rarity on the first drop (bosses).
+  _rollLootDrops(ch, ilvl, opts = {}) {
     const out = [];
-    const gearChance = ch.disposition === 'hostile' ? 0.45 : 0.30;
-    if(Math.random() < gearChance) {
-      const pool = ['pistol', 'sword', 'shield', 'combat_helm', 'flak_vest', 'pauldrons', 'bracers',
-                    'utility_belt', 'greaves', 'combat_boots', 'power_ring', 'vital_amulet', 'jetpack', 'storage_pack'];
-      const baseId = (typeof ch.equip?.righthand === 'string' && Math.random() < 0.5) ? ch.equip.righthand : pool[(Math.random() * pool.length) | 0];
-      const inst = G.rollItem(baseId, ilvl, { magicFind: 0 });
+    const pool = ['pistol', 'sword', 'shield', 'combat_helm', 'flak_vest', 'pauldrons', 'bracers',
+                  'utility_belt', 'greaves', 'combat_boots', 'power_ring', 'vital_amulet', 'jetpack', 'storage_pack'];
+    const rollOne = (force) => {
+      const baseId = (typeof ch.equip?.righthand === 'string' && Math.random() < 0.4) ? ch.equip.righthand : pool[(Math.random() * pool.length) | 0];
+      const inst = G.rollItem(baseId, ilvl, { magicFind: opts.mf || 0, rarity: force || undefined });
       if(inst) out.push({ inst });
-    }
+    };
+    const baseChance = ch.disposition === 'hostile' ? 0.45 : 0.30;
+    if(opts.force) rollOne(opts.force);
+    else if(Math.random() < baseChance) rollOne();
+    for(let i = 0; i < (opts.bonus || 0); i++) rollOne();
     if(Math.random() < 0.22) out.push({ item: 'food', qty: 1 });
     return out;
   }
 
   // Award kill XP to all living player crew on the surface; handle level-ups.
-  _awardKillXp(ch) {
-    const xp = 5 + (ch.level || 1) * 3;
+  _awardKillXp(ch, mult = 1) {
+    const xp = (5 + (ch.level || 1) * 3) * mult;
     for(const c of (this._planet?.crew || [])) {
       const r = c.ref; if(!r || r.hp <= 0) continue;
       r.xp = (r.xp || 0) + xp;
@@ -5024,7 +5134,7 @@ G.Game = class {
         const d = (cxp - c.px)**2 + (cyp - c.py)**2;
         if(d < bestD) { bestD = d; tx = cxp; ty = cyp; }
       }
-      const dx = tx - c.px, dy = ty - c.py, d = Math.hypot(dx, dy), step = spd * dt * (c._slowT > 0 ? 0.45 : 1);
+      const dx = tx - c.px, dy = ty - c.py, d = Math.hypot(dx, dy), step = spd * dt * (c._spdMul || 1) * (c._slowT > 0 ? 0.45 : 1);
       if(Math.abs(dx) > 0.001) c._faceX = dx < 0 ? -1 : 1;   // face along travel
       if(d <= step) { c.px = tx; c.py = ty; c.q = n.q; c.r = n.r; c.path.shift(); }
       else { c.px += dx / d * step; c.py += dy / d * step; }

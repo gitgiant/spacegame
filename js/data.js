@@ -1329,6 +1329,28 @@ G.CLASS_PLANET_SKILL = {
 // Cooldown flasks (Diablo 3 style — infinite uses, gated by cooldown).
 G.FLASK = { healCd:8, manaCd:8, healFrac:0.5, manaFrac:0.5 };
 
+// ── Planet hostile archetypes ────────────────────────────────────────────────
+// Monsters spawned in packs on the surface. hp/dmg are level-1 base, scaled by
+// monster level. weight biases spawn frequency; minDanger gates tougher types.
+G.PLANET_ENEMIES = {
+  grunt:   { id:'grunt',   name:'Raider',  kind:'melee',  weapon:'sword',  hp:55,  dmg:9,  speed:1.0,  size:1.0,  color:'#cc5544', xp:1, weight:50, minDanger:0 },
+  shooter: { id:'shooter', name:'Gunner',  kind:'ranged', weapon:'pistol', hp:42,  dmg:8,  speed:0.95, size:0.95, color:'#dd9944', xp:1, weight:34, minDanger:0 },
+  stalker: { id:'stalker', name:'Stalker', kind:'melee',  weapon:'sword',  hp:38,  dmg:12, speed:1.6,  size:0.85, color:'#9944cc', xp:2, weight:18, minDanger:3 },
+  brute:   { id:'brute',   name:'Brute',   kind:'melee',  weapon:'sword',  hp:150, dmg:18, speed:0.8,  size:1.45, color:'#aa4466', xp:3, weight:12, minDanger:4 },
+};
+G.PLANET_ENEMY_IDS = Object.keys(G.PLANET_ENEMIES);
+
+// Elite/champion modifiers. An elite pack leader carries 1-2 of these.
+G.ELITE_AFFIXES = {
+  fast:      { id:'fast',      name:'Fast',      color:'#66ddff', speed:1.5 },
+  frenzied:  { id:'frenzied',  name:'Frenzied',  color:'#ff4444', dmgMul:1.8, speed:1.15 },
+  shielded:  { id:'shielded',  name:'Shielded',  color:'#88aaff', hpMul:2.4, regen:5 },
+  explosive: { id:'explosive', name:'Explosive', color:'#ff8833', deathR:2.6, deathDmg:24 },
+  healer:    { id:'healer',    name:'Vampiric',  color:'#44ff88', healAura:8, auraR:4 },
+  phasing:   { id:'phasing',   name:'Phasing',   color:'#bb88ff', blink:true },
+};
+G.ELITE_AFFIX_IDS = Object.keys(G.ELITE_AFFIXES);
+
 // ── ARPG loot: rarity tiers + random affix pool (see G.rollItem in utils) ─────
 // Each dropped piece of gear is a rolled INSTANCE: a base item from G.ITEMS plus
 // rarity-scaled base mods and 0–6 random prefix/suffix affixes drawn by item level.
