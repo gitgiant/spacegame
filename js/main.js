@@ -3374,7 +3374,7 @@ G.Game = class {
       if(jet)    G.charEquip(pc, 'backpack',  jet,    gear);
       // Grant the class's starting planet skill on hotbar slot 1.
       const sk = G.CLASS_PLANET_SKILL[pc.classId] || 'cleave';
-      if(!pc.skills.includes(sk)) { pc.skills.push(sk); pc.hotbar[0] = sk; }
+      if(!pc.skills.includes(sk)) { pc.skills.push(sk); pc.skillRank[sk] = 1; pc.hotbar[0] = sk; }
       G.charRecompute(pc);
     }
   }
@@ -3423,7 +3423,8 @@ G.Game = class {
     (ch.skillCd || (ch.skillCd = {}))[sk.id] = sk.cooldown;
     const mainDmg = G.gearDmg(ch.equip?.righthand) || G.gearDmg(ch.equip?.lefthand) || 12;
     const crit = Math.random() < (ch.critChance || 0.05);
-    const hit = (mul, ranged) => Math.max(1, Math.round(mainDmg * mul * (ranged ? (ch.rangedMul || 1) : (ch.meleeMul || 1)) * (crit ? 2 : 1)));
+    const rankMul = 1 + (G.charSkillRank(ch, sk.id) - 1) * 0.25;   // +25% power per rank
+    const hit = (mul, ranged) => Math.max(1, Math.round(mainDmg * mul * rankMul * (ranged ? (ch.rangedMul || 1) : (ch.meleeMul || 1)) * (crit ? 2 : 1)));
     if(sk.type === 'melee') {
       for(const n of pl.npcs) { if(n.ref.hp <= 0) continue; const d = this._planetDelta(pl, c.px, c.py, n.px, n.py);
         if(d.dist <= sk.radius + 0.4) { const l = d.dist || 1; if((d.dx / l) * aimx + (d.dy / l) * aimy > 0 || d.dist < 0.9) this._applyFootDamage(pl, n, hit(sk.dmgMul, false), c); } }
@@ -3443,7 +3444,7 @@ G.Game = class {
         if(d.dist <= sk.radius) { this._applyFootDamage(pl, n, hit(sk.dmgMul, false), c); if(sk.slow) n._slowT = Math.max(n._slowT || 0, sk.slow); } }
       pl._novaFx = { x: c.px, y: c.py, r: sk.radius, t: 0.45, color: sk.color };
     } else if(sk.type === 'heal') {
-      ch.hp = Math.min(ch.maxHp, ch.hp + Math.round(ch.maxHp * sk.healMul));
+      ch.hp = Math.min(ch.maxHp, ch.hp + Math.round(ch.maxHp * sk.healMul * rankMul));
       pl._novaFx = { x: c.px, y: c.py, r: 1.6, t: 0.45, color: sk.color };
     }
     G.sound?.uiClick?.();

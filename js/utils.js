@@ -914,6 +914,7 @@ G.makeCharacter = function(opts = {}) {
     armor: 0,
     equip: {},                  // paper-doll slot -> gear INSTANCE (or null)
     skills: [],                 // unlocked skill ids
+    skillRank: {},              // skill id -> rank (1..MAX)
     hotbar: [null, null, null, null],   // hotbar 1-4 -> skill id
     skillCd: {},                // skill id -> cooldown remaining
     isPlayer: !!opts.isPlayer,
@@ -943,6 +944,7 @@ G.ensureCharFields = function(c) {
   if(c.attrPoints == null)  c.attrPoints = 0;
   if(c.skillPoints == null) c.skillPoints = 0;
   if(!Array.isArray(c.skills))  c.skills = [];
+  if(!c.skillRank || typeof c.skillRank !== 'object') c.skillRank = {};
   if(!Array.isArray(c.hotbar))  c.hotbar = [null, null, null, null];
   if(!c.skillCd || typeof c.skillCd !== 'object') c.skillCd = {};
   if(!c.equip || typeof c.equip !== 'object') c.equip = {};
@@ -950,16 +952,52 @@ G.ensureCharFields = function(c) {
   return c;
 };
 
-// Unlock a skill (costs 1 skill point) and slot it on the first empty hotbar
-// slot. Returns true on success.
+G.SKILL_MAX_RANK = 5;
+
+// Unlock a skill (costs 1 skill point), set rank 1, slot it on the first empty
+// hotbar slot. Returns true on success.
 G.charUnlockSkill = function(c, skillId) {
   if(!G.CHAR_SKILLS?.[skillId] || c.skills.includes(skillId)) return false;
   if((c.skillPoints || 0) < 1) return false;
   c.skillPoints--;
   c.skills.push(skillId);
+  c.skillRank[skillId] = 1;
   const free = c.hotbar.indexOf(null);
   if(free >= 0) c.hotbar[free] = skillId;
   return true;
+};
+
+// Rank up an already-unlocked skill (costs 1 skill point, capped at MAX).
+G.charRankSkill = function(c, skillId) {
+  if(!c.skills.includes(skillId)) return false;
+  if((c.skillPoints || 0) < 1) return false;
+  const r = c.skillRank[skillId] || 1;
+  if(r >= G.SKILL_MAX_RANK) return false;
+  c.skillRank[skillId] = r + 1; c.skillPoints--;
+  return true;
+};
+// Effective skill power multiplier from rank (each rank +25%).
+G.charSkillRank = (c, skillId) => c?.skillRank?.[skillId] || 1;
+
+// Spend 1 attribute point into a primary attribute ('str'|'dex'|'int'|'vit').
+G.charSpendAttr = function(c, attr) {
+  const key = 'base' + attr.charAt(0).toUpperCase() + attr.slice(1);
+  if((c.attrPoints || 0) < 1 || !(key in c)) return false;
+  c[key]++; c.attrPoints--;
+  G.charRecompute(c);
+  return true;
+};
+
+// Refund all spent attribute + skill points back to the pools and reset to base.
+G.charRespec = function(c) {
+  const A = G.CHAR_ATTRS;
+  c.attrPoints = (c.attrPoints || 0) + (c.baseStr - A.str) + (c.baseDex - A.dex) + (c.baseInt - A.int) + (c.baseVit - A.vit);
+  c.baseStr = A.str; c.baseDex = A.dex; c.baseInt = A.int; c.baseVit = A.vit;
+  let refund = 0;
+  for(const id of c.skills) refund += (c.skillRank[id] || 1);   // unlock + each rank cost a point
+  c.skillPoints = (c.skillPoints || 0) + refund;
+  c.skills = []; c.skillRank = {}; c.hotbar = [null, null, null, null];
+  G.charRecompute(c);
 };
 
 // ── Gear value resolvers ─────────────────────────────────────────────────────

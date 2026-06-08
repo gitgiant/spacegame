@@ -1560,10 +1560,12 @@ G.UI = class {
       ${bar('MANA', pc.mana, pc.maxMana, 'linear-gradient(90deg,#3366ff,#33aaff)')}
       ${bar('ENERGY', pc.energy, pc.maxEnergy, 'linear-gradient(90deg,#ffcc00,#ffee66)')}
       <div style="display:flex;align-items:center;font-size:6px"><span style="color:#8899aa;margin-right:6px">ARMOR</span><span style="color:#ccddff">🛡 ${pc.armor}</span></div>
-    </div>
-    <div style="display:flex;flex-wrap:wrap;gap:4px 12px;font-size:6px;margin-bottom:10px;text-align:left">
+    </div>`;
+    const plusBtn = pc.attrPoints > 0 ? ` <span data-attr="@" style="cursor:pointer;color:#44ff88;border:1px solid #2a6a3a;border-radius:2px;padding:0 2px">+</span>` : '';
+    const pAttr = (lbl, key, v) => `<span style="color:#8899aa">${lbl}</span> <span style="color:#dfe8f4">${v}</span>${plusBtn.replace('@', key)}`;
+    const stats2 = `<div style="display:flex;flex-wrap:wrap;gap:4px 12px;font-size:6px;margin-bottom:10px;text-align:left">
       ${attr('LVL', pc.level)} ${attr('XP', Math.round(pc.xp) + '/' + need)}
-      ${attr('STR', pc.str)} ${attr('DEX', pc.dex)} ${attr('INT', pc.int)} ${attr('VIT', pc.vit)}
+      ${pAttr('STR', 'str', pc.str)} ${pAttr('DEX', 'dex', pc.dex)} ${pAttr('INT', 'int', pc.int)} ${pAttr('VIT', 'vit', pc.vit)}
       ${attr('CRIT', Math.round((pc.critChance||0)*100) + '%')}
       ${pc.attrPoints ? `<span style="color:#ffcc44">${pc.attrPoints} attr pts</span>` : ''}
     </div>`;
@@ -1589,23 +1591,38 @@ G.UI = class {
       ${sorted.length
         ? `<div style="display:flex;flex-wrap:wrap;gap:3px;max-height:120px;overflow-y:auto">${sorted.map(({ inst, i }) => { const col = G.gearColor(inst); return `<div data-gidx="${i}" title="${tip(inst)}" style="background:rgba(0,20,40,0.9);border:1px solid ${col}88;padding:3px 5px;font-size:5px;cursor:pointer"><span style="color:${col}">${G.gearIcon(inst)} ${G.gearName(inst)}</span></div>`; }).join('')}</div>`
         : `<div style="font-size:5px;color:#445566;text-align:left">No loose gear. Kill enemies on the surface for drops.</div>`}`;
-    // Skills: unlock with banked skill points; shows hotbar slot assignment.
-    const skills = `<div style="font-size:5px;color:#556677;margin:10px 0 4px;letter-spacing:2px;text-align:left">SKILLS${pc.skillPoints ? ` · <span style="color:#ffcc44">${pc.skillPoints} pts</span>` : ''} <span style="color:#445566">(hotbar 1-4 on the surface)</span></div>
+    // Skills: unlock / rank up with banked skill points; respec to refund.
+    const skills = `<div style="font-size:5px;color:#556677;margin:10px 0 4px;letter-spacing:2px;text-align:left;display:flex;justify-content:space-between;align-items:center">
+        <span>SKILLS${pc.skillPoints ? ` · <span style="color:#ffcc44">${pc.skillPoints} pts</span>` : ''} <span style="color:#445566">(hotbar 1-4)</span></span>
+        <span data-respec="1" style="cursor:pointer;color:#ff8844;border:1px solid #6a3a2a;border-radius:2px;padding:1px 5px">RESPEC</span>
+      </div>
       <div style="display:flex;flex-wrap:wrap;gap:3px">${G.CHAR_SKILL_IDS.map(id => {
-        const s = G.CHAR_SKILLS[id], unlocked = pc.skills.includes(id), slot = pc.hotbar.indexOf(id), can = !unlocked && pc.skillPoints > 0;
+        const s = G.CHAR_SKILLS[id], unlocked = pc.skills.includes(id), slot = pc.hotbar.indexOf(id), rank = G.charSkillRank(pc, id), maxed = rank >= G.SKILL_MAX_RANK;
+        const can = pc.skillPoints > 0 && (!unlocked || !maxed);
+        const tag = !unlocked ? (pc.skillPoints > 0 ? '<span style="color:#ffcc44">+unlock</span>' : '<span style="color:#556677">locked</span>')
+                  : (maxed ? '<span style="color:#88bbff">MAX</span>' : (pc.skillPoints > 0 ? '<span style="color:#ffcc44">+rank</span>' : ''));
         return `<div data-skill="${id}" title="${(s.desc || '').replace(/"/g,'')} — ${s.mana} mana · ${s.cooldown}s" style="background:rgba(0,20,40,0.9);border:1px solid ${s.color}${unlocked ? '' : '44'};padding:3px 5px;font-size:5px;cursor:${can ? 'pointer' : 'default'};opacity:${unlocked || can ? 1 : 0.45}">
-          <span style="color:${s.color}">${s.icon} ${s.name}</span>${unlocked ? (slot >= 0 ? ` <span style="color:#9fb3c8">[${slot + 1}]</span>` : '') : (can ? ' <span style="color:#ffcc44">+unlock</span>' : ' <span style="color:#556677">locked</span>')}</div>`;
+          <span style="color:${s.color}">${s.icon} ${s.name}${unlocked ? ` R${rank}` : ''}</span>${unlocked && slot >= 0 ? ` <span style="color:#9fb3c8">[${slot + 1}]</span>` : ''} ${tag}</div>`;
       }).join('')}</div>`;
-    host.innerHTML = stats + doll + inv + skills;
+    host.innerHTML = stats + stats2 + doll + inv + skills;
+    // Attribute points — click + to spend.
+    host.querySelectorAll('[data-attr]').forEach(el => {
+      el.addEventListener('click', () => { if(G.charSpendAttr(pc, el.dataset.attr)) this.showCharScreen(); });
+    });
     // Equipment slots — click to unequip.
     host.querySelectorAll('[data-eslot]').forEach(el => {
       const slot = el.dataset.eslot;
       el.addEventListener('click', () => { if(pc.equip[slot] && G.charUnequip(pc, slot, gear)) this.showCharScreen(); });
     });
-    // Skills — click a locked one to unlock (spends a skill point).
+    // Skills — click to unlock (if locked) or rank up (if unlocked).
     host.querySelectorAll('[data-skill]').forEach(el => {
-      el.addEventListener('click', () => { if(G.charUnlockSkill(pc, el.dataset.skill)) this.showCharScreen(); });
+      el.addEventListener('click', () => {
+        const id = el.dataset.skill;
+        const ok = pc.skills.includes(id) ? G.charRankSkill(pc, id) : G.charUnlockSkill(pc, id);
+        if(ok) this.showCharScreen();
+      });
     });
+    host.querySelector('[data-respec]')?.addEventListener('click', () => { G.charRespec(pc); this.showCharScreen(); });
     // Inventory — click to equip into the first matching slot.
     host.querySelectorAll('[data-gidx]').forEach(el => {
       el.addEventListener('click', () => {
