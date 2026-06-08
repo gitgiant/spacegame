@@ -2133,6 +2133,26 @@ G.Renderer = class {
       if(rot) { ctx.save(); ctx.translate(c.x|0, c.y|0); ctx.rotate(rot*Math.PI/2); ctx.drawImage(tile, -Rt, -Rt, Tt, Tt); ctx.restore(); }
       else ctx.drawImage(tile, (c.x-Rt)|0, (c.y-Rt)|0, Tt, Tt);
     }
+    // Sword sweep visualization (1-hex forward arc)
+    if(pl.selected && pl.selected._sweptHexes && pl.selected._swingT > 0) {
+      const hexPath = (q, r) => {
+        const u = G.hexToPixel(q, r, 1);
+        const R = S * 1.02;
+        const x = ox + u.x * S, y = oy + u.y * S;
+        ctx.beginPath();
+        for(let i=0;i<6;i++) {
+          const a = Math.PI/6 + i*Math.PI/3;
+          const hx = x + R*Math.cos(a), hy = y + R*Math.sin(a);
+          i ? ctx.lineTo(hx, hy) : ctx.moveTo(hx, hy);
+        }
+        ctx.closePath();
+      };
+      for(const hex of pl.selected._sweptHexes) {
+        hexPath(hex.q, hex.r);
+        ctx.fillStyle = 'rgba(255,200,100,0.3)'; ctx.fill();
+        ctx.strokeStyle = '#ffcc44'; ctx.globalAlpha = 0.6; ctx.lineWidth = 1.5; ctx.stroke(); ctx.globalAlpha = 1;
+      }
+    }
     // Crew + NPCs + selection + order target (animated sprites). NPCs draw a
     // disposition-coloured ring; airborne characters (jump/jetpack) lift up the
     // screen with a ground shadow that stays put.
@@ -4619,6 +4639,7 @@ G.Game = class {
       const ch = c.ref;
       c._noRegenT = Math.max(0, (c._noRegenT || 0) - dt);
       c._swingT   = Math.max(0, (c._swingT   || 0) - dt);
+      if(c._swingT <= 0) c._sweptHexes = null;  // Clear swept hexes after swing ends
       c._hurtT    = Math.max(0, (c._hurtT    || 0) - dt);
       if(ch.hp > 0 && ch.hp < ch.maxHp && c._noRegenT <= 0) ch.hp = Math.min(ch.maxHp, ch.hp + 4 * dt);
     }
@@ -4712,7 +4733,9 @@ G.Game = class {
           this._applyFootDamage(pl, n, wpn.dmg || 18, c);
         }
       }
-      c._swingT = 0.18; G.sound?.weapon?.('cannon');
+      c._swingT = 0.18;
+      c._sweptHexes = targets;  // Store for visual display
+      G.sound?.weapon?.('cannon');
     }
   }
 
