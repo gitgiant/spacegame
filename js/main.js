@@ -2055,7 +2055,7 @@ G.Renderer = class {
     const LIFT = Math.max(2, Math.round(S * 0.18)); // screen-px height per tier
     const apo = R * Math.cos(Math.PI/6);            // hex apothem (centre→edge)
     const levelOf = t => (t && !WATER.has(t.biome)) ? (t.level||0) : 0;
-    const animFrame = (Date.now() / 230 | 0) % 4;   // 4-frame terrain loop (~4.3 fps)
+    const animFrame = (Date.now() / 420 | 0) % 4;   // 4-frame terrain loop (~2.4 fps, gentle)
     const hexPath = (x, y) => { ctx.beginPath(); for(let i=0;i<6;i++){ const a=Math.PI/6+i*Math.PI/3; const hx=x+R*Math.cos(a), hy=y+R*Math.sin(a); i?ctx.lineTo(hx,hy):ctx.moveTo(hx,hy); } ctx.closePath(); };
     // Visible (q,r) window from camera + screen extent (+margin for lift).
     const halfW = G.CANVAS_W/(2*S), halfH = G.CANVAS_H/(2*S);

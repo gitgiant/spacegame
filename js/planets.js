@@ -910,20 +910,23 @@ G.TerrainTiles = {
     const g = c.createLinearGradient(0, 0, 0, Z);
     g.addColorStop(0, pal[0]); g.addColorStop(1, pal[1]);
     c.fillStyle = g; c.fillRect(0, 0, Z, Z);
-    const rng = G.seededRng(biome + '_' + frame), ph = frame / 4 * Math.PI * 2;
+    // Base art is seeded by biome ONLY (identical every frame); a small per-frame
+    // phase nudges a few elements so tiles read as mostly static, gently alive.
+    const rng = G.seededRng(biome), ph = frame / 4 * Math.PI * 2;
+    const wob = Math.sin(ph);                         // -1..1 small offset driver
     const WATER = { deep_water:1, ocean:1, shallow_water:1, river:1, coast:1, liquid:1 };
     if(WATER[biome]) {
-      const lo = sh(pal[0], 1.16), hi = sh(pal[0], 1.34), scroll = frame * 5;
+      const lo = sh(pal[0], 1.16), hi = sh(pal[0], 1.34), off = Math.round(wob * 1.5);   // tiny drift
       for(let row = 4; row < Z; row += 7) {
-        const odd = ((row / 7) | 0) % 2, off = (scroll + (odd ? 4 : 0)) % 16;
-        for(let x = -16; x < Z; x += 16) P(x + off, row + Math.sin((x + scroll) * 0.2) * 1.5, odd ? hi : lo, 10, 2);
+        const odd = ((row / 7) | 0) % 2;
+        for(let x = -16; x < Z; x += 16) P(x + (odd ? 6 : 0) + off, row, odd ? hi : lo, 10, 2);
       }
-      if(biome === 'liquid') { const gl = 0.45 + 0.4 * (0.5 + 0.5 * Math.sin(ph)); P(Z*0.32, Z*0.34, `rgba(255,238,170,${gl})`, Z*0.36, Z*0.30); }
+      if(biome === 'liquid') { const gl = 0.5 + 0.15 * wob; P(Z*0.32, Z*0.34, `rgba(255,238,170,${gl})`, Z*0.36, Z*0.30); }
       c.restore(); this._tileEdge(c, Z); return;
     }
     const VEG = { grassland:['#2c7a20',16,1], valley:['#2f8a26',14,1], hills:['#39862a',12,2], forest:['#246b22',8,3], jungle:['#1e6b2a',10,3] };
     if(VEG[biome]) {
-      const [col, n, type] = VEG[biome], sway = Math.sin(ph) * 2;
+      const [col, n, type] = VEG[biome], sway = wob * 0.9;                 // gentle top-only sway
       for(let i = 0; i < n; i++) {
         const x = rng() * Z, y = Z * 0.25 + rng() * Z * 0.7, near = y > Z * 0.55 ? 1 : 0.5;
         if(type >= 2) { P(x - 1, y, '#5a3a1a', 2, 6); P(x - 4 + sway*near, y - 8, sh(col, 0.78), 8, 5); P(x - 3 + sway*near, y - 11, sh(col, 1.12), 6, 4); }
@@ -938,10 +941,12 @@ G.TerrainTiles = {
       building:['#7a8290','#3a4050',12],
     }[biome] || [sh(pal[0], 1.2), sh(pal[1], 0.85), 14];
     const [c1, c2, n] = spec;
-    for(let i = 0; i < n; i++) { const x = rng() * Z, y = rng() * Z, s = 2 + rng() * 3; P(x, y, rng() < 0.5 ? c1 : c2, s, s); }
+    for(let i = 0; i < n; i++) { const x = rng() * Z, y = rng() * Z, s = 2 + rng() * 3; P(x, y, rng() < 0.5 ? c1 : c2, s, s); }   // static speckle
     if(biome === 'mountain' || biome === 'ridge') { P(Z*0.5 - 6, Z*0.5, sh(pal[1], 0.7), 12, 8); P(Z*0.5, Z*0.32, biome === 'mountain' ? '#f4faff' : sh(pal[0], 1.1), 5, 4); }
+    // Only a couple of fixed-position sparkles twinkle (brightness), not position.
     if(biome === 'glacier' || biome === 'tundra' || biome === 'spaceport') {
-      for(let i = 0; i < 4; i++) { const x = rng() * Z, y = rng() * Z, tw = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(ph + i)); P(x, y, `rgba(255,255,255,${tw})`, 2, 2); }
+      const spk = [[Z*0.3, Z*0.32], [Z*0.62, Z*0.55], [Z*0.45, Z*0.7]];
+      for(let i = 0; i < spk.length; i++) { const tw = 0.35 + 0.45 * (0.5 + 0.5 * Math.sin(ph + i * 2)); P(spk[i][0], spk[i][1], `rgba(255,255,255,${tw})`, 2, 2); }
     }
     if(biome === 'spaceport') { const ln = 'rgba(230,236,246,0.85)'; P(Z*0.32, Z*0.3, ln, 3, Z*0.4); P(Z*0.62, Z*0.3, ln, 3, Z*0.4); P(Z*0.32, Z*0.46, ln, Z*0.33, 3); }
     if(biome === 'settlement' || biome === 'building') { P(Z*0.3, Z*0.34, sh(c2, 0.8), Z*0.22, Z*0.3); P(Z*0.52, Z*0.42, sh(c2, 0.9), Z*0.18, Z*0.22); P(Z*0.34, Z*0.3, '#9a4838', Z*0.18, 4); }
