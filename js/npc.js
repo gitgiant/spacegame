@@ -838,7 +838,10 @@ G.NPCShip = class extends G.ShipEntity {
           const drag = Math.pow(0.85, dt * 60);
           this.vx *= drag; this.vy *= drag;
         }
-        if(dist2 < 200) {
+        // Check if in same hex as docked planet
+        const npcHex = G.worldToHex(this.x, this.y);
+        const dockHex = { q: this.dockBody?.hexQ, r: this.dockBody?.hexR };
+        if(this.dockBody && G.hexDist(npcHex.q, npcHex.r, dockHex.q, dockHex.r) === 0) {
           // Compute a parking spot at the planet's edge in the current approach direction
           const pAngle = Math.atan2(this.y - this.targetY, this.x - this.targetX);
           const parkDist = (this.dockBody?.r || 50) + (this.size||1) * 14 + 20;
