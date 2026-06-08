@@ -4671,7 +4671,7 @@ G.Game = class {
     } else {
       const range = wpn.range || 1.3;
       for(const n of pl.npcs) { if(n.ref.hp <= 0) continue; const d = this._planetDelta(pl, c.px, c.py, n.px, n.py); if(d.dist <= range + 0.5) { const l = d.dist || 1; if((d.dx / l) * aimx + (d.dy / l) * aimy > 0 || d.dist < 0.8) this._applyFootDamage(pl, n, wpn.dmg || 18, c); } }
-      c._swingT = 0.18; G.sound?.uiClick?.();
+      c._swingT = 0.18; G.sound?.weapon?.('cannon');
     }
   }
 
