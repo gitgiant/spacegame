@@ -973,6 +973,31 @@ G.Sprites = {
       r('#ff4444',2,2,4,2); r('#ff4444',10,2,4,2);  // red warheads
       r('#ffdddd',2,2,2,1); r('#ffdddd',10,2,2,1);  // warhead tips
     },
+    // Pressurized exterior hatch — teal door with seam, latch and status light.
+    airlock(ctx) {
+      const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
+      r('#0a2535',0,0,16,16);           // frame
+      r('#1a6a80',2,2,12,12);           // teal door face
+      r('#2290aa',2,2,12,3);            // top ambient sheen
+      r('#0a3545',2,11,12,3);           // bottom shadow
+      r('#0a2535',2,2,2,12);            // left bevel
+      r('#0a2535',12,2,2,12);           // right bevel
+      r('#0c3548',4,4,8,8);             // inner panel recess
+      r('#1a6a80',4,4,8,1);             // panel top edge
+      r('#0a2535',7,2,2,12);            // vertical door seam
+      r('#cc9900',5,9,5,3);             // latch/handle bar
+      r('#ffcc22',5,9,3,1);             // latch highlight
+      r('#22cc55',12,2,2,2);            // status indicator (green = pressurized)
+    },
+    // Corridor floor with crossing stripe — walkable hallway passage.
+    hallway(ctx) {
+      const r=(c,x,y,w,h)=>G.Sprites._rc(ctx,c,x,y,w,h);
+      r('#182028',0,0,16,16);           // dark floor base
+      r('#1e2c3c',2,2,12,12);           // inner floor panel
+      r('#3388bb',7,0,2,16);            // vertical corridor stripe
+      r('#3388bb',0,7,16,2);            // horizontal corridor stripe
+      r('#66bbee',7,7,2,2);             // center junction bright
+    },
   },
 };
 

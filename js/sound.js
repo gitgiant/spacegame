@@ -1891,6 +1891,49 @@ G.SoundEngine = class {
     }
   }
 
+  airlockOpen() {
+    if(!this.enabled) return;
+    const ac = this._ctx(), now = ac.currentTime;
+    // Air hissing out: noise burst sweeping high→low freq, then mechanical clunk
+    const src = ac.createBufferSource(); src.buffer = this._noise(0.9);
+    const flt = ac.createBiquadFilter(); flt.type = 'bandpass';
+    flt.frequency.setValueAtTime(3200, now); flt.frequency.exponentialRampToValueAtTime(800, now + 0.7);
+    flt.Q.value = 1.2;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.22, now); g.gain.setValueAtTime(0.20, now + 0.5);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+    src.connect(flt); flt.connect(g); g.connect(this._master);
+    src.start(now); src.stop(now + 0.92);
+    // Low mechanical thunk at the end (hatch unlocking)
+    const osc = ac.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = 95;
+    const g2 = ac.createGain();
+    g2.gain.setValueAtTime(0.001, now + 0.55); g2.gain.linearRampToValueAtTime(0.14, now + 0.58);
+    g2.gain.exponentialRampToValueAtTime(0.001, now + 0.72);
+    osc.connect(g2); g2.connect(this._master);
+    osc.start(now + 0.55); osc.stop(now + 0.73);
+  }
+
+  airlockClose() {
+    if(!this.enabled) return;
+    const ac = this._ctx(), now = ac.currentTime;
+    // Mechanical clunk first, then air rushing in (low→high freq sweep)
+    const osc = ac.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = 80;
+    const g0 = ac.createGain();
+    g0.gain.setValueAtTime(0.18, now); g0.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+    osc.connect(g0); g0.connect(this._master);
+    osc.start(now); osc.stop(now + 0.19);
+    // Air sucking inward: noise sweeping low→high
+    const src = ac.createBufferSource(); src.buffer = this._noise(0.75);
+    const flt = ac.createBiquadFilter(); flt.type = 'bandpass';
+    flt.frequency.setValueAtTime(500, now + 0.1); flt.frequency.exponentialRampToValueAtTime(2800, now + 0.7);
+    flt.Q.value = 1.4;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.001, now + 0.1); g.gain.linearRampToValueAtTime(0.18, now + 0.25);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.75);
+    src.connect(flt); flt.connect(g); g.connect(this._master);
+    src.start(now + 0.1); src.stop(now + 0.76);
+  }
+
   // ── White noise buffer helper ────────────────────────────
   _noise(duration) {
     const ac  = this._ac;

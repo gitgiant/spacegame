@@ -920,7 +920,17 @@ G.makeCharacter = function(opts = {}) {
     isPlayer: !!opts.isPlayer,
   };
   for(const s of G.EQUIP_SLOTS) c.equip[s] = null;
+  if(opts.noGear !== true) G.starterEquip(c);
   G.charRecompute(c);
+  return c;
+};
+
+// Fill a character's equip slots with class/role starter gear (no rings/necklace).
+G.starterEquip = function(c) {
+  for(const [slot, id] of Object.entries(G.STARTER_ARMOR)) if(G.ITEMS[id]) c.equip[slot] = id;
+  const w = (c.classId && G.CLASS_LOADOUT[c.classId]) || G.ROLE_LOADOUT[c.role] || { righthand: 'pistol' };
+  c.equip.righthand = w.righthand || null;
+  c.equip.lefthand  = w.lefthand  || null;
   return c;
 };
 

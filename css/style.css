@@ -522,6 +522,7 @@ html, body {
 }
 #char-screen-overlay.hidden { display: none; }
 #char-screen-box {
+  position: relative;
   background: #050e1a; border: 1px solid var(--col-border);
   padding: 22px 28px; text-align: center; min-width: 760px; max-width: min(940px, 97vw);
   max-height: 93vh; overflow-y: auto;

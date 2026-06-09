@@ -106,7 +106,10 @@
       "Bash(rtk ps *)",
       "Bash(curl -s http://localhost:8080)",
       "Bash(lsof -ti:8080)",
-      "Bash(xargs kill -9)"
+      "Bash(xargs kill -9)",
+      "Bash(pkill -f \"http.server 8080\")",
+      "Bash(kill 14770)",
+      "Bash(rtk gain *)"
     ]
   }
 }

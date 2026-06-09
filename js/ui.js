@@ -18,6 +18,7 @@ G.SLOT_RING = {
   power:   { angle:  10, r:0.32, color:'#ffff44' },
   hull:    { angle: 180, r:0.28, color:'#667799' },
   airlock: { angle: 180, r:0.28, color:'#33bbcc' },
+  hallway: { angle:  90, r:0.30, color:'#4499cc' },
 };
 
 G.UI = class {
@@ -1716,6 +1717,7 @@ G.UI = class {
 
     // === Event binding ===
     // Equipment slots (static HTML in #cs-doll-wrap)
+    const tooltip = document.getElementById('equip-tooltip');
     document.querySelectorAll('.cs-equip-slot').forEach(el => {
       const slot = el.dataset.eslot;
       el.addEventListener('click', () => { if(pc.equip[slot] && G.charUnequip(pc, slot, gear)) this.showCharScreen(); });
@@ -1726,6 +1728,21 @@ G.UI = class {
       });
       el.addEventListener('dragover', ev => { ev.preventDefault(); ev.dataTransfer.dropEffect='move'; el.style.opacity='0.6'; });
       el.addEventListener('dragleave', () => { el.style.opacity='1'; });
+      el.addEventListener('mouseover', ev => {
+        if(!pc.equip[slot]) return;
+        const lines = G.gearTooltip(pc.equip[slot]);
+        tooltip.innerHTML = lines.map(line =>
+          `<div style="color:${line.c};font-weight:${line.head?'bold':'normal'};margin-bottom:${line.head?'2px':'0px'}">${line.t}</div>`
+        ).join('');
+        const elRect = el.getBoundingClientRect();
+        const boxRect = document.getElementById('char-screen-box').getBoundingClientRect();
+        const relLeft = elRect.right - boxRect.left + 8;
+        const relTop = elRect.top - boxRect.top;
+        tooltip.style.left = relLeft + 'px';
+        tooltip.style.top = relTop + 'px';
+        tooltip.classList.remove('hidden');
+      });
+      el.addEventListener('mouseout', () => { tooltip.classList.add('hidden'); });
       el.addEventListener('drop', ev => {
         el.style.opacity='1'; ev.preventDefault();
         const srcSlot = ev.dataTransfer.getData('app/equip-slot');
@@ -2123,6 +2140,7 @@ G.UI = class {
         if(G.MODULES[inst.moduleId]?.slot === 'hull' || G.MODULES[inst.moduleId]?.slot === 'airlock') { p.slots[inst.slotIdx] = null; delete p.modules[id]; }
       }
       p._wrapHull();
+      p._placeAirlocks();
       p._hullSig = sig;
     }
   }

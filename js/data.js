@@ -481,6 +481,26 @@ G.MODULES = {
     visual:'hull',
   },
 
+  // Airlocks — pressurized hull hatches. Auto-placed on the hull ring adjacent to corridors.
+  // Characters enter/exit the ship here; visible to enemy crews even before scanning.
+  airlock: {
+    id:'airlock', name:'Airlock', slot:'airlock',
+    stats:{ maxHull:+20, armor:+2, mass:+30 },
+    energyDraw:1, hp:80, price:800, rarity:'c',
+    desc:'Pressurized exterior hatch. Crew enter and exit here. Auto-placed on hull.',
+    visual:'airlock',
+  },
+
+  // Corridors — pressurized walkways forming a ring around the inner modules.
+  // The ONLY cells characters can move through inside the ship. Auto-placed.
+  hallway: {
+    id:'hallway', name:'Corridor', slot:'hallway',
+    stats:{ mass:+8 },
+    energyDraw:0, hp:50, price:100, rarity:'c',
+    desc:'Pressurized crew corridor. Characters can only move through corridors and airlocks.',
+    visual:'hallway',
+  },
+
   // ── Class Core Modules ────────────────────────────────────
   // One per ship template. Encodes hull stats (maxHull, energy, fuel, cargo, mass, turnBase).
   // Required to fly. Cannot be removed. Not sold in outfitter.
@@ -1415,6 +1435,29 @@ G.slotAccepts = function(paperSlot, equipSlot) {
   if(equipSlot === 'hand') return paperSlot === 'lefthand' || paperSlot === 'righthand';
   if(equipSlot === 'ring') return paperSlot === 'ring1' || paperSlot === 'ring2';
   return paperSlot === equipSlot;
+};
+
+// ── Starter loadout ───────────────────────────────────────
+// Every character spawns with all armor slots filled (rings + necklace stay
+// empty by design) plus a class/role weapon set. See G.starterEquip (utils.js).
+G.STARTER_ARMOR = { helm:'combat_helm', shoulders:'pauldrons', chest:'flak_vest',
+  bracers:'bracers', belt:'utility_belt', leggings:'greaves', boots:'combat_boots', backpack:'storage_pack' };
+// Per-class hands (right = main weapon, left = off-hand).
+G.CLASS_LOADOUT = {
+  space_marine:{ righthand:'pistol', lefthand:'shield' },
+  tank:        { righthand:'sword',  lefthand:'shield' },
+  knight:      { righthand:'sword',  lefthand:'shield' },
+  berserker:   { righthand:'sword',  lefthand:'sword'  },
+  monk:        { righthand:'sword',  lefthand:null     },
+  sniper:      { righthand:'pistol', lefthand:null     },
+  medic:       { righthand:'pistol', lefthand:null     },
+  hacker:      { righthand:'pistol', lefthand:null     },
+  tech_priest: { righthand:'pistol', lefthand:'shield' },
+};
+// Fallback hands by crew role when a character has no class.
+G.ROLE_LOADOUT = {
+  marine:{ righthand:'sword', lefthand:'shield' }, guard:{ righthand:'sword', lefthand:'shield' },
+  gunner:{ righthand:'pistol' }, pilot:{ righthand:'pistol' }, engineer:{ righthand:'pistol' }, medic:{ righthand:'pistol' },
 };
 
 // Disposition toward the player. Drives ring colour + planet behaviour.

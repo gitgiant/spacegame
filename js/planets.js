@@ -537,17 +537,25 @@ G.PTYPE_TERRAIN = {
   // sea: water line · mountainHt: ridge uplift · mtn: mountain elev threshold
   // baseTemp: global warmth offset · warmth: equator→pole swing · lapse: cooling
   // with altitude · arid: desert moisture cutoff
-  terran: { sea: 0.50, elevBias: 0.00, mountainHt: 0.60, mtn: 0.74, baseTemp: 0.16, warmth: 0.86, lapse: 1.10, arid: 0.30, liquid: 'water' },
-  ocean:  { sea: 0.68, elevBias: -0.10, mountainHt: 0.44, mtn: 0.82, baseTemp: 0.22, warmth: 0.80, lapse: 1.00, arid: 0.22, liquid: 'water' },
-  desert: { sea: 0.28, elevBias: 0.04, mountainHt: 0.68, mtn: 0.70, baseTemp: 0.46, warmth: 0.66, lapse: 0.90, arid: 0.60, liquid: 'water' },
-  rocky:  { sea: 0.30, elevBias: 0.03, mountainHt: 0.80, mtn: 0.66, baseTemp: 0.22, warmth: 0.70, lapse: 1.05, arid: 0.50, liquid: 'water' },
-  ice:    { sea: 0.46, elevBias: 0.00, mountainHt: 0.60, mtn: 0.72, baseTemp: -0.28, warmth: 0.55, lapse: 1.10, arid: 0.40, liquid: 'water' },
-  lava:   { sea: 0.42, elevBias: 0.05, mountainHt: 0.72, mtn: 0.68, baseTemp: 0.80, warmth: 0.35, lapse: 0.80, arid: 0.72, liquid: 'lava'  },
+  terran: { sea: 0.50, elevBias: 0.00, mountainHt: 0.38, mtn: 0.74, baseTemp: 0.16, warmth: 0.86, lapse: 1.10, arid: 0.30, liquid: 'water' },
+  ocean:  { sea: 0.68, elevBias: -0.10, mountainHt: 0.28, mtn: 0.82, baseTemp: 0.22, warmth: 0.80, lapse: 1.00, arid: 0.22, liquid: 'water' },
+  desert: { sea: 0.28, elevBias: 0.04, mountainHt: 0.44, mtn: 0.70, baseTemp: 0.46, warmth: 0.66, lapse: 0.90, arid: 0.60, liquid: 'water' },
+  rocky:  { sea: 0.30, elevBias: 0.03, mountainHt: 0.52, mtn: 0.66, baseTemp: 0.22, warmth: 0.70, lapse: 1.05, arid: 0.50, liquid: 'water' },
+  ice:    { sea: 0.46, elevBias: 0.00, mountainHt: 0.38, mtn: 0.72, baseTemp: -0.28, warmth: 0.55, lapse: 1.10, arid: 0.40, liquid: 'water' },
+  lava:   { sea: 0.42, elevBias: 0.05, mountainHt: 0.46, mtn: 0.68, baseTemp: 0.80, warmth: 0.35, lapse: 0.80, arid: 0.72, liquid: 'lava'  },
   gas:    { sea: 1.10, elevBias: 0.00, mountainHt: 0.20, mtn: 0.90, baseTemp: 0.40, warmth: 0.40, lapse: 0.50, arid: 0.50, liquid: 'cloud' },
 };
 
 // Walkable-on-foot biomes (others block crew movement).
 G.TERRAIN_IMPASSABLE = new Set(['deep_water','ocean','liquid']);
+G.SWIM_BIOMES = new Set(['deep_water','ocean']); // swimmable (not lava)
+
+// Biomes drawn as upright 3D props (rise above the tile, occlude what's behind)
+// instead of a flat motif icon. Flat biomes (water/sand/dirt/etc) keep the icon.
+G.TALL_BIOMES = new Set(['mountain','ridge','rocks','hills','forest','jungle','grassland','settlement','spaceport']);
+// Subset whose props are tall enough to hide a person standing on the tile
+// behind them (grass/hills are too short to occlude).
+G.PROP_OCCLUDERS = new Set(['mountain','ridge','rocks','forest','jungle','settlement','spaceport']);
 
 // Earth's real continents, as lon/lat ellipse blobs (deg). `h` weights peak
 // land height. Sampled equirectangularly so a "terran" world named Earth gets a
@@ -604,11 +612,15 @@ function _classifyBiome(elev, temp, moist, cfg, q, r, W, H, rng) {
   if(temp < 0.22) return 'glacier';
   if(temp < 0.34) return 'tundra';
   if(moist < cfg.arid) return 'desert';
-  if(elev < sea + 0.05) return 'valley';                       // low, well-watered basins
-  if(temp > 0.58 && moist > 0.64) return 'jungle';             // hot & very wet
-  if(moist > 0.54 && temp > 0.38) return 'forest';             // temperate & wet
-  if(elev > sea + (cfg.mtn - sea) * 0.55) return 'hills';      // upper land = rolling hills
-  if(moist > 0.42) return 'grassland';
+  if(elev < sea + 0.05) return 'valley';
+  // Altitude modifies effective temp/moisture so all biomes can appear at any elevation.
+  const upFrac = G.clamp((elev - (sea + 0.05)) / Math.max(0.01, cfg.mtn - sea - 0.05), 0, 1);
+  const adjTemp = temp - upFrac * 0.22;
+  const adjMoist = moist - upFrac * 0.08;
+  if(adjTemp > 0.55 && adjMoist > 0.60) return upFrac < 0.30 ? 'jungle' : 'forest';
+  if(adjMoist > 0.50 && adjTemp > 0.34) return 'forest';
+  if(adjMoist > 0.38 && adjTemp > 0.26) return 'grassland';
+  if(upFrac > 0.42) return adjMoist > 0.30 ? 'hills' : 'rocks';
   return 'dirt';
 }
 
@@ -661,6 +673,68 @@ function _traceRivers(tiles, W, H, rng) {
            && ['desert', 'dirt', 'rocks', 'tundra'].includes(b.biome)) { b.biome = 'grassland'; b.walkable = true; }
       }
     }
+  }
+}
+
+// Create inland lakes: BFS the main ocean, tag disconnected water bodies as lakes,
+// then find coast/valley clusters not adjacent to the ocean and convert some to lakes.
+function _placeLakes(tiles, W, H, rng) {
+  const at = (q, r) => { const w = G.wrapHex(W, H, q, r); return tiles.get(G.hexKey(w.q, w.r)); };
+
+  // BFS the main ocean from any water tile.
+  let oceanSeed = null;
+  for(const t of tiles.values()) { if(_WATER_BIOMES.has(t.biome)) { oceanSeed = t; break; } }
+  if(!oceanSeed) return;
+  const oceanSet = new Set();
+  const bq = [oceanSeed]; oceanSet.add(G.hexKey(oceanSeed.q, oceanSeed.r));
+  while(bq.length) {
+    const c = bq.shift();
+    for(const nb of G.hexNeighbors(c.q, c.r)) {
+      const w = G.wrapHex(W, H, nb.q, nb.r), k = G.hexKey(w.q, w.r);
+      if(oceanSet.has(k)) continue;
+      const nt = tiles.get(k);
+      if(nt && _WATER_BIOMES.has(nt.biome)) { oceanSet.add(k); bq.push(nt); }
+    }
+  }
+
+  // Any water tile not ocean-connected = natural inland lake.
+  for(const t of tiles.values()) {
+    if(_WATER_BIOMES.has(t.biome) && !oceanSet.has(G.hexKey(t.q, t.r))) {
+      t.biome = 'shallow_water'; t.walkable = false; t.lake = true;
+    }
+  }
+
+  // Find coast/valley clusters not adjacent to the ocean → synthetic lake basins.
+  const CANDS = new Set(['coast', 'valley']);
+  const seen = new Set();
+  const basins = [];
+  for(const seed of tiles.values()) {
+    if(!CANDS.has(seed.biome)) continue;
+    const k = G.hexKey(seed.q, seed.r);
+    if(seen.has(k)) continue;
+    const members = [], queue = [seed]; let touchesOcean = false;
+    while(queue.length) {
+      const c = queue.shift(), ck = G.hexKey(c.q, c.r);
+      if(seen.has(ck)) continue;
+      seen.add(ck); members.push(c);
+      for(const nb of G.hexNeighbors(c.q, c.r)) {
+        const w = G.wrapHex(W, H, nb.q, nb.r), nk = G.hexKey(w.q, w.r);
+        if(oceanSet.has(nk)) { touchesOcean = true; }
+        const nt = tiles.get(nk);
+        if(nt && CANDS.has(nt.biome) && !seen.has(nk)) queue.push(nt);
+      }
+    }
+    if(!touchesOcean && members.length >= 2 && members.length <= 50) basins.push(members);
+  }
+
+  // Shuffle and convert a selection to shallow-water lakes.
+  for(let i = basins.length - 1; i > 0; i--) { const j = (rng() * (i + 1)) | 0; [basins[i], basins[j]] = [basins[j], basins[i]]; }
+  const lakeTarget = G.clamp(2 + ((W * H / 5000) | 0), 2, 10);
+  let made = 0;
+  for(const basin of basins) {
+    if(made >= lakeTarget) break;
+    for(const t of basin) { t.biome = 'shallow_water'; t.walkable = false; t.lake = true; }
+    made++;
   }
 }
 
@@ -775,7 +849,7 @@ G.genPlanetTerrain = function(body) {
   if(body._terrain) return body._terrain;
   const ptype = body.ptype || 'rocky';
   const cfg = G.PTYPE_TERRAIN[ptype] || G.PTYPE_TERRAIN.rocky;
-  const seed = (body.name || 'planet') + '|' + ptype + '|v4';   // bump to regenerate all worlds
+  const seed = (body.name || 'planet') + '|' + ptype + '|v5';   // bump to regenerate all worlds
   // Wrapping rectangular hex field (torus) — no map edge. Very large surface
   // (~10x the previous tile count) so there's lots of room to roam; only the
   // visible tiles are drawn each frame, so size is cheap at render time.
@@ -810,7 +884,7 @@ G.genPlanetTerrain = function(body) {
       }
       // ── Layer 2: ridged mountain spines on land ──
       const ridge = 1 - Math.abs(elevN(nx * 1.1 + 20, ny * 1.1 + 20, 3) * 2 - 1);
-      if(elev > cfg.sea + 0.04) elev += ridge * ridge * cfg.mountainHt;
+      if(elev > cfg.sea + 0.04) elev += ridge * 0.65 * cfg.mountainHt;
       // ── Layer 3: climate ──
       const above = Math.max(0, elev - cfg.sea);
       const temp = G.clamp(cfg.baseTemp + warm * cfg.warmth - above * cfg.lapse + (moistN(nx + 13, ny + 7) - 0.5) * 0.12, 0, 1);
@@ -824,6 +898,7 @@ G.genPlanetTerrain = function(body) {
   }
   for(const t of tiles.values()) t.walkable = !G.TERRAIN_IMPASSABLE.has(t.biome);
   _traceRivers(tiles, W, H, rng);
+  _placeLakes(tiles, W, H, rng);
   // Spaceport worlds get a built-up site: a landing pad surrounded by a small
   // settlement, stamped onto a flat dry-land patch near the block centre.
   const port = body.hasSpaceport ? _placeSpaceport(tiles, W, H, rng) : null;
@@ -844,7 +919,7 @@ function _seedDeposits(tiles, W, H, rng) {
   const SKIP = new Set(['deep_water', 'ocean', 'shallow_water', 'liquid', 'river', 'coast', 'spaceport', 'settlement']);
   const land = [...tiles.values()].filter(t => t.walkable && !SKIP.has(t.biome) && !t.road);
   if(!land.length) return;
-  const target = G.clamp(Math.round((W * H) / 2200), 10, 120);
+  const target = G.clamp(Math.round((W * H) / 220), 10, 120);
   for(let i = 0; i < target; i++) {
     const t = land[(rng() * land.length) | 0];
     if(t.ore) continue;

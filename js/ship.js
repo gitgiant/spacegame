@@ -205,22 +205,38 @@ G.Ship = class extends G.ShipEntity {
         used.add(G.hexKey(cr.q, cr.r)); continue;          // keep valid saved cell
       }
       const claim = (pred) => cells.find(c => !used.has(G.hexKey(c.q, c.r)) && pred(c));
+      const isWalkable = c => c.slot === 'hallway' || c.slot === 'airlock';
       let cell = null;
-      if(cr.role === 'pilot')        cell = claim(c => c.slot === 'cockpit');
-      else if(cr.role === 'gunner')  cell = claim(c => c.slot === 'weapon' || c.slot === 'turret');
-      else if(cr.role === 'engineer')cell = claim(c => c.slot === 'power');
-      cell = cell || claim(c => c.slot !== 'hull') || claim(() => true);
+      if(cr.role === 'pilot') {
+        // Prefer hallway adjacent to cockpit so pilot can move; fall back to cockpit directly
+        const ck = cells.find(x => x.slot === 'cockpit');
+        if(ck) cell = claim(c => isWalkable(c) && G.hexDist(c.q, c.r, ck.q, ck.r) === 1);
+        cell = cell || claim(c => c.slot === 'cockpit');
+      } else if(cr.role === 'gunner') {
+        cell = claim(c => isWalkable(c) && G.hexNeighbors(c.q, c.r).some(nb => {
+          const s = this._slotAt(nb.q, nb.r); return s === 'weapon' || s === 'turret';
+        }));
+        cell = cell || claim(c => c.slot === 'weapon' || c.slot === 'turret');
+      } else if(cr.role === 'engineer') {
+        cell = claim(c => isWalkable(c) && G.hexNeighbors(c.q, c.r).some(nb => this._slotAt(nb.q, nb.r) === 'power'));
+        cell = cell || claim(c => c.slot === 'power');
+      }
+      cell = cell || claim(isWalkable) || claim(c => c.slot !== 'hull') || claim(() => true);
       if(cell) { cr.q = cell.q; cr.r = cell.r; used.add(G.hexKey(cell.q, cell.r)); }
       else { cr.q = 0; cr.r = 0; }
       cr.px = null; cr.py = null; cr.path = null; cr.order = null;
     }
   }
 
-  // True if a non-EVA crew member occupies a live cockpit cell.
+  // True if a non-EVA crew member is at the cockpit or in an adjacent corridor.
   hasPilot() {
     for(const cr of this.crew) {
       if(cr.eva) continue;
-      if(this._slotAt(cr.q, cr.r) === 'cockpit') return true;
+      const slot = this._slotAt(cr.q, cr.r);
+      if(slot === 'cockpit') return true;
+      if(slot === 'hallway' || slot === 'airlock') {
+        if(G.hexNeighbors(cr.q, cr.r).some(nb => this._slotAt(nb.q, nb.r) === 'cockpit')) return true;
+      }
     }
     return false;
   }
@@ -456,10 +472,10 @@ G.Ship = class extends G.ShipEntity {
   // pointy-top hex grid (core at origin, weapons fore, thrusters aft, rest
   // compact), then wrap the whole assembly in a hull-panel perimeter.
   _generateHexLayout(tpl) {
-    // Drop any existing hull panels and clear all positions — we rebuild from scratch.
+    // Drop any existing hull panels, hallways, and airlocks — rebuild all three from scratch.
     for(const [id, inst] of Object.entries(this.modules)) {
       const m = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
-      if(m && m.slot === 'hull') { this.slots[inst.slotIdx] = null; delete this.modules[id]; }
+      if(m && (m.slot === 'hull' || m.slot === 'hallway' || m.slot === 'airlock')) { this.slots[inst.slotIdx] = null; delete this.modules[id]; }
       else { inst.q = null; inst.r = null; }
     }
 
@@ -548,6 +564,34 @@ G.Ship = class extends G.ShipEntity {
     for(const e of weaponMods) { if(ci >= rest.length) break; assign(e.id, rest[ci].q, rest[ci].r); ci++; }
     for(const e of bodyMods)   { if(ci >= rest.length) break; assign(e.id, rest[ci].q, rest[ci].r); ci++; }
 
+    // Place a corridor ring of hallway modules around the inner functional modules.
+    // These are the only cells characters can walk; the hull panel ring wraps around them.
+    {
+      const occ = new Set();
+      for(const inst of Object.values(this.modules)) if(inst.q != null) occ.add(G.hexKey(inst.q, inst.r));
+      this._hallways = [];
+      const ring = new Set();
+      for(const [, inst] of Object.entries(this.modules)) {
+        if(inst.q == null) continue;
+        const m = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+        if(!m || m.slot === 'hull' || m.slot === 'thruster') continue;
+        for(const nb of G.hexNeighbors(inst.q, inst.r)) {
+          const nk = G.hexKey(nb.q, nb.r);
+          if(!occ.has(nk)) ring.add(nk);
+        }
+      }
+      for(const k of ring) {
+        const { q, r } = G.hexFromKey(k);
+        const hid = this.installModule('hallway');
+        if(hid) { this.modules[hid].q = q; this.modules[hid].r = r; this._hallways.push({ q, r }); }
+      }
+    }
+
+    // Ensure every functional module has at least one hallway neighbour.
+    // Interior modules (completely surrounded by other functional modules) get a
+    // hallway "spoke" punched in by displacing one bridge neighbour outward.
+    this._ensureModuleHallwayAccess();
+
     // Wrap the hull first, then place thrusters on the outer frontier (outside hull panels).
     this._wrapHull(tpl);
     const outerPerim = (() => {
@@ -595,6 +639,134 @@ G.Ship = class extends G.ShipEntity {
       this.modules[thrusters[pi].id].q = thrusterCells[pi].q;
       this.modules[thrusters[pi].id].r = thrusterCells[pi].r;
     }
+
+    // Replace some hull panels with airlocks — 2 for small ships, more for larger ones.
+    this._placeAirlocks(tpl);
+  }
+
+  // Punch hallway spokes inward until every functional module has ≥1 hallway neighbour.
+  // Interior modules (all neighbours occupied by other functional modules) are fixed by
+  // displacing one hallway-adjacent functional neighbour to a free outer cell and
+  // installing a hallway in the vacated position. Repeats until stable.
+  _ensureModuleHallwayAccess() {
+    const isFuncInst = inst => {
+      const m = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
+      return m && m.slot !== 'hallway' && m.slot !== 'hull' && m.slot !== 'thruster';
+    };
+
+    const hallwayKeys = new Set();
+    for(const [, inst] of Object.entries(this.modules))
+      if(inst.q != null && G.MODULES[inst.moduleId]?.slot === 'hallway')
+        hallwayKeys.add(G.hexKey(inst.q, inst.r));
+
+    let changed = true;
+    while(changed) {
+      changed = false;
+
+      // Rebuild occupied set and functional module map each pass.
+      const occ = new Set();
+      for(const inst of Object.values(this.modules)) if(inst.q != null) occ.add(G.hexKey(inst.q, inst.r));
+
+      const funcMap = new Map(); // hexKey -> instId
+      for(const [id, inst] of Object.entries(this.modules))
+        if(inst.q != null && isFuncInst(inst)) funcMap.set(G.hexKey(inst.q, inst.r), id);
+
+      for(const [, fid] of funcMap) {
+        const inst = this.modules[fid];
+        // Skip if already adjacent to a hallway.
+        if(G.hexNeighbors(inst.q, inst.r).some(nb => hallwayKeys.has(G.hexKey(nb.q, nb.r)))) continue;
+
+        // Find a functional neighbour that IS adjacent to a hallway (the "bridge").
+        let bridgeId = null, bq = 0, br = 0, bridgeKey = '';
+        for(const nb of G.hexNeighbors(inst.q, inst.r)) {
+          const nk = G.hexKey(nb.q, nb.r);
+          const bid = funcMap.get(nk);
+          if(!bid) continue;
+          const nbInst = this.modules[bid];
+          if(G.hexNeighbors(nbInst.q, nbInst.r).some(n2 => hallwayKeys.has(G.hexKey(n2.q, n2.r)))) {
+            bridgeId = bid; bq = nb.q; br = nb.r; bridgeKey = nk;
+            break;
+          }
+        }
+        if(!bridgeId) continue;
+
+        // Find a free cell adjacent to any existing hallway to relocate the bridge module.
+        let newCell = null;
+        for(const hk of hallwayKeys) {
+          const hc = G.hexFromKey(hk);
+          for(const nb of G.hexNeighbors(hc.q, hc.r)) {
+            if(!occ.has(G.hexKey(nb.q, nb.r))) { newCell = nb; break; }
+          }
+          if(newCell) break;
+        }
+        if(!newCell) continue;
+
+        // Move bridge module out to the free cell.
+        const bridgeInst = this.modules[bridgeId];
+        bridgeInst.q = newCell.q;
+        bridgeInst.r = newCell.r;
+
+        // Install a hallway in the vacated position.
+        const hwId = this.installModule('hallway');
+        if(hwId) {
+          this.modules[hwId].q = bq;
+          this.modules[hwId].r = br;
+          this._hallways.push({ q: bq, r: br });
+          hallwayKeys.add(bridgeKey);
+        }
+
+        changed = true;
+        break; // restart with fresh state
+      }
+    }
+  }
+
+  // Replace hull panels adjacent to corridors with airlock modules.
+  // Count scales with ship size: 2 for shuttles/fighters, 3 for mid-size, 4 for capital ships.
+  _placeAirlocks(tpl) {
+    const size = (tpl || G.SHIPS[this.templateId] || {}).size || 1;
+    const count = size >= 4.0 ? 4 : size >= 2.2 ? 3 : 2;
+    const hallwayKeys = new Set((this._hallways || []).map(h => G.hexKey(h.q, h.r)));
+    const cands = [];
+    for(const [id, inst] of Object.entries(this.modules)) {
+      if(inst.q == null) continue;
+      if(G.MODULES[inst.moduleId]?.slot !== 'hull') continue;
+      if(G.hexNeighbors(inst.q, inst.r).some(nb => hallwayKeys.has(G.hexKey(nb.q, nb.r))))
+        cands.push({ id, q: inst.q, r: inst.r });
+    }
+    if(!cands.length) return;
+    cands.sort((a, b) => {
+      const pa = G.hexToPixel(a.q, a.r, 1), pb = G.hexToPixel(b.q, b.r, 1);
+      return Math.atan2(pa.y, pa.x) - Math.atan2(pb.y, pb.x);
+    });
+    const usedIdx = new Set();
+    const step = cands.length / count;
+    for(let i = 0; i < count; i++) {
+      let idx = Math.round(i * step + step * 0.3) % cands.length;
+      let tries = 0;
+      while(usedIdx.has(idx) && tries < cands.length) { idx = (idx + 1) % cands.length; tries++; }
+      if(!usedIdx.has(idx)) usedIdx.add(idx);
+    }
+    for(const idx of usedIdx) {
+      const { id, q, r } = cands[idx];
+      this.removeModule(id);
+      const aid = this.installModule('airlock');
+      if(aid) { this.modules[aid].q = q; this.modules[aid].r = r; }
+    }
+  }
+
+  // Nearest airlock cell to local hex-pixel position (lx, ly). Used for EVA reboarding.
+  _nearestAirlockCell(lx, ly) {
+    let best = null, bd = Infinity;
+    for(const [, inst] of Object.entries(this.modules)) {
+      if(inst.q == null) continue;
+      const m = G.MODULES[inst.moduleId];
+      if(m?.slot !== 'airlock') continue;
+      const p = G.hexToPixel(inst.q, inst.r, G.HEX_R);
+      const d = Math.hypot(p.x - lx, p.y - ly);
+      if(d < bd) { bd = d; best = { q: inst.q, r: inst.r }; }
+    }
+    return best;
   }
 
   // Wrap every inner module's open hex neighbours with hull-panel hexes.
@@ -608,7 +780,7 @@ G.Ship = class extends G.ShipEntity {
     for(const inst of Object.values(this.modules)) {
       if(inst.q == null) continue;
       const m = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
-      if(m && (m.slot === 'hull' || m.slot === 'thruster')) continue;
+      if(m && (m.slot === 'hull' || m.slot === 'thruster' || m.slot === 'airlock')) continue;
       for(const nb of G.hexNeighbors(inst.q, inst.r)) {
         const k = G.hexKey(nb.q, nb.r);
         if(!occupied.has(k)) hullCells.add(k);
@@ -631,7 +803,7 @@ G.Ship = class extends G.ShipEntity {
     for(const inst of Object.values(this.modules)) {
       if(inst.q == null) continue;
       const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
-      if(mod?.slot === 'hull' || mod?.slot === 'thruster') continue;
+      if(mod?.slot === 'hull' || mod?.slot === 'thruster' || mod?.slot === 'airlock') continue;
       for(const nb of G.hexNeighbors(inst.q, inst.r))
         if(!cells.has(G.hexKey(nb.q, nb.r))) return false;
     }
@@ -670,7 +842,9 @@ G.Ship = class extends G.ShipEntity {
       if(m?.slot !== 'thruster' || inst.q == null) return false;
       return !G.hexNeighbors(inst.q, inst.r).some(nb => G.MODULES[byKey[G.hexKey(nb.q, nb.r)]?.moduleId]?.slot === 'hull');
     });
-    const needs = thrusterInner || thrusterAtEdge
+    const needsAirlocks = !Object.values(this.modules).some(inst => G.MODULES[inst.moduleId]?.slot === 'airlock');
+    const needsHallways = !(this._hallways?.length);
+    const needs = thrusterInner || thrusterAtEdge || needsAirlocks || needsHallways
       || Object.values(this.modules).some(inst => inst.q == null && G.MODULES[inst.moduleId]?.slot !== 'hull')
       || !Object.values(this.modules).some(inst => G.MODULES[inst.moduleId]?.slot === 'hull');
     if(needs) this._generateHexLayout();

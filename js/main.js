@@ -295,6 +295,26 @@ G.Renderer = class {
       if(rot) { c.save(); c.translate(tx, ty); c.rotate(rot*Math.PI/2); c.drawImage(tile, -R, -R, T, T); c.restore(); }
       else c.drawImage(tile, (tx-R)|0, (ty-R)|0, T, T);
     }
+    // Corridor connections — blue lines between adjacent hallway/airlock hex centers.
+    {
+      const walkSet = new Set(['hallway','airlock']);
+      const wMap = new Map();
+      for(const e of entries) { if(walkSet.has(e.slot)) { const p=G.hexToPixel(e.q,e.r,R); wMap.set(G.hexKey(e.q,e.r),{x:cox+p.x-ox,y:coy+p.y-oy}); } }
+      if(wMap.size) {
+        const drawn = new Set();
+        c.save(); c.lineWidth=Math.max(2,R*0.32); c.lineCap='round'; c.globalAlpha=0.6; c.strokeStyle='#4499cc'; c.beginPath();
+        for(const e of entries) {
+          if(!walkSet.has(e.slot)) continue;
+          const pk=G.hexKey(e.q,e.r), fp=wMap.get(pk);
+          for(const nb of G.hexNeighbors(e.q,e.r)) {
+            const nk=G.hexKey(nb.q,nb.r); if(!wMap.has(nk)) continue;
+            const ek=pk<nk?pk+'|'+nk:nk+'|'+pk; if(drawn.has(ek)) continue; drawn.add(ek);
+            const tp=wMap.get(nk); c.moveTo(fp.x|0,fp.y|0); c.lineTo(tp.x|0,tp.y|0);
+          }
+        }
+        c.stroke(); c.restore();
+      }
+    }
     s = { canvas: cvs, ox: cox, oy: coy };
     this._shipSpriteCache.set(key, s);
     return s;
@@ -360,6 +380,26 @@ G.Renderer = class {
         ctx.restore();
       } else {
         ctx.drawImage(tile, (p.x - ox - R) | 0, (p.y - oy - R) | 0, T, T);
+      }
+    }
+    // Corridor connections — blue lines between adjacent hallway/airlock hex centers.
+    {
+      const walkSet = new Set(['hallway','airlock']);
+      const wMap = new Map();
+      for(const e of entries) { if(walkSet.has(e.slot)) { const p=G.hexToPixel(e.q,e.r,R); wMap.set(G.hexKey(e.q,e.r),{x:p.x-ox,y:p.y-oy}); } }
+      if(wMap.size) {
+        const drawn = new Set();
+        ctx.save(); ctx.lineWidth=Math.max(2,R*0.32); ctx.lineCap='round'; ctx.globalAlpha=0.6; ctx.strokeStyle='#4499cc'; ctx.beginPath();
+        for(const e of entries) {
+          if(!walkSet.has(e.slot)) continue;
+          const pk=G.hexKey(e.q,e.r), fp=wMap.get(pk);
+          for(const nb of G.hexNeighbors(e.q,e.r)) {
+            const nk=G.hexKey(nb.q,nb.r); if(!wMap.has(nk)) continue;
+            const ek=pk<nk?pk+'|'+nk:nk+'|'+pk; if(drawn.has(ek)) continue; drawn.add(ek);
+            const tp=wMap.get(nk); ctx.moveTo(fp.x|0,fp.y|0); ctx.lineTo(tp.x|0,tp.y|0);
+          }
+        }
+        ctx.stroke(); ctx.restore();
       }
     }
     ctx.restore();
@@ -764,6 +804,32 @@ G.Renderer = class {
             ctx.drawImage(icon, tx + ioff, ty + ioff, isz, isz);
           }
         }
+      }
+    }
+    // Corridor connections on HUD
+    {
+      const walkSet = new Set(['hallway','airlock']);
+      const wMap = new Map();
+      for(const { inst } of mods) {
+        const m = G.MODULES[inst.moduleId];
+        if(!walkSet.has(m?.slot) || inst.q == null) continue;
+        const u = G.hexToPixel(inst.q, inst.r, 1);
+        wMap.set(G.hexKey(inst.q, inst.r), { x: cX(u.x), y: cY(u.y) });
+      }
+      if(wMap.size) {
+        const drawn = new Set();
+        ctx.save(); ctx.lineWidth = Math.max(1, HR * 0.32); ctx.lineCap = 'round'; ctx.globalAlpha = 0.6; ctx.strokeStyle = '#4499cc'; ctx.beginPath();
+        for(const { inst } of mods) {
+          const m = G.MODULES[inst.moduleId];
+          if(!walkSet.has(m?.slot) || inst.q == null) continue;
+          const pk = G.hexKey(inst.q, inst.r), fp = wMap.get(pk);
+          for(const nb of G.hexNeighbors(inst.q, inst.r)) {
+            const nk = G.hexKey(nb.q, nb.r); if(!wMap.has(nk)) continue;
+            const ek = pk < nk ? pk+'|'+nk : nk+'|'+pk; if(drawn.has(ek)) continue; drawn.add(ek);
+            const tp = wMap.get(nk); ctx.moveTo(fp.x|0, fp.y|0); ctx.lineTo(tp.x|0, tp.y|0);
+          }
+        }
+        ctx.stroke(); ctx.restore();
       }
     }
 
@@ -2376,14 +2442,49 @@ G.Renderer = class {
     for(const { e, c } of shipCells) {
       let tile, rot = 0;
       if(e.slot === 'hull' || e.slot === 'airlock') {
-        const hCol = e.slot === 'airlock' ? (e.color || '#33bbcc') : (e.color || '#667799');
+        let hCol = e.slot === 'airlock' ? (e.color || '#33bbcc') : (e.color || '#667799');
+        if(e.slot === 'airlock') {
+          const q2 = pl.ship.q + e.q, r2 = pl.ship.r + e.r;
+          const wt = G.wrapHex(ter.W, ter.H, q2, r2), wk = G.hexKey(wt.q, wt.r);
+          const animState = pl._airlockAnim?.[wk];
+          const animT = animState ? animState.t : (pl._openAirlocks?.has(wk) ? 1 : 0);
+          const isNear = pl._nearAirlock === wk;
+          // Lerp from cyan (closed) toward dark-open interior
+          const r0=0x33,g0=0xbb,b0=0xcc, r1=0x08,g1=0x28,b1=0x38;
+          const ri=Math.round(r0+(r1-r0)*animT), gi=Math.round(g0+(g1-g0)*animT), bi=Math.round(b0+(b1-b0)*animT);
+          hCol = `rgb(${ri},${gi},${bi})`;
+          tile = G.Sprites.getHexTile('hull', hCol, false);
+          ctx.drawImage(tile, (c.x-Rt)|0, (c.y-Rt)|0, Tt, Tt);
+          // Airlock icon fades out as it opens; pulsing when near + closed
+          const iconAlpha = 1 - animT;
+          if(iconAlpha > 0.05) {
+            const pulse = isNear && animT < 0.05 ? (0.75 + 0.25 * Math.sin(Date.now() / 180)) : 1;
+            ctx.globalAlpha = iconAlpha * pulse;
+            const icon = G.Sprites.getMod('airlock'); const isz = Tt*0.55|0, ioff = ((Tt-isz)/2)|0;
+            ctx.drawImage(icon, (c.x-Rt+ioff)|0, (c.y-Rt+ioff)|0, isz, isz);
+            ctx.globalAlpha = 1;
+          }
+          // Open gap: dark oval in center when mostly open
+          if(animT > 0.4) {
+            ctx.save(); ctx.globalAlpha = (animT - 0.4) / 0.6;
+            ctx.fillStyle = '#020810';
+            ctx.beginPath(); ctx.ellipse(c.x|0, c.y|0, Rt*0.55*animT, Rt*0.55*animT, 0, 0, Math.PI*2); ctx.fill();
+            ctx.restore();
+          }
+          // E-prompt when near and closed
+          if(isNear && animT < 0.5) {
+            ctx.save(); ctx.font = `bold ${Math.max(8, Rt*0.55)|0}px "Press Start 2P",monospace`;
+            ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+            ctx.fillStyle = '#ffffff'; ctx.globalAlpha = 0.9;
+            ctx.fillText('[E]', c.x|0, (c.y - Rt * 1.3)|0);
+            ctx.restore();
+          }
+          continue; // already drawn
+        }
         tile = G.Sprites.getHexTile('hull', hCol, false);
       } else { tile = G.Sprites.getHexTile(e.visual || 'special', G.SLOT_RING[e.slot]?.color || '#334455', e.broken); rot = (e.rot || 0) % 4; }
       if(rot) { ctx.save(); ctx.translate(c.x|0, c.y|0); ctx.rotate(rot*Math.PI/2); ctx.drawImage(tile, -Rt, -Rt, Tt, Tt); ctx.restore(); }
-      else {
-        ctx.drawImage(tile, (c.x-Rt)|0, (c.y-Rt)|0, Tt, Tt);
-        if(e.slot === 'airlock') { const icon = G.Sprites.getMod('airlock'); const isz = Tt*0.55|0, ioff = ((Tt-isz)/2)|0; ctx.drawImage(icon, (c.x-Rt+ioff)|0, (c.y-Rt+ioff)|0, isz, isz); }
-      }
+      else ctx.drawImage(tile, (c.x-Rt)|0, (c.y-Rt)|0, Tt, Tt);
     }
     // Landing pad ring + spaceport service buildings.
     if(pl.pad) {
@@ -2549,7 +2650,7 @@ G.Renderer = class {
         if(nt && (levelOf(nt) - uL >= 1 || G.PROP_OCCLUDERS.has(nt.biome))) { occ.add((c.q+dq)+','+(c.r+dr)); if(c === pl.selected) selHidden = true; }
       }
     }
-    for(const k of occ) { const [q, r] = k.split(',').map(Number); drawTile(q, r); }
+    for(const k of occ) { const [q, r] = k.split(',').map(Number); const _wt=G.wrapHex(ter.W,ter.H,q,r),_wk=G.hexKey(_wt.q,_wt.r); if(!pl._shipBlockedKeys?.has(_wk)&&!pl._airlockKeys?.has(_wk)) drawTile(q, r); }
     // Reveal window: a ghost silhouette of the selected character while hidden.
     if(selHidden && pl.selected) {
       const c = pl.selected, cLift = levelOf(G.wrapTile(ter, c.q, c.r)) * LIFT;
@@ -4961,14 +5062,14 @@ G.Game = class {
     const W = terrain.W, H = terrain.H;
     let ship = null;
     if(terrain.port) {
-      // Spaceport: land at least 4 tiles from the spaceport center, in the flat settlement area.
+      // Spaceport: land 3 tiles outside the settlement plaza (target d=9) on natural ground.
       const pq = terrain.port.q, pr = terrain.port.r;
       let best = null, bestScore = Infinity;
       for(const t of terrain.tiles.values()) {
-        if(!t.walkable || (t.biome !== 'settlement' && t.biome !== 'coast' && t.biome !== 'dirt' && t.biome !== 'grassland')) continue;
+        if(!t.walkable || t.biome === 'settlement' || t.biome === 'spaceport' || t.biome === 'building') continue;
         const d = this._torusHexDist(terrain, pq, pr, t.q, t.r);
-        if(d < 4 || d > 7) continue;
-        const score = d + Math.abs(t.level || 0) * 2;
+        if(d < 7) continue;
+        const score = Math.abs(d - 9) + Math.abs(t.level || 0) * 2;
         if(score < bestScore) { bestScore = score; best = t; }
       }
       ship = best || { q: pq, r: pr };
@@ -4983,19 +5084,34 @@ G.Game = class {
       }
       ship = ship || { q: c0q, r: c0r };
     }
+    // Flatten terrain under the ship footprint (center tile + all module tiles).
+    { const shipTile = terrain.tiles.get(G.hexKey(ship.q, ship.r));
+      const shipLevel = shipTile ? (shipTile.level || 0) : 0;
+      const flatTile = t => { if(t) { t.level = shipLevel; t.walkable = true; } };
+      flatTile(shipTile);
+      for(const [, inst] of Object.entries(this.player.modules)) {
+        if(inst.q == null) continue;
+        const wt = G.wrapHex(W, H, ship.q + inst.q, ship.r + inst.r);
+        flatTile(terrain.tiles.get(G.hexKey(wt.q, wt.r)));
+      }
+    }
     // Precompute ship module blocked tiles BEFORE crew placement so crew avoids them.
-    const blocked = new Set(); let airlockKey = null;
+    // Hallways are walkable ship interior (not blocked) but excluded from initial crew placement.
+    const blocked = new Set(); const airlockKeys = new Set(); const hallwayKeys = new Set();
     { const mods = this.player.modules;
       for(const [, inst] of Object.entries(mods)) {
         if(inst.q == null) continue;
         const wt = G.wrapHex(W, H, ship.q + inst.q, ship.r + inst.r);
         const wk = G.hexKey(wt.q, wt.r);
-        if(G.MODULES[inst.moduleId]?.slot === 'airlock') airlockKey = wk;
+        const slot = G.MODULES[inst.moduleId]?.slot;
+        if(slot === 'airlock') airlockKeys.add(wk);
+        else if(slot === 'hallway') hallwayKeys.add(wk);
         else blocked.add(wk);
       }
     }
     // Place crew on nearby walkable cells that are not ship hull tiles.
-    const used = new Set([G.hexKey(ship.q, ship.r), ...blocked]);
+    // Include hallways in `used` so crew starts outside the ship.
+    const used = new Set([G.hexKey(ship.q, ship.r), ...blocked, ...hallwayKeys]);
     const crew = [];
     for(const ref of this.player.crew) {
       let cell = null;
@@ -5041,7 +5157,10 @@ G.Game = class {
                      buttons: [], layout: null, S: 460, cam: { x: su.x, y: su.y }, panX: 0, panY: 0 };
     this._planet.selected = crew.find(c => c.ref?.isPlayer) || crew[0] || null;   // control + fire right away
     this._planet._shipBlockedKeys = blocked;
-    this._planet._planetAirlockKey = airlockKey;
+    this._planet._airlockKeys = airlockKeys;
+    this._planet._hallwayKeys = hallwayKeys;
+    this._planet._openAirlocks = new Set();   // all airlocks start closed
+    this._planet._airlockAnim = {};           // key -> { t: 0..1, dir: 1|-1 }
     const hostiles = npcs.filter(n => n.ref.disposition === 'hostile').length;
     this.ui.addMsg('Landed on ' + body.name + (body.hasSpaceport ? '' : ' — barren surface') +
       (npcs.length ? ` — ${npcs.length} life sign${npcs.length > 1 ? 's' : ''}${hostiles ? ', ' + hostiles + ' hostile' : ''}` : ''), '#88ddaa');
@@ -5207,7 +5326,6 @@ G.Game = class {
   // by G.CharController so all ARPG logic works identically on the surface.
   _makePlanetScene() {
     const pl = this._planet, ter = pl.terrain, W = ter.W, H = ter.H;
-    const _airlockKey = pl._planetAirlockKey || null;
     return {
       gravity: 16,
       shots: pl.shots, npcs: pl.npcs, crew: pl.crew, loot: pl.loot,
@@ -5217,6 +5335,7 @@ G.Game = class {
         const t = ter.tiles.get(wk);
         if(!t || (!t.walkable && !G.SWIM_BIOMES.has(t.biome))) return null;
         if(pl._shipBlockedKeys?.has(wk)) return null; // hull tile — enter via airlock only
+        if(pl._airlockKeys?.has(wk) && !pl._openAirlocks?.has(wk)) return null; // airlock closed
         if(airborne) return w;
         // Current position: convert px/py back to hex for accurate level lookup
         const curHex = G.pixelToHex(c.px, c.py, 1);
@@ -5248,17 +5367,13 @@ G.Game = class {
         const newTile = G.wrapTile(ter, w.q, w.r) || { level: 0 };
         if(newTile.level !== oldTile.level && !c._jetActive && Math.abs(c._vz) < 0.5)
           c._z += (newTile.level - oldTile.level) * 0.1;
-        // Airlock sound when stepping onto or off the airlock world tile
-        if(_airlockKey) {
-          const newKey = G.hexKey(w.q, w.r), oldKey = G.hexKey(G.wrapHex(W, H, oldQ, oldR).q, G.wrapHex(W, H, oldQ, oldR).r);
-          if(newKey === _airlockKey || oldKey === _airlockKey) G.sound?.airlock?.();
-        }
       },
       onSwordSweep: (c, targets) => {
         const wpn = G.gearResolve(c.ref?.equip?.righthand) || G.gearResolve(c.ref?.equip?.lefthand);
         for(const hex of targets) {
           const t = G.wrapTile(ter, hex.q, hex.r);
           if(!t || !t.ore || t.oreHp <= 0) continue;
+          G.sound?.weapon?.('cannon');
           t.oreHp = Math.max(0, t.oreHp - Math.ceil((wpn?.dmg || 18) / 3));
           if(t.oreHp <= 0) {
             const drop = G.ASTEROID_MAT[t.ore]?.drop || t.ore;
@@ -5272,6 +5387,7 @@ G.Game = class {
         if(s.team !== 'player') return false;
         const hc = G.pixelToHex(s.x, s.y, 1), t = G.wrapTile(ter, hc.q, hc.r);
         if(!t || !t.ore || t.oreHp <= 0) return false;
+        G.sound?.weapon?.('laser');
         t.oreHp = Math.max(0, t.oreHp - Math.ceil(s.dmg / 5));
         if(t.oreHp <= 0) {
           const drop = G.ASTEROID_MAT[t.ore]?.drop || t.ore;
@@ -5301,6 +5417,7 @@ G.Game = class {
         pl._novaFx = { x: c.px, y: c.py, r: sk.radius || sk.r || 1.6, t: sk.t || 0.45, color: sk.color };
       },
       onLootPickup: (lt) => {
+        G.sound?.uiClick?.();
         if(lt.inst) {
           (this.player.gear || (this.player.gear = [])).push(lt.inst);
           this.ui.addMsg('Looted ' + lt.inst.name, G.RARITIES[lt.inst.rarity]?.color || '#88ddaa');
@@ -5320,7 +5437,7 @@ G.Game = class {
     for(const [, inst] of Object.entries(p.modules)) {
       if(inst.q == null) continue;
       const mod = G.MODULES[inst.moduleId] || G.WEAPONS[inst.moduleId];
-      if(mod?.slot === 'hull') continue;
+      if(mod?.slot !== 'airlock' && mod?.slot !== 'hallway') continue;
       walkable.set(G.hexKey(inst.q, inst.r), { q: inst.q, r: inst.r });
     }
     return {
@@ -5478,7 +5595,8 @@ G.Game = class {
     const cr = this._selectedCrew || p.crew.find(c => !c.eva && p._slotAt(c.q, c.r) === 'cockpit');
     if(!cr || cr.eva) return;
     const cells = p._interiorCells ? p._interiorCells() : [];
-    const dest = cells.find(c => p._slotAt(c.q, c.r) !== 'cockpit');
+    const dest = cells.find(c => c.slot === 'hallway' || c.slot === 'airlock')
+              || cells.find(c => p._slotAt(c.q, c.r) !== 'cockpit');
     if(dest) {
       p.orderCrew(cr, { type: 'move', q: dest.q, r: dest.r });
       this.ui.addMsg(cr.name + ' leaving cockpit', '#88ccff');
@@ -5969,10 +6087,40 @@ G.Game = class {
       if(this.input.pressed('KeyE')) { this.ui.hideSpaceport(); }
       return;
     }
-    pl._nearBuilding = null;
-    if(!(pl.buildings && pl.buildings.length)) return;
+    // Update airlock animation timers every frame.
+    if(pl._airlockAnim) {
+      for(const key of Object.keys(pl._airlockAnim)) {
+        const a = pl._airlockAnim[key];
+        a.t = G.clamp(a.t + a.dir * dt / 0.35, 0, 1);
+      }
+    }
+    pl._nearBuilding = null; pl._nearAirlock = null;
     const sel = pl.selected; if(!sel?.ref || sel.ref.hp <= 0) return;
     if(!document.getElementById('char-screen-overlay')?.classList.contains('hidden')) return;
+    // Check proximity to airlock (works on wilderness too, no buildings required).
+    if(pl._airlockKeys?.size) {
+      let nearKey = null, nearDist = 1.8;
+      for(const key of pl._airlockKeys) {
+        const hc = G.hexFromKey(key), u = G.hexToPixel(hc.q, hc.r, 1);
+        const d = this._planetDelta(pl, sel.px, sel.py, u.x, u.y);
+        if(d.dist < nearDist) { nearDist = d.dist; nearKey = key; }
+      }
+      pl._nearAirlock = nearKey;
+      if(nearKey && this.input.pressed('KeyE')) {
+        const isOpen = pl._openAirlocks.has(nearKey);
+        if(isOpen) {
+          pl._openAirlocks.delete(nearKey);
+          pl._airlockAnim[nearKey] = { t: 1, dir: -1 };
+          G.sound?.airlockClose?.();
+        } else {
+          pl._openAirlocks.add(nearKey);
+          pl._airlockAnim[nearKey] = { t: 0, dir: 1 };
+          G.sound?.airlockOpen?.();
+        }
+        return; // consume E press — don't also open a building
+      }
+    }
+    if(!(pl.buildings && pl.buildings.length)) return;
     let best = null, bd = 1.7;
     for(const b of pl.buildings) { const bp = G.hexToPixel(b.q, b.r, 1); const d = this._planetDelta(pl, sel.px, sel.py, bp.x, bp.y); if(d.dist < bd) { bd = d.dist; best = b; } }
     pl._nearBuilding = best;
