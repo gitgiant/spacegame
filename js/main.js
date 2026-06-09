@@ -467,10 +467,16 @@ G.Renderer = class {
   // 3-D astronaut sprite centred at (0,0). Facing direction (faceX, faceY) drives
   // a pseudo-3D rotation: faceY>0 = front view, faceY<0 = back, faceX=±1 = profile.
   // Body is horizontally compressed when viewed from the side (perspective illusion).
-  _drawCrewSprite(rad, role, walking, t, phase, helmet, faceX = 0, faceY = 1) {
+  _drawCrewSprite(rad, role, walking, t, phase, helmet, faceX = 0, faceY = 1, gear = null) {
     const ctx = this.ctx, col = this._crewColor(role);
     const swing = walking ? Math.sin(t*11 + phase) : 0;
     const bob = (walking ? Math.abs(Math.sin(t*11 + phase)) * 0.16 : Math.sin(t*2.5 + phase) * 0.06) * rad;
+    // Resolve equipped gear (slot -> base item). Colours drive the armour look.
+    const g = gear || {};
+    const gcol = (slot, fallback) => G.gearBase?.(g[slot])?.color || fallback;
+    const has = slot => !!g[slot];
+    const rhKind = G.gearKind?.(g.righthand), lhKind = G.gearKind?.(g.lefthand);
+    const torsoCol = gcol('chest', col), legCol = gcol('leggings', '#16202c');
 
     const fLen = Math.hypot(faceX, faceY) || 1;
     const fx = faceX / fLen, fy = faceY / fLen;
@@ -497,6 +503,13 @@ G.Renderer = class {
     const lw = Math.max(1, rad*0.16);
     const sideBlend = 1 - viewDepth;   // 0 = front/back, 1 = pure side
 
+    // Backpack (behind torso, on the back = -x). Jetpack gets exhaust nozzles.
+    if(has('backpack')) {
+      ctx.fillStyle = gcol('backpack', '#aa8855'); ctx.strokeStyle = '#0a0f16'; ctx.lineWidth = lw*0.7;
+      this._roundRectPath(-rad*0.7, -rad*0.34, rad*0.34, rad*0.82, rad*0.12); ctx.fill(); ctx.stroke();
+      if(G.gearKind?.(g.backpack) === 'jetpack') { ctx.fillStyle = '#2a2f38'; ctx.fillRect(-rad*0.66, rad*0.46, rad*0.12, rad*0.2); ctx.fillStyle = '#ffaa33'; ctx.fillRect(-rad*0.64, rad*0.62, rad*0.08, rad*0.12); }
+    }
+
     // Far leg (behind torso — drawn first so torso covers the join)
     const farLegX = -rad*0.22 * Math.max(0.08, 1 - sideBlend*0.85);
     ctx.strokeStyle = '#0c1520'; ctx.lineCap = 'round'; ctx.lineWidth = rad*0.32;
@@ -516,47 +529,86 @@ G.Renderer = class {
       ctx.globalAlpha = 1;
     }
 
-    // Torso
-    ctx.fillStyle = col; ctx.strokeStyle = '#0a0f16'; ctx.lineWidth = lw;
+    // Torso (tinted by chest armour)
+    ctx.fillStyle = torsoCol; ctx.strokeStyle = '#0a0f16'; ctx.lineWidth = lw;
     this._roundRectPath(-rad*0.52, -rad*0.4, rad*1.04, rad*0.92, rad*0.32);
     ctx.fill(); ctx.stroke();
-    // Chest highlight shifts toward near side in side view (curvature illusion)
+    // Chest plate accent + highlight
+    if(has('chest')) { ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = lw*0.6; ctx.beginPath(); ctx.moveTo(0, -rad*0.34); ctx.lineTo(0, rad*0.46); ctx.stroke(); }
     const hlX = -rad*0.42 + sideBlend * rad*0.22;
     ctx.fillStyle = 'rgba(255,255,255,0.18)';
     this._roundRectPath(hlX, -rad*0.34, rad*0.5, rad*0.7, rad*0.24); ctx.fill();
+    // Belt band
+    if(has('belt')) { ctx.fillStyle = gcol('belt', '#aa8855'); ctx.fillRect(-rad*0.52, rad*0.3, rad*1.04, rad*0.14); ctx.fillStyle = 'rgba(255,235,150,0.8)'; ctx.fillRect(-rad*0.08, rad*0.31, rad*0.16, rad*0.12); }
+
+    // Pauldrons (shoulder pads) over both shoulders
+    if(has('shoulders')) {
+      ctx.fillStyle = gcol('shoulders', '#99aabb'); ctx.strokeStyle = '#0a0f16'; ctx.lineWidth = lw*0.6;
+      for(const sx of [rad*0.5, -rad*0.5]) { ctx.beginPath(); ctx.ellipse(sx, -rad*0.26, rad*0.26, rad*0.2, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke(); }
+    }
 
     // Near arm (on top of torso)
     ctx.strokeStyle = col; ctx.lineWidth = rad*0.28; ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(rad*0.5, -rad*0.05); ctx.lineTo(rad*0.78, rad*0.35 - swing*rad*0.35);
     ctx.stroke();
+    // Bracer band on the near forearm
+    if(has('bracers')) { ctx.fillStyle = gcol('bracers', '#99aabb'); ctx.fillRect(rad*0.62, rad*0.12 - swing*rad*0.18, rad*0.22, rad*0.18); }
 
-    // Near leg (drawn last so it overlaps torso bottom edge)
+    // Near leg (drawn last so it overlaps torso bottom edge) + boot
     const nearLegX = rad*0.22 * Math.max(0.1, 1 - sideBlend*0.7);
-    ctx.strokeStyle = '#16202c'; ctx.lineWidth = rad*0.36; ctx.lineCap = 'round';
+    const nearFootX = nearLegX - swing*rad*0.45;
+    ctx.strokeStyle = legCol; ctx.lineWidth = rad*0.36; ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(nearLegX, rad*0.35); ctx.lineTo(nearLegX - swing*rad*0.45, rad*1.0);
+    ctx.moveTo(nearLegX, rad*0.35); ctx.lineTo(nearFootX, rad*1.0);
     ctx.stroke();
+    if(has('boots')) { ctx.fillStyle = gcol('boots', '#aa8855'); ctx.fillRect(nearFootX - rad*0.16, rad*0.94, rad*0.34, rad*0.16); }
 
-    // Head
-    ctx.fillStyle = '#eef3fa'; ctx.strokeStyle = '#0a0f16'; ctx.lineWidth = lw*0.8;
-    ctx.beginPath(); ctx.arc(0, -rad*0.72, rad*0.46, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    // Off-hand: shield (front guard) or a second blade
+    if(lhKind === 'shield') {
+      ctx.fillStyle = gcol('lefthand', '#88aaff'); ctx.strokeStyle = '#33508c'; ctx.lineWidth = lw*0.7;
+      ctx.beginPath(); ctx.ellipse(-rad*0.2, rad*0.12, rad*0.34, rad*0.5, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.beginPath(); ctx.arc(-rad*0.28, -rad*0.04, rad*0.1, 0, Math.PI*2); ctx.fill();
+    }
 
-    if(showFront) {
-      // Visor: visible from front, shifts toward near side when angled, shrinks to sliver sideways
-      const vx = sideBlend * rad*0.14;
-      const vScaleX = rad * 0.26 * (0.35 + viewDepth * 0.65);
-      ctx.fillStyle = col;
-      ctx.globalAlpha = Math.max(0.35, viewDepth);
-      ctx.beginPath(); ctx.ellipse(vx, -rad*0.72, vScaleX, rad*0.2, 0, 0, Math.PI*2); ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = 'rgba(255,255,255,0.7)';
-      ctx.beginPath(); ctx.arc(vx + rad*0.1, -rad*0.8, rad*0.07, 0, Math.PI*2); ctx.fill();
+    // Main-hand weapon in the near hand
+    const NHx = rad*0.78, NHy = rad*0.35 - swing*rad*0.35;
+    if(rhKind === 'pistol') {
+      ctx.save(); ctx.translate(NHx, NHy);
+      ctx.fillStyle = gcol('righthand', '#ff8844'); ctx.fillRect(0, -rad*0.08, rad*0.5, rad*0.16);
+      ctx.fillStyle = '#3a2412'; ctx.fillRect(-rad*0.04, -rad*0.02, rad*0.12, rad*0.24);
+      ctx.fillStyle = '#ffd070'; ctx.fillRect(rad*0.46, -rad*0.04, rad*0.08, rad*0.08); ctx.restore();
+    } else if(rhKind === 'sword') {
+      ctx.save(); ctx.translate(NHx, NHy); ctx.rotate(-0.55);
+      ctx.fillStyle = gcol('righthand', '#ccddff'); ctx.fillRect(0, -rad*0.05, rad*1.25, rad*0.1);
+      ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(0, -rad*0.02, rad*1.25, rad*0.035);
+      ctx.fillStyle = '#8a6a3a'; ctx.fillRect(-rad*0.05, -rad*0.14, rad*0.1, rad*0.3); ctx.restore();
+    } else if(rhKind === 'grenade') {
+      ctx.fillStyle = gcol('righthand', '#dd5544'); ctx.beginPath(); ctx.arc(NHx, NHy, rad*0.16, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#444'; ctx.fillRect(NHx - rad*0.03, NHy - rad*0.22, rad*0.06, rad*0.1);
+    }
+
+    // Head / helmet
+    if(has('helm')) {
+      ctx.fillStyle = gcol('helm', '#99aabb'); ctx.strokeStyle = '#0a0f16'; ctx.lineWidth = lw*0.8;
+      ctx.beginPath(); ctx.arc(0, -rad*0.72, rad*0.48, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      if(showFront) {
+        ctx.fillStyle = 'rgba(18,28,42,0.92)'; this._roundRectPath(-rad*0.3, -rad*0.82, rad*0.6, rad*0.24, rad*0.06); ctx.fill();
+        ctx.fillStyle = col; ctx.fillRect(-rad*0.05, -rad*1.0, rad*0.1, rad*0.18);   // crest
+      } else { ctx.fillStyle = '#07101a'; ctx.globalAlpha = 0.3; ctx.beginPath(); ctx.arc(0, -rad*0.76, rad*0.3, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1; }
     } else {
-      // Back of helmet: subtle dark cap
-      ctx.fillStyle = '#07101a'; ctx.globalAlpha = 0.3;
-      ctx.beginPath(); ctx.arc(0, -rad*0.76, rad*0.28, 0, Math.PI*2); ctx.fill();
-      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#eef3fa'; ctx.strokeStyle = '#0a0f16'; ctx.lineWidth = lw*0.8;
+      ctx.beginPath(); ctx.arc(0, -rad*0.72, rad*0.46, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      if(showFront) {
+        const vx = sideBlend * rad*0.14;
+        const vScaleX = rad * 0.26 * (0.35 + viewDepth * 0.65);
+        ctx.fillStyle = col; ctx.globalAlpha = Math.max(0.35, viewDepth);
+        ctx.beginPath(); ctx.ellipse(vx, -rad*0.72, vScaleX, rad*0.2, 0, 0, Math.PI*2); ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.beginPath(); ctx.arc(vx + rad*0.1, -rad*0.8, rad*0.07, 0, Math.PI*2); ctx.fill();
+      } else {
+        ctx.fillStyle = '#07101a'; ctx.globalAlpha = 0.3; ctx.beginPath(); ctx.arc(0, -rad*0.76, rad*0.28, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1;
+      }
     }
 
     if(helmet) { ctx.strokeStyle = '#cfe6ff'; ctx.lineWidth = lw*0.6; ctx.beginPath(); ctx.arc(0, -rad*0.72, rad*0.52, 0, Math.PI*2); ctx.stroke(); }
@@ -586,7 +638,7 @@ G.Renderer = class {
       const w = player._crewWorld(cr);
       ctx.save(); ctx.translate(w.x, w.y);
       if(cr === selected) { ctx.beginPath(); ctx.arc(0,0,rad*1.7,0,Math.PI*2); ctx.strokeStyle='#ffff66'; ctx.lineWidth=2/z; ctx.stroke(); }
-      this._drawCrewSprite(rad, cr.role, !!(cr.path && cr.path.length), t, this._crewPhase(cr), false);
+      this._drawCrewSprite(rad, cr.role, !!(cr.path && cr.path.length), t, this._crewPhase(cr), false, 0, 1, cr.equip);
       ctx.restore();
     }
   }
@@ -600,7 +652,7 @@ G.Renderer = class {
       ctx.save(); ctx.translate(cr.ex||0, cr.ey||0);
       ctx.rotate(cr._evaAngle || 0);
       if(cr === G.game?._selectedCrew) { ctx.beginPath(); ctx.arc(0,0,rad*1.8,0,Math.PI*2); ctx.strokeStyle='#ffff66'; ctx.lineWidth=2/z; ctx.stroke(); }
-      this._drawCrewSprite(rad, cr.role, true, t, this._crewPhase(cr), true);
+      this._drawCrewSprite(rad, cr.role, true, t, this._crewPhase(cr), true, 0, 1, cr.equip);
       ctx.restore();
     }
   }
@@ -2138,6 +2190,62 @@ G.Renderer = class {
     return result;
   }
 
+  // Upright 3D prop for a tile — trees, peaks, buildings, pillars, grass, towers.
+  // Anchored at the tile's front lip and drawn rising upward, so (with the
+  // back-to-front tile pass) props in front occlude whatever is behind them.
+  // Per-tile seeded RNG keeps placement stable (no flicker frame to frame).
+  _drawTileProp(ctx, t, cx, cy, S) {
+    const baseY = cy + S*0.34;                         // plant on the tile's front edge
+    let s = ((t.q*73856093) ^ (t.r*19349663)) >>> 0;
+    const rng = () => { s = (s*1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    const rect = (x, y, w, h, col) => { ctx.fillStyle = col; ctx.fillRect(x|0, y|0, Math.max(1, Math.ceil(w)), Math.max(1, Math.ceil(h))); };
+    const tri = (bx, by, w, h, col) => { ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(bx-w/2, by); ctx.lineTo(bx+w/2, by); ctx.lineTo(bx, by-h); ctx.closePath(); ctx.fill(); };
+    const disc = (x, y, r, col) => { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill(); };
+    const pine = (bx, sc) => {
+      const H = S*1.4*sc, W = S*0.6*sc;
+      rect(bx - S*0.05, baseY - H*0.26, S*0.1, H*0.26, '#5a3a1e');
+      for(let i=0;i<3;i++){ const ty = baseY - H*0.2 - i*(H*0.3), tw = W*(1-i*0.18); tri(bx, ty, tw, H*0.46, i===2?'#37934a':'#1f6730'); tri(bx, ty - H*0.05, tw*0.66, H*0.3, i===2?'#46a657':'#2a7d3c'); }
+    };
+    const broad = (bx, sc) => {
+      const H = S*1.45*sc, cy2 = baseY - H*0.66;
+      rect(bx - S*0.06, baseY - H*0.5, S*0.12, H*0.5, '#4a3018');
+      disc(bx - S*0.28, cy2 + S*0.06, S*0.36*sc, '#16591f'); disc(bx + S*0.30, cy2 + S*0.04, S*0.34*sc, '#16591f');
+      disc(bx, cy2 - S*0.22, S*0.40*sc, '#247f2b'); disc(bx - S*0.10, cy2 - S*0.04, S*0.30*sc, '#2f9136'); disc(bx + S*0.12, cy2 - S*0.26, S*0.20*sc, '#43a84a');
+    };
+    const boulder = (bx, w, h) => { rect(bx - w/2, baseY - h, w, h, '#7d756a'); rect(bx - w/2, baseY - h, w, h*0.32, '#9a9286'); rect(bx, baseY - h, w/2, h, 'rgba(0,0,0,0.18)'); };
+    const building = (bx, w, h, wall, roof) => {
+      rect(bx - w/2, baseY - h, w, h, wall); rect(bx, baseY - h, w/2, h, 'rgba(0,0,0,0.16)');
+      tri(bx, baseY - h, w*1.12, h*0.34, roof);
+      rect(bx - w*0.30, baseY - h*0.62, w*0.2, h*0.22, 'rgba(150,205,235,0.85)'); rect(bx + w*0.08, baseY - h*0.5, w*0.18, h*0.5, 'rgba(60,40,25,0.9)');
+    };
+    switch(t.biome) {
+      case 'grassland': { const n = 4 + (rng()*3|0); for(let i=0;i<n;i++){ const bx = cx + (rng()-0.5)*S*0.9, h = S*(0.22+rng()*0.22); rect(bx, baseY - h, S*0.07, h, rng()<0.5?'#3f9e34':'#2c7a26'); } break; }
+      case 'hills': {
+        const w = S*1.0, h = S*0.52, rows = 5;
+        for(let i=0;i<rows;i++){ const f=i/(rows-1), ww=w*(1-f*f*0.85), yy=baseY - i*(h/rows); rect(cx-ww/2, yy-(h/rows)-1, ww, h/rows+2, i<rows-1?'#4f8a34':'#6fb04a'); }
+        rect(cx-2, baseY-h-S*0.16, S*0.06, S*0.16, '#3f9e34'); rect(cx+S*0.12, baseY-h-S*0.12, S*0.06, S*0.12, '#3f9e34'); break;
+      }
+      case 'forest': { const n = 2 + (rng()<0.6?1:0), xs=[]; for(let i=0;i<n;i++) xs.push({x:cx+(rng()-0.5)*S*0.8, sc:0.85+rng()*0.4}); xs.sort((a,b)=>a.sc-b.sc); for(const o of xs) pine(o.x, o.sc); break; }
+      case 'jungle': { const n = 2 + (rng()<0.7?1:0), xs=[]; for(let i=0;i<n;i++) xs.push({x:cx+(rng()-0.5)*S*0.7, sc:0.95+rng()*0.4}); xs.sort((a,b)=>a.sc-b.sc); for(const o of xs) broad(o.x, o.sc); break; }
+      case 'mountain': {
+        const H=S*2.0, W=S*1.5;
+        tri(cx, baseY, W, H, '#6b6358');
+        ctx.fillStyle='rgba(0,0,0,0.22)'; ctx.beginPath(); ctx.moveTo(cx,baseY-H); ctx.lineTo(cx+W/2,baseY); ctx.lineTo(cx,baseY); ctx.closePath(); ctx.fill();
+        ctx.fillStyle='#f2f7ff'; ctx.beginPath(); ctx.moveTo(cx,baseY-H); ctx.lineTo(cx-W*0.16,baseY-H*0.72); ctx.lineTo(cx,baseY-H*0.8); ctx.lineTo(cx+W*0.16,baseY-H*0.72); ctx.closePath(); ctx.fill(); break;
+      }
+      case 'ridge': { tri(cx - S*0.26, baseY, S*0.78, S*1.05, '#857d70'); tri(cx + S*0.30, baseY, S*0.66, S*0.85, '#6f6759'); break; }
+      case 'rocks': { boulder(cx - S*0.26, S*0.5, S*0.7); boulder(cx + S*0.28, S*0.42, S*0.5); boulder(cx, S*0.3, S*0.34); break; }
+      case 'settlement': { building(cx - S*0.24, S*0.62, S*0.7, '#c2a07a', '#9a4838'); if(rng()<0.7) building(cx + S*0.32, S*0.5, S*0.5, '#b08f68', '#874030'); break; }
+      case 'spaceport': {
+        ctx.strokeStyle='rgba(230,238,248,0.8)'; ctx.lineWidth=Math.max(1,S*0.05); ctx.beginPath(); ctx.ellipse(cx, baseY, S*0.5, S*0.2, 0, 0, Math.PI*2); ctx.stroke();
+        const tw=S*0.3, th=S*1.35;
+        rect(cx-tw/2, baseY-th, tw, th, '#8b95a6'); rect(cx-tw/2, baseY-th, tw*0.4, th, '#aab4c4'); rect(cx, baseY-th, tw/2, th, 'rgba(0,0,0,0.16)');
+        rect(cx-tw*0.6, baseY-th-S*0.18, tw*1.2, S*0.22, '#7c8696'); rect(cx-tw*0.45, baseY-th-S*0.13, tw*0.9, S*0.12, 'rgba(130,205,255,0.9)');
+        rect(cx-1, baseY-th-S*0.32, 2, S*0.16, '#ffcc44'); break;
+      }
+    }
+  }
+
   // ── Planet surface scene (infinite wrapping hex terrain) ─────────────────
   // The surface is a torus: a finite WxH hex block repeated forever, so there
   // is no map edge — the camera scrolls and the field simply repeats. Tiles in
@@ -2231,6 +2339,8 @@ G.Renderer = class {
         ctx.fillStyle = surf; ctx.beginPath(); ctx.arc(x, y, roW*0.52, 0, Math.PI*2); ctx.fill();
         ctx.restore();
       }
+      // Upright 3D prop (trees, buildings, peaks, pillars…) rising above the tile.
+      if(G.TALL_BIOMES.has(t.biome)) this._drawTileProp(ctx, t, x, y, S);
     };
     pl._drawTile = drawTile; pl._terLayout = { ox, oy, S, SQ3, LIFT };
     // Single back-to-front pass.
@@ -2370,7 +2480,7 @@ G.Renderer = class {
         ctx.globalAlpha = Math.min(1, 0.6 + pulse); ctx.strokeStyle = '#aaccff'; ctx.lineWidth = 2; ctx.stroke();
         ctx.restore(); ctx.globalAlpha = 1;
       }
-      this._drawCrewSprite(crad * (c._size || 1), c.ref.role, walking, tnow, this._crewPhase(c), false, c._faceX || 0, c._faceY != null ? c._faceY : 1);
+      this._drawCrewSprite(crad * (c._size || 1), c.ref.role, walking, tnow, this._crewPhase(c), false, c._faceX || 0, c._faceY != null ? c._faceY : 1, c.ref.equip);
       // Hit flash.
       if(c._hurtT > 0) { ctx.globalAlpha = Math.min(0.7, c._hurtT * 3); ctx.fillStyle = '#ff3333'; ctx.beginPath(); ctx.arc(0, 0, crad*(c._size||1), 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1; }
       // Boss / elite marker.
@@ -2395,7 +2505,7 @@ G.Renderer = class {
       for(const [dq, dr] of G.HEX_DIRS) {
         if(1.5*dr <= 0) continue;                     // tiles toward the camera only
         const nt = G.wrapTile(ter, c.q+dq, c.r+dr);
-        if(nt && levelOf(nt) - uL >= 1) { occ.add((c.q+dq)+','+(c.r+dr)); if(c === pl.selected) selHidden = true; }
+        if(nt && (levelOf(nt) - uL >= 1 || G.PROP_OCCLUDERS.has(nt.biome))) { occ.add((c.q+dq)+','+(c.r+dr)); if(c === pl.selected) selHidden = true; }
       }
     }
     for(const k of occ) { const [q, r] = k.split(',').map(Number); drawTile(q, r); }
@@ -5058,12 +5168,16 @@ G.Game = class {
         if(!t || !t.walkable) return null;
         if(pl._shipBlockedKeys?.has(wk)) return null; // hull tile — enter via airlock only
         if(airborne) return w;
-        const cur = G.wrapTile(ter, c.q, c.r) || { level: 0 };
+        // Current position: convert px/py back to hex for accurate level lookup
+        const curHex = G.pixelToHex(c.px, c.py, 1);
+        const curWrapped = G.wrapHex(W, H, curHex.q, curHex.r);
+        const cur = ter.tiles.get(G.hexKey(curWrapped.q, curWrapped.r)) || { level: 0 };
         const diff = (t.level || 0) - (cur.level || 0);
         return diff <= 0 || diff <= 1 ? w : null;
       },
       tileSpeedMul: (c) => {
-        const tile = G.wrapTile(ter, c.q, c.r);
+        const h = G.pixelToHex(c.px, c.py, 1), w = G.wrapHex(W, H, h.q, h.r);
+        const tile = ter.tiles.get(G.hexKey(w.q, w.r));
         return tile?.road ? 1.65 : (tile?.biome === 'spaceport' || tile?.biome === 'settlement') ? 1.1 : 1.0;
       },
       delta: (ax, ay, bx, by) => this._planetDelta(pl, ax, ay, bx, by),
@@ -5537,7 +5651,11 @@ G.Game = class {
     const ter = pl.terrain, RATE = 0.8;   // seconds per unit
     for(const c of pl.crew) {
       const busy = (c.path && c.path.length) || (c._z || 0) > 0.05;
-      const t = busy ? null : G.wrapTile(ter, c.q, c.r);
+      let t = null;
+      if(!busy) {
+        const h = G.pixelToHex(c.px, c.py, 1), w = G.wrapHex(ter.W, ter.H, h.q, h.r);
+        t = ter.tiles.get(G.hexKey(w.q, w.r));
+      }
       if(!t || !t.ore || t.oreHp <= 0) { c._mineT = 0; c._mineTile = null; continue; }
       const mat = G.ASTEROID_MAT[t.ore] || G.ASTEROID_MAT.rock;
       const drop = mat.drop || t.ore;
