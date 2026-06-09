@@ -4919,11 +4919,20 @@ G.Game = class {
     const terrain = G.genPlanetTerrain(body);
     const W = terrain.W, H = terrain.H;
     let ship = null;
-    // Spaceport world: park the ship ON the landing pad (centre of the town).
     if(terrain.port) {
-      ship = { q: terrain.port.q, r: terrain.port.r };
+      // Spaceport: land at least 4 tiles from the spaceport center, in the flat settlement area.
+      const pq = terrain.port.q, pr = terrain.port.r;
+      let best = null, bestScore = Infinity;
+      for(const t of terrain.tiles.values()) {
+        if(!t.walkable || (t.biome !== 'settlement' && t.biome !== 'coast' && t.biome !== 'dirt' && t.biome !== 'grassland')) continue;
+        const d = this._torusHexDist(terrain, pq, pr, t.q, t.r);
+        if(d < 4 || d > 7) continue;
+        const score = d + Math.abs(t.level || 0) * 2;
+        if(score < bestScore) { bestScore = score; best = t; }
+      }
+      ship = best || { q: pq, r: pr };
     } else {
-      // Otherwise: walkable tile nearest the block centre (torus).
+      // Wilderness: walkable tile nearest the block centre (torus).
       const c0q = W >> 1, c0r = H >> 1;
       let bd = Infinity;
       for(const t of terrain.tiles.values()) {
@@ -4933,12 +4942,23 @@ G.Game = class {
       }
       ship = ship || { q: c0q, r: c0r };
     }
-    // Place crew on nearby walkable cells.
-    const used = new Set([G.hexKey(ship.q, ship.r)]);
+    // Precompute ship module blocked tiles BEFORE crew placement so crew avoids them.
+    const blocked = new Set(); let airlockKey = null;
+    { const mods = this.player.modules;
+      for(const [, inst] of Object.entries(mods)) {
+        if(inst.q == null) continue;
+        const wt = G.wrapHex(W, H, ship.q + inst.q, ship.r + inst.r);
+        const wk = G.hexKey(wt.q, wt.r);
+        if(G.MODULES[inst.moduleId]?.slot === 'airlock') airlockKey = wk;
+        else blocked.add(wk);
+      }
+    }
+    // Place crew on nearby walkable cells that are not ship hull tiles.
+    const used = new Set([G.hexKey(ship.q, ship.r), ...blocked]);
     const crew = [];
     for(const ref of this.player.crew) {
       let cell = null;
-      for(let rad = 1; rad <= 5 && !cell; rad++) {
+      for(let rad = 1; rad <= 8 && !cell; rad++) {
         const ring = [...terrain.tiles.values()].filter(t => t.walkable && !used.has(G.hexKey(t.q, t.r)) && this._torusHexDist(terrain, ship.q, ship.r, t.q, t.r) === rad);
         if(ring.length) cell = ring[(Math.random() * ring.length) | 0];
       }
@@ -4979,19 +4999,8 @@ G.Game = class {
                      buildings: terrain.port?.buildings || [], pad: terrain.port ? { q: terrain.port.q, r: terrain.port.r } : null,
                      buttons: [], layout: null, S: 460, cam: { x: su.x, y: su.y }, panX: 0, panY: 0 };
     this._planet.selected = crew.find(c => c.ref?.isPlayer) || crew[0] || null;   // control + fire right away
-    // Precompute ship module blocked tiles — hull/inner blocked, airlock passable.
-    { const mods = this.player.modules, W = terrain.W, H = terrain.H;
-      const blocked = new Set(); let airlockKey = null;
-      for(const [, inst] of Object.entries(mods)) {
-        if(inst.q == null) continue;
-        const wt = G.wrapHex(W, H, ship.q + inst.q, ship.r + inst.r);
-        const wk = G.hexKey(wt.q, wt.r);
-        if(G.MODULES[inst.moduleId]?.slot === 'airlock') airlockKey = wk;
-        else blocked.add(wk);
-      }
-      this._planet._shipBlockedKeys = blocked;
-      this._planet._planetAirlockKey = airlockKey;
-    }
+    this._planet._shipBlockedKeys = blocked;
+    this._planet._planetAirlockKey = airlockKey;
     const hostiles = npcs.filter(n => n.ref.disposition === 'hostile').length;
     this.ui.addMsg('Landed on ' + body.name + (body.hasSpaceport ? '' : ' — barren surface') +
       (npcs.length ? ` — ${npcs.length} life sign${npcs.length > 1 ? 's' : ''}${hostiles ? ', ' + hostiles + ' hostile' : ''}` : ''), '#88ddaa');
