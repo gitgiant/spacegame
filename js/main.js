@@ -2430,6 +2430,27 @@ G.Renderer = class {
         ctx.fillStyle = '#000'; ctx.fill(); ctx.restore();
       }
       const walking = !!(c.path && c.path.length) || (c === pl.selected && pl._charMoving);
+      const cTile = G.wrapTile(ter, c.q, c.r);
+      const swimming = cTile && G.SWIM_BIOMES.has(cTile.biome);
+      if(swimming && !c._swimming) {
+        G.sound?.swimming?.();
+      }
+      c._swimming = swimming;
+      if(swimming) {
+        // Water surface ripple ring at ground point
+        const wt = tnow * 2.2, rp1 = crad * (0.85 + 0.08 * Math.sin(wt)), rp2 = crad * (0.55 + 0.06 * Math.sin(wt + 1.2));
+        ctx.save();
+        ctx.globalAlpha = 0.55;
+        ctx.strokeStyle = '#4ab3e8'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.ellipse(gx, gy, rp1, rp1 * 0.28, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.globalAlpha = 0.3;
+        ctx.beginPath(); ctx.ellipse(gx, gy, rp2, rp2 * 0.22, 0, 0, Math.PI * 2); ctx.stroke();
+        // Water surface fill (semi-transparent blue band over lower body)
+        ctx.globalAlpha = 0.38;
+        ctx.fillStyle = '#1a6fa8';
+        ctx.beginPath(); ctx.ellipse(gx, gy, crad * 1.1, crad * 0.32, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
       ctx.save(); ctx.translate(x, y);
       let ringCol = null;
       if(c.ref.disposition) {
@@ -2480,7 +2501,27 @@ G.Renderer = class {
         ctx.globalAlpha = Math.min(1, 0.6 + pulse); ctx.strokeStyle = '#aaccff'; ctx.lineWidth = 2; ctx.stroke();
         ctx.restore(); ctx.globalAlpha = 1;
       }
-      this._drawCrewSprite(crad * (c._size || 1), c.ref.role, walking, tnow, this._crewPhase(c), false, c._faceX || 0, c._faceY != null ? c._faceY : 1, c.ref.equip);
+      if(swimming) {
+        // Bob up and down while swimming
+        const swimBob = Math.sin(tnow * 3.5 + this._crewPhase(c)) * crad * 0.09;
+        ctx.translate(0, swimBob);
+        // Clip to show only head above water surface (local y=0 = ground/water level)
+        ctx.save();
+        ctx.beginPath(); ctx.rect(-crad * 4, -crad * 3.5, crad * 8, crad * 3.3); ctx.clip();
+        this._drawCrewSprite(crad * (c._size || 1), c.ref.role, true, tnow, this._crewPhase(c), false, c._faceX || 0, c._faceY != null ? c._faceY : 1, c.ref.equip);
+        ctx.restore();
+        // Swim stroke arms — horizontal paddles at water surface
+        const strokePhase = (tnow * 3 + this._crewPhase(c)) % (Math.PI * 2);
+        const armExt = Math.sin(strokePhase) * crad * 0.7;
+        ctx.strokeStyle = c.ref.role ? this._crewColor(c.ref.role) : '#7ca8c8';
+        ctx.lineWidth = Math.max(2, crad * 0.22); ctx.lineCap = 'round';
+        ctx.globalAlpha = 0.85;
+        ctx.beginPath(); ctx.moveTo(-crad * 0.3, -crad * 0.18); ctx.lineTo(-crad * 0.3 - armExt, -crad * 0.12 + Math.abs(Math.sin(strokePhase)) * crad * 0.15); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(crad * 0.3, -crad * 0.18); ctx.lineTo(crad * 0.3 + armExt * 0.7, -crad * 0.12 + Math.abs(Math.cos(strokePhase)) * crad * 0.15); ctx.stroke();
+        ctx.globalAlpha = 1;
+      } else {
+        this._drawCrewSprite(crad * (c._size || 1), c.ref.role, walking, tnow, this._crewPhase(c), false, c._faceX || 0, c._faceY != null ? c._faceY : 1, c.ref.equip);
+      }
       // Hit flash.
       if(c._hurtT > 0) { ctx.globalAlpha = Math.min(0.7, c._hurtT * 3); ctx.fillStyle = '#ff3333'; ctx.beginPath(); ctx.arc(0, 0, crad*(c._size||1), 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1; }
       // Boss / elite marker.
@@ -5085,7 +5126,7 @@ G.Game = class {
     const W = ter.W, H = ter.H;
     const sK = G.hexKey(from.q, from.r), gK = G.hexKey(to.q, to.r);
     const goal = T.get(gK);
-    if(!goal || !goal.walkable) return null;
+    if(!goal || (!goal.walkable && !G.SWIM_BIOMES.has(goal.biome))) return null;
     const prev = new Map([[sK, null]]), queue = [sK];
     while(queue.length) {
       const ck = queue.shift(); if(ck === gK) break;
@@ -5094,7 +5135,7 @@ G.Game = class {
       for(const nb of G.hexNeighbors(cq, cr)) {
         const w = G.wrapHex(W, H, nb.q, nb.r), nk = G.hexKey(w.q, w.r);
         const nt = T.get(nk);
-        if(nt && nt.walkable && !prev.has(nk) && !pl._shipBlockedKeys?.has(nk)) { prev.set(nk, ck); queue.push(nk); }
+        if(nt && (nt.walkable || G.SWIM_BIOMES.has(nt.biome)) && !prev.has(nk) && !pl._shipBlockedKeys?.has(nk)) { prev.set(nk, ck); queue.push(nk); }
       }
     }
     if(!prev.has(gK)) return null;
@@ -5174,7 +5215,7 @@ G.Game = class {
         const h = G.pixelToHex(px, py, 1), w = G.wrapHex(W, H, h.q, h.r);
         const wk = G.hexKey(w.q, w.r);
         const t = ter.tiles.get(wk);
-        if(!t || !t.walkable) return null;
+        if(!t || (!t.walkable && !G.SWIM_BIOMES.has(t.biome))) return null;
         if(pl._shipBlockedKeys?.has(wk)) return null; // hull tile — enter via airlock only
         if(airborne) return w;
         // Current position: convert px/py back to hex for accurate level lookup
@@ -5187,7 +5228,7 @@ G.Game = class {
       tileSpeedMul: (c) => {
         const h = G.pixelToHex(c.px, c.py, 1), w = G.wrapHex(W, H, h.q, h.r);
         const tile = ter.tiles.get(G.hexKey(w.q, w.r));
-        return tile?.road ? 1.65 : (tile?.biome === 'spaceport' || tile?.biome === 'settlement') ? 1.1 : 1.0;
+        return G.SWIM_BIOMES.has(tile?.biome) ? 0.45 : tile?.road ? 1.65 : (tile?.biome === 'spaceport' || tile?.biome === 'settlement') ? 1.1 : 1.0;
       },
       delta: (ax, ay, bx, by) => this._planetDelta(pl, ax, ay, bx, by),
       pathfind: (from, to) => this._planetPath(from, to),

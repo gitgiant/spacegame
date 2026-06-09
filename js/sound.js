@@ -985,6 +985,33 @@ G.SoundEngine = class {
     osc.start(now); osc.stop(now + 0.13);
   }
 
+  swimming() {
+    if (!this.enabled || !this._ac) return;
+    const now = this._ac.currentTime;
+    const ac = this._ctx();
+    // Water splash + gentle bubble sound: short burst of filtered noise + low tone
+    const src = ac.createBufferSource();
+    src.buffer = this._noise(0.22);
+    const flt = ac.createBiquadFilter();
+    flt.type = 'bandpass';
+    flt.frequency.value = 1200;
+    flt.Q.value = 1.5;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.18, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+    src.connect(flt); flt.connect(g); g.connect(this._master);
+    src.start(now); src.stop(now + 0.23);
+    // Add low-frequency rumble for water displacement
+    const osc = ac.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = 120;
+    const g2 = ac.createGain();
+    g2.gain.setValueAtTime(0.08, now);
+    g2.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+    osc.connect(g2); g2.connect(this._master);
+    osc.start(now); osc.stop(now + 0.19);
+  }
+
   boost(pan = 0) {
     if (!this.enabled) return;
     const ac  = this._ctx();
